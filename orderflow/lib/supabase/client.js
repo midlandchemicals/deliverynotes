@@ -1,9 +1,9 @@
 import { createBrowserClient } from '@supabase/ssr'
 
-// Trim stray spaces, newlines, quotes or a trailing slash that can sneak into
-// pasted env vars — the usual cause of a "fetch: Invalid value" error.
+// Strip any stray whitespace, line-breaks or quotes that came along when the
+// values were pasted — the usual cause of a "fetch: Invalid value" error.
 function clean(v) {
-  return String(v || '').trim().replace(/^['"]|['"]$/g, '').replace(/\/+$/, '')
+  return String(v || '').replace(/\s+/g, '').replace(/^['"]|['"]$/g, '').replace(/\/+$/, '')
 }
 
 export function createClient() {
