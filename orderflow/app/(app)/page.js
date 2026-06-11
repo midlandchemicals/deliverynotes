@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { prettyDate } from '@/lib/calc'
 
-const STATUSES = ['All', 'New', 'In progress', 'Dispatched', 'Invoiced']
+const STATUSES = ['All', 'New', 'In progress', 'Delivery Note Generated']
 
 export default function OrdersPage() {
   const supabase = createClient()
@@ -28,7 +28,7 @@ export default function OrdersPage() {
 
   async function remove(e, order) {
     e.stopPropagation()
-    if (!confirm(`Delete order ${order.order_no}? This cannot be undone.`)) return
+    if (!confirm(`Delete delivery note ${order.order_no}? This cannot be undone.`)) return
     await supabase.from('orders').delete().eq('id', order.id)
     setOrders((list) => list.filter((x) => x.id !== order.id))
   }
@@ -56,19 +56,19 @@ export default function OrdersPage() {
     <div>
       <div className="card">
         <div className="ttl">
-          <h2>Order Log</h2>
-          <Link href="/orders/new" className="btn btn-a btn-sm">＋ New order</Link>
+          <h2>Delivery Note Log</h2>
+          <Link href="/orders/new" className="btn btn-a btn-sm">＋ New delivery note</Link>
         </div>
 
         <div className="filters">
-          <input placeholder="Search order no, PO, customer or product…" value={q} onChange={(e) => setQ(e.target.value)} />
+          <input placeholder="Search DN no., customer order no., customer or product…" value={q} onChange={(e) => setQ(e.target.value)} />
           {STATUSES.map((s) => (
             <span key={s} className={'chip' + (filter === s ? ' on' : '')} onClick={() => setFilter(s)}>{s}</span>
           ))}
         </div>
 
         {filtered.length === 0 ? (
-          <div className="empty">No orders match. Log one from <b>New order</b>.</div>
+          <div className="empty">No delivery notes match. Log one from <b>New delivery note</b>.</div>
         ) : (
           filtered.map((o) => (
             <div key={o.id} className="list-row" onClick={() => router.push(`/orders/${o.id}`)} style={{ cursor: 'pointer' }}>
@@ -81,12 +81,12 @@ export default function OrdersPage() {
                 ) : null}
                 <div className="meta">
                   {o.customer_snapshot?.name || '—'}
-                  {o.po_ref ? ` · PO ${o.po_ref}` : ''} · ordered {prettyDate(o.order_date)}
+                  {o.po_ref ? ` · Customer Order: ${o.po_ref}` : ''} · ordered {prettyDate(o.order_date)}
                   {o.requested_date ? ` · wanted ${prettyDate(o.requested_date)}` : ''}
                   {` · ${(o.lines || []).length} line(s)`}
                 </div>
               </div>
-              <button className="btn-dl" onClick={(e) => remove(e, o)} title="Delete order">×</button>
+              <button className="btn-dl" onClick={(e) => remove(e, o)} title="Delete">×</button>
             </div>
           ))
         )}

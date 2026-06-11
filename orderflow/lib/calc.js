@@ -26,11 +26,16 @@ export function computeLine(line, products, packaging) {
   const tare = k ? num(k.tare) : 0
   const net = vol * sg * qty
   const gross = net + tare * qty
+  const un = p?.un_number || ''
+  const pg = p?.pg || ''
+  const hazard = un ? `${un} · ${pg}` : (pg || '—')
   return {
     product: p, packaging: k, qty, vol, sg, tare, net, gross,
     totalVol: vol * qty,
     productName: p ? p.name : '',
-    pg: p ? p.pg : '',
+    pg,
+    un_number: un,
+    hazard,
     packDesc: k ? `${qty} × ${k.name}` : `${qty} ×`,
   }
 }
@@ -44,7 +49,7 @@ export function docTotals(lines, products, packaging) {
   return { packages, volume, net, gross }
 }
 
-// "INV-0007" -> "INV-0008"; "ORD-1004" -> "ORD-1005"
+// "DN-0007" -> "DN-0008"; "DN-1004" -> "DN-1005"
 export function nextNo(s) {
   const r = String(s || '').replace(/(\d+)(?!.*\d)/, (m) => String(+m + 1).padStart(m.length, '0'))
   return r || s

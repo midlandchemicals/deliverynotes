@@ -7,7 +7,7 @@ import { generateDispatchPDF } from '@/lib/pdf'
 import { StatusBadge } from '../../page'
 import LineEditor from '../LineEditor'
 
-const STATUS_FLOW = ['New', 'In progress', 'Dispatched', 'Invoiced']
+const STATUS_FLOW = ['New', 'In progress', 'Delivery Note Generated']
 
 export default function OrderDetailPage() {
   const { id } = useParams()
@@ -23,7 +23,6 @@ export default function OrderDetailPage() {
 
   // dispatch panel state
   const [lhIndex, setLhIndex] = useState(0)
-  const [docType, setDocType] = useState('Delivery Note')
   const [docNo, setDocNo] = useState('')
   const [docDate, setDocDate] = useState(new Date().toISOString().slice(0, 10))
   const [options, setOptions] = useState('')
@@ -61,7 +60,7 @@ export default function OrderDetailPage() {
     const lh = letterheads[lhIndex]
     if (!lh) { alert('Add a letterhead first (Letterheads tab).'); return }
     const docData = {
-      type: docType, docNo, date: docDate,
+      type: 'Delivery Note', docNo, date: docDate,
       customer: order.customer_snapshot?.details || '',
       deliver: order.customer_snapshot?.deliver || '',
       lines, options,
@@ -69,23 +68,23 @@ export default function OrderDetailPage() {
     const { totals } = generateDispatchPDF(docData, lh, products, packaging)
     const linesSnap = lines.map((l) => {
       const c = computeLine(l, products, packaging)
-      return { productName: c.productName, pg: c.pg, packDesc: c.packDesc, net: c.net, gross: c.gross }
+      return { productName: c.productName, pg: c.pg, un_number: c.un_number, hazard: c.hazard, packDesc: c.packDesc, net: c.net, gross: c.gross }
     })
     const { data: { user } } = await supabase.auth.getUser()
     await supabase.from('dispatch_notes').insert({
-      doc_no: docNo, doc_type: docType, doc_date: docDate, order_id: id,
+      doc_no: docNo, doc_type: 'Delivery Note', doc_date: docDate, order_id: id,
       letterhead_snapshot: lh, customer: docData.customer, deliver: docData.deliver,
       lines_snapshot: linesSnap, totals, options, created_by: user?.id || null,
     })
-    await supabase.from('orders').update({ status: 'Dispatched' }).eq('id', id)
-    setOrder({ ...order, status: 'Dispatched' })
+    await supabase.from('orders').update({ status: 'Delivery Note Generated' }).eq('id', id)
+    setOrder({ ...order, status: 'Delivery Note Generated' })
     const refreshed = await supabase.from('dispatch_notes').select('*').eq('order_id', id).order('created_at', { ascending: false })
     setDispatched(refreshed.data || [])
     setDocNo(nextNo(docNo))
-    toast('Delivery note generated & order marked Dispatched')
+    toast('Delivery note generated')
   }
 
-  if (!order) return <div className="card"><div className="empty">Loading order…</div></div>
+  if (!order) return <div className="card"><div className="empty">Loading…</div></div>
 
   const totals = docTotals(lines, products, packaging)
 
@@ -98,7 +97,7 @@ export default function OrderDetailPage() {
         </div>
         <div className="row c3">
           <Info label="Customer" value={order.customer_snapshot?.name} />
-          <Info label="PO / ref" value={order.po_ref || '—'} />
+          <Info label="Customer Order Number" value={order.po_ref || '—'} />
           <Info label="Ordered" value={prettyDate(order.order_date)} />
         </div>
         <div className="row c2" style={{ marginTop: 4 }}>
@@ -108,6 +107,7 @@ export default function OrderDetailPage() {
             <div className="paper" style={{ background: 'var(--panel-2)', color: 'var(--ink)', boxShadow: 'none', whiteSpace: 'pre-line', fontFamily: 'inherit' }}>{order.customer_snapshot?.deliver}</div></div>
         </div>
         {order.notes ? <p className="hint"><b>Notes:</b> {order.notes}</p> : null}
+        {order.added_by ? <p className="hint">Order added by <b>{order.added_by}</b></p> : null}
         <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
           <label style={{ alignSelf: 'center' }}>Status:</label>
           {STATUS_FLOW.map((s) => (
@@ -127,14 +127,10 @@ export default function OrderDetailPage() {
 
       <div className="card">
         <div className="ttl"><h2>Create delivery note</h2></div>
-        <div className="row c4">
+        <div className="row c3">
           <div className="field"><label>Letterhead</label>
             <select value={lhIndex} onChange={(e) => setLhIndex(+e.target.value)}>
               {letterheads.map((l, i) => <option key={l.id} value={i}>{l.name} — {l.company}</option>)}
-            </select></div>
-          <div className="field"><label>Type</label>
-            <select value={docType} onChange={(e) => setDocType(e.target.value)}>
-              {['Delivery Note', 'Dispatch Note', 'Packing List', 'Invoice'].map((t) => <option key={t}>{t}</option>)}
             </select></div>
           <div className="field"><label>Doc no.</label>
             <input className="mono" value={docNo} onChange={(e) => setDocNo(e.target.value)} /></div>
@@ -145,16 +141,16 @@ export default function OrderDetailPage() {
           <div className="field"><label>Additional options / notes on the note</label>
             <textarea value={options} onChange={(e) => setOptions(e.target.value)} placeholder="e.g. tail-lift required, deliver before noon…" style={{ minHeight: 46 }} /></div>
         </div>
-        <button className="btn btn-a" onClick={createDispatch}>Generate PDF &amp; mark Dispatched</button>
+        <button className="btn btn-a" onClick={createDispatch}>Generate delivery note</button>
       </div>
 
       {dispatched.length > 0 && (
         <div className="card">
-          <div className="ttl"><h2>Documents on this order</h2></div>
+          <div className="ttl"><h2>Delivery notes on this order</h2></div>
           {dispatched.map((d) => (
             <div key={d.id} className="list-row">
               <div>
-                <div className="ono">{d.doc_no} · {d.doc_type}</div>
+                <div className="ono">{d.doc_no}</div>
                 <div className="meta">{prettyDate(d.doc_date)} · gross {fmt(d.totals?.gross || 0)} kg · {d.letterhead_snapshot?.name}</div>
               </div>
               <button className="btn btn-g btn-sm" onClick={() => reprint(d)}>Re-download PDF</button>
@@ -172,13 +168,13 @@ function reprint(d) {
   import('jspdf').then(({ jsPDF }) => import('jspdf-autotable').then((mod) => {
     const autoTable = mod.default
     const lh = d.letterhead_snapshot || {}
-    const m = (lh.color || '#e8853a').replace('#', '')
+    const m = (lh.color || '#0a6b61').replace('#', '')
     const r = parseInt(m.slice(0, 2), 16), g = parseInt(m.slice(2, 4), 16), b = parseInt(m.slice(4, 6), 16)
     const doc = new jsPDF({ unit: 'mm', format: 'a4' })
     const W = 210, M = 16
     doc.setFont('helvetica', 'bold').setFontSize(16).setTextColor(20, 20, 20).text(lh.company || '', M, 20)
     doc.setFont('helvetica', 'normal').setFontSize(8.5).setTextColor(90, 90, 90).text(String(lh.address || '').split('\n'), M, 26)
-    doc.setFont('helvetica', 'bold').setFontSize(19).setTextColor(r, g, b).text(String(d.doc_type).toUpperCase(), W - M, 22, { align: 'right' })
+    doc.setFont('helvetica', 'bold').setFontSize(19).setTextColor(r, g, b).text('DELIVERY NOTE', W - M, 22, { align: 'right' })
     doc.setFont('courier', 'normal').setFontSize(9).setTextColor(40, 40, 40)
     doc.text(`No.   ${d.doc_no}`, W - M, 29, { align: 'right' })
     doc.text(`Date  ${(d.doc_date || '')}`, W - M, 34, { align: 'right' })
@@ -192,8 +188,11 @@ function reprint(d) {
     cy += 30
     autoTable(doc, {
       startY: cy, margin: { left: M, right: M },
-      head: [['#', 'Product', 'Pkg class', 'Packaging', 'Net (kg)', 'Gross (kg)']],
-      body: (d.lines_snapshot || []).map((s, i) => [i + 1, s.productName, s.pg, s.packDesc, num2(s.net), num2(s.gross)]),
+      head: [['#', 'Product', 'Hazard / UN', 'Packaging', 'Net (kg)', 'Gross (kg)']],
+      body: (d.lines_snapshot || []).map((s, i) => {
+        const hazard = s.hazard || (s.un_number ? `${s.un_number} · ${s.pg}` : (s.pg || '—'))
+        return [i + 1, s.productName, hazard, s.packDesc, num2(s.net), num2(s.gross)]
+      }),
       styles: { font: 'helvetica', fontSize: 9, cellPadding: 2.4 },
       headStyles: { fillColor: [r, g, b], textColor: [255, 255, 255], fontSize: 8 },
       alternateRowStyles: { fillColor: [247, 244, 236] },
@@ -212,7 +211,6 @@ function Info({ label, value }) {
   return <div className="field"><label>{label}</label><div className="mono" style={{ paddingTop: 4 }}>{value || '—'}</div></div>
 }
 
-// minimal toast
 function toast(msg) {
   let t = document.getElementById('toast')
   if (!t) { t = document.createElement('div'); t.id = 'toast'; t.className = 'toast'; document.body.appendChild(t) }

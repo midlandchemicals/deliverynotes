@@ -1,9 +1,10 @@
 'use client'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { nextNo } from '@/lib/calc'
 import LineEditor from '../LineEditor'
+import Combobox from '../../Combobox'
 
 export default function NewOrderPage() {
   const supabase = createClient()
@@ -15,7 +16,7 @@ export default function NewOrderPage() {
   const [ready, setReady] = useState(false)
   const [busy, setBusy] = useState(false)
 
-  const [orderNo, setOrderNo] = useState('ORD-1001')
+  const [orderNo, setOrderNo] = useState('DN-1001')
   const [customerId, setCustomerId] = useState('')
   const [custDetails, setCustDetails] = useState('')
   const [custDeliver, setCustDeliver] = useState('')
@@ -63,6 +64,7 @@ export default function NewOrderPage() {
       notes,
       lines,
       created_by: user?.id || null,
+      added_by: user?.email || null,
     }).select('id').single()
     setBusy(false)
     if (error) { alert('Could not save: ' + error.message); return }
@@ -71,14 +73,16 @@ export default function NewOrderPage() {
 
   if (!ready) return <div className="card"><div className="empty">Loading…</div></div>
 
+  const customerOptions = customers.map((c) => ({ id: c.id, label: c.name }))
+
   return (
     <div>
       <div className="card">
-        <div className="ttl"><h2>New Order</h2></div>
+        <div className="ttl"><h2>New Delivery Note</h2></div>
         <div className="row c3">
-          <div className="field"><label>Order no.</label>
+          <div className="field"><label>Delivery Note Number</label>
             <input className="mono" value={orderNo} onChange={(e) => setOrderNo(e.target.value)} /></div>
-          <div className="field"><label>Customer PO / ref</label>
+          <div className="field"><label>Customer Order Number</label>
             <input value={poRef} onChange={(e) => setPoRef(e.target.value)} placeholder="optional" /></div>
           <div className="field"><label>Order date</label>
             <input className="mono" type="date" value={orderDate} onChange={(e) => setOrderDate(e.target.value)} /></div>
@@ -87,10 +91,13 @@ export default function NewOrderPage() {
           <div className="field"><label>Requested delivery date</label>
             <input className="mono" type="date" value={requestedDate} onChange={(e) => setRequestedDate(e.target.value)} /></div>
           <div className="field"><label>Pick saved customer</label>
-            <select value={customerId} onChange={(e) => pickCustomer(e.target.value)}>
-              <option value="">— select to auto-fill —</option>
-              {customers.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-            </select></div>
+            <Combobox
+              options={customerOptions}
+              value={customerId}
+              onSelect={pickCustomer}
+              placeholder="Type customer name to search…"
+            />
+          </div>
         </div>
         <div className="row c2">
           <div className="field"><label>Customer details</label>
@@ -109,7 +116,7 @@ export default function NewOrderPage() {
         <div className="ttl"><h2>Notes</h2></div>
         <textarea value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Anything from the email — special instructions, carrier, etc." />
         <div style={{ marginTop: 14, display: 'flex', gap: 10 }}>
-          <button className="btn btn-a" onClick={saveOrder} disabled={busy}>{busy ? 'Saving…' : 'Save order to log'}</button>
+          <button className="btn btn-a" onClick={saveOrder} disabled={busy}>{busy ? 'Saving…' : 'Save to log'}</button>
           <button className="btn btn-g" onClick={() => router.push('/')}>Cancel</button>
         </div>
       </div>
