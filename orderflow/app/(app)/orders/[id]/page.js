@@ -65,6 +65,45 @@ export default function OrderDetailPage() {
     toast('Products saved')
   }
 
+  function printNote() {
+    const items = lines.map((l) => {
+      const c = computeLine(l, products, packaging)
+      return { name: c.productName, qty: c.qty, pack: c.packaging?.name || '' }
+    })
+    const html = `<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>${order.order_no}</title>
+<style>
+@page{size:80mm auto;margin:4mm}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:Arial,Helvetica,sans-serif;font-size:13pt;color:#000;background:#fff;width:72mm}
+.dn{font-size:15pt;font-weight:700;border-bottom:2px solid #000;padding-bottom:2.5mm;margin-bottom:3mm}
+.cust{font-size:18pt;font-weight:700;margin-bottom:3mm;line-height:1.2}
+.dates{font-size:11pt;margin-bottom:4mm;line-height:1.6}
+.ph{font-size:10pt;font-weight:700;text-transform:uppercase;letter-spacing:.05em;
+    border-bottom:1px solid #000;padding-bottom:1mm;margin-bottom:2.5mm}
+ul{list-style:disc;padding-left:5mm}
+li{font-size:13pt;margin-bottom:2.5mm;line-height:1.3}
+b{font-weight:700}
+</style>
+</head><body>
+<div class="dn">${order.order_no}</div>
+<div class="cust">${order.customer_snapshot?.name || ''}</div>
+<div class="dates">
+  <div>Ordered: <b>${prettyDate(order.order_date)}</b></div>
+  ${order.requested_date ? `<div>Required: <b>${prettyDate(order.requested_date)}</b></div>` : ''}
+</div>
+<div class="ph">Products</div>
+<ul>
+${items.map((it) => `  <li><b>${it.qty}×</b> ${it.name}${it.pack ? ` — ${it.pack}` : ''}</li>`).join('\n')}
+</ul>
+</body></html>`
+    const w = window.open('', '_blank', 'width=420,height=600')
+    w.document.write(html)
+    w.document.close()
+    w.focus()
+    w.print()
+  }
+
   async function createDispatch() {
     const lh = letterheads[lhIndex]
     if (!lh) { alert('Add a letterhead first (Letterheads tab).'); return }
@@ -107,7 +146,10 @@ export default function OrderDetailPage() {
       <div className="card">
         <div className="ttl">
           <h2>{order.order_no} <StatusBadge status={order.status} /></h2>
-          <button className="btn btn-g btn-sm" onClick={() => router.push('/')}>← Back to log</button>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button className="btn btn-g btn-sm" onClick={printNote}>🖨 Print note</button>
+            <button className="btn btn-g btn-sm" onClick={() => router.push('/')}>← Back to log</button>
+          </div>
         </div>
         <div className="row c3">
           <Info label="Customer" value={order.customer_snapshot?.name} />
