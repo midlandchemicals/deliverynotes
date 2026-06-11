@@ -95,9 +95,12 @@ export function generateDispatchPDF(doc_, lh, products, packaging) {
   if (lh.logo) {
     try {
       const props = doc.getImageProperties(lh.logo)
-      const lw = Math.min(36, props.width * 0.16)
-      const lh2 = Math.min((lw * props.height) / props.width, 14)
-      doc.addImage(lh.logo, 'PNG', M, y, lw, lh2); y += lh2 + 2
+      const maxW = 40, maxH = 14
+      let lw = Math.min(maxW, props.width * 0.18)
+      let logoH = (lw * props.height) / props.width
+      if (logoH > maxH) { logoH = maxH; lw = (logoH * props.width) / props.height }
+      const imgFmt = (lh.logo.match(/data:image\/(\w+)/) || [])[1]?.toUpperCase() || 'PNG'
+      doc.addImage(lh.logo, imgFmt, M, y, lw, logoH); y += logoH + 2
     } catch (e) {}
   }
 
@@ -186,12 +189,11 @@ export function generateDispatchPDF(doc_, lh, products, packaging) {
     ty = drawHazardBox(doc, ty, groups, r, g, b, M)
   }
 
-  // ── Signature lines ───────────────────────────────────────────────────────
-  ty += 2
-  drawSigLines(doc, ty, r, g, b, W, M)
-
-  // ── Footer ────────────────────────────────────────────────────────────────
+  // ── Footer (fixed) ────────────────────────────────────────────────────────
   const fy = 287
+
+  // ── Signature lines — always pinned directly above the footer ─────────────
+  drawSigLines(doc, fy - 22, r, g, b, W, M)
   doc.setDrawColor(210, 220, 215).setLineWidth(0.2).line(M, fy - 5, W - M, fy - 5)
   doc.setFont('helvetica', 'normal').setFontSize(7.5).setTextColor(130, 130, 130)
     .text(doc.splitTextToSize(lh.footer || '', W - 2 * M), W / 2, fy, { align: 'center' })
@@ -214,11 +216,25 @@ export function reprintPDF(d) {
     const doc = new jsPDF({ unit: 'mm', format: 'a4' })
     const W = 210, M = 16
     const n2 = (n) => (Math.round((n || 0) * 100) / 100).toLocaleString(undefined, { maximumFractionDigits: 2 })
+    let y = 16
+
+    // ── Logo ─────────────────────────────────────────────────────────────────
+    if (lh.logo) {
+      try {
+        const props = doc.getImageProperties(lh.logo)
+        const maxW = 40, maxH = 14
+        let lw = Math.min(maxW, props.width * 0.18)
+        let logoH = (lw * props.height) / props.width
+        if (logoH > maxH) { logoH = maxH; lw = (logoH * props.width) / props.height }
+        const imgFmt = (lh.logo.match(/data:image\/(\w+)/) || [])[1]?.toUpperCase() || 'PNG'
+        doc.addImage(lh.logo, imgFmt, M, y, lw, logoH); y += logoH + 2
+      } catch (e) {}
+    }
 
     // ── Company ──────────────────────────────────────────────────────────────
-    doc.setFont('helvetica', 'bold').setFontSize(13).setTextColor(20, 20, 20).text(lh.company || '', M, 18)
+    doc.setFont('helvetica', 'bold').setFontSize(13).setTextColor(20, 20, 20).text(lh.company || '', M, y + 2)
     const addrLines = String(lh.address || '').split('\n')
-    doc.setFont('helvetica', 'normal').setFontSize(8).setTextColor(90, 90, 90).text(addrLines, M, 23)
+    doc.setFont('helvetica', 'normal').setFontSize(8).setTextColor(90, 90, 90).text(addrLines, M, y + 7)
 
     // ── Title ────────────────────────────────────────────────────────────────
     doc.setFont('helvetica', 'bold').setFontSize(22).setTextColor(r, g, b)
@@ -227,7 +243,7 @@ export function reprintPDF(d) {
     doc.text(`No.   ${d.doc_no}`, W - M, 28, { align: 'right' })
     doc.text(`Date  ${d.doc_date || ''}`, W - M, 34, { align: 'right' })
 
-    const barY = Math.max(23 + addrLines.length * 3.4 + 5, 38)
+    const barY = Math.max(y + 7 + addrLines.length * 3.4 + 5, 38)
     doc.setFillColor(r, g, b).rect(M, barY, W - 2 * M, 1.2, 'F')
     let cy = barY + 7
     const colW = (W - 2 * M - 5) / 2
@@ -325,19 +341,11 @@ export function reprintPDF(d) {
       }
     }
 
-    // ── Sig lines ────────────────────────────────────────────────────────────
-    ty += 2
-    const sigLabels = ['Customer name', 'Print name', 'Date']
-    const fw = 54, sgap = 4
-    doc.setFont('helvetica', 'normal').setFontSize(8.5).setTextColor(80, 80, 80)
-    sigLabels.forEach((label, i) => {
-      const sx = M + i * (fw + sgap)
-      doc.text(label, sx, ty)
-      doc.setDrawColor(r, g, b).setLineWidth(0.4).line(sx, ty + 7, sx + fw, ty + 7)
-    })
+    // ── Sig lines (fixed above footer) ──────────────────────────────────────
+    const fy = 287
+    drawSigLines(doc, fy - 22, r, g, b, W, M)
 
     // ── Footer ───────────────────────────────────────────────────────────────
-    const fy = 287
     doc.setDrawColor(210, 220, 215).setLineWidth(0.2).line(M, fy - 5, W - M, fy - 5)
     doc.setFont('helvetica', 'normal').setFontSize(7.5).setTextColor(130, 130, 130)
       .text(doc.splitTextToSize(lh.footer || '', W - 2 * M), W / 2, fy, { align: 'center' })
