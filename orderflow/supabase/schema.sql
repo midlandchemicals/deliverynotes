@@ -19,6 +19,8 @@ create table if not exists products (
   name text not null,
   sg numeric not null default 1.0,
   pg text default '—',
+  un_number text default '',
+  category text default '',
   created_at timestamptz default now()
 );
 
@@ -36,7 +38,7 @@ create table if not exists letterheads (
   company text default '',
   address text default '',
   footer text default '',
-  color text default '#e8853a',
+  color text default '#0a6b61',
   logo text,
   created_at timestamptz default now()
 );
@@ -50,16 +52,17 @@ create table if not exists orders (
   po_ref text default '',
   order_date date default now(),
   requested_date date,
-  status text not null default 'New',   -- New | In progress | Dispatched | Invoiced
+  status text not null default 'New',   -- New | In progress | Delivery Note Generated
   notes text default '',
   lines jsonb not null default '[]',     -- [{productId, packagingId, qty}]
+  added_by text default '',              -- email of user who created the order
   created_by uuid references auth.users(id) on delete set null,
   created_at timestamptz default now()
 );
 create index if not exists orders_status_idx on orders(status);
 create index if not exists orders_created_idx on orders(created_at desc);
 
--- ---------- generated dispatch / delivery notes ----------
+-- ---------- generated delivery notes ----------
 create table if not exists dispatch_notes (
   id uuid primary key default gen_random_uuid(),
   doc_no text not null,
@@ -100,19 +103,19 @@ end $$;
 insert into letterheads (name, company, address, footer, color) values
  ('Letterhead A','Your Company Ltd',
   E'Industrial Estate, Unit 1\nManchester, M1 2AB\nUnited Kingdom\nTel: +44 161 000 0000  ·  ops@yourco.com',
-  'Your Company Ltd · Reg. No. 00000000 · VAT GB000000000','#e8853a'),
+  'Your Company Ltd · Reg. No. 00000000 · VAT GB000000000','#0a6b61'),
  ('Letterhead B','Partner Distribution Co.',
   E'45 Commerce Way\nLondon, EC1A 1BB\nUnited Kingdom',
-  'Partner Distribution Co. · Reg. No. 11111111 · E&OE.','#0f6b62'),
+  'Partner Distribution Co. · Reg. No. 11111111 · E&OE.','#0d5c8a'),
  ('Letterhead C','Third Brand', E'Trade Park, Leeds\nLS1 1AA', 'Third Brand.','#1d3f72'),
  ('Letterhead D','Fourth Brand', E'Dock Road, Hull\nHU1 1AA', 'Fourth Brand.','#7a2f2f');
 
-insert into products (name, sg, pg) values
- ('Sodium Hypochlorite 14%', 1.20, 'PG II  ·  UN1791'),
- ('Hydrochloric Acid 31%',   1.16, 'PG II  ·  UN1789'),
- ('Sulphuric Acid 98%',      1.84, 'PG II  ·  UN1830'),
- ('Sodium Hydroxide 50%',    1.52, 'PG II  ·  UN1824'),
- ('Citric Acid Solution 50%',1.24, '—');
+insert into products (name, sg, pg, un_number) values
+ ('Sodium Hypochlorite 14%', 1.20, 'PG II', 'UN1791'),
+ ('Hydrochloric Acid 31%',   1.16, 'PG II', 'UN1789'),
+ ('Sulphuric Acid 98%',      1.84, 'PG II', 'UN1830'),
+ ('Sodium Hydroxide 50%',    1.52, 'PG II', 'UN1824'),
+ ('Citric Acid Solution 50%',1.24, '—',     '');
 
 insert into packaging (name, volume, tare) values
  ('25 L Container', 25, 1.2),

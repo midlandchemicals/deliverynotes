@@ -1,5 +1,6 @@
 'use client'
 import Link from 'next/link'
+import Image from 'next/image'
 import { usePathname, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 
@@ -29,7 +30,10 @@ export default function Nav({ email }) {
 
   return (
     <div className="topbar">
-      <Link href="/" className="brand">Order<b>Flow</b></Link>
+      <Link href="/" className="brand">
+        <Image src="/logo.png" alt="Logo" width={36} height={36} style={{ borderRadius: 6 }} priority />
+        <span>Order<b>Flow</b></span>
+      </Link>
       <nav className="nav">
         {LINKS.map(([href, label]) => (
           <Link key={href} href={href} className={isActive(href) ? 'on' : ''}>{label}</Link>

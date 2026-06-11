@@ -4,7 +4,7 @@ import autoTable from 'jspdf-autotable'
 import { computeLine, docTotals, fmt, prettyDate } from '@/lib/calc'
 
 function hexToRgb(h) {
-  const m = (h || '#e8853a').replace('#', '')
+  const m = (h || '#0a6b61').replace('#', '')
   return [parseInt(m.slice(0, 2), 16), parseInt(m.slice(2, 4), 16), parseInt(m.slice(4, 6), 16)]
 }
 
@@ -30,7 +30,7 @@ export function generateDispatchPDF(doc_, lh, products, packaging) {
     .text(String(lh.address || '').split('\n'), M, y + 8)
 
   doc.setFont('helvetica', 'bold').setFontSize(19).setTextColor(r, g, b)
-    .text(String(doc_.type || 'Delivery Note').toUpperCase(), W - M, 22, { align: 'right' })
+    .text('DELIVERY NOTE', W - M, 22, { align: 'right' })
   doc.setFont('courier', 'normal').setFontSize(9).setTextColor(40, 40, 40)
   doc.text(`No.   ${doc_.docNo || ''}`, W - M, 29, { align: 'right' })
   doc.text(`Date  ${prettyDate(doc_.date)}`, W - M, 34, { align: 'right' })
@@ -56,15 +56,15 @@ export function generateDispatchPDF(doc_, lh, products, packaging) {
   autoTable(doc, {
     startY: cy,
     margin: { left: M, right: M },
-    head: [['#', 'Product', 'Pkg class', 'Packaging', 'Net (kg)', 'Gross (kg)']],
+    head: [['#', 'Product', 'Hazard / UN', 'Packaging', 'Net (kg)', 'Gross (kg)']],
     body: doc_.lines.map((l, i) => {
       const c = computeLine(l, products, packaging)
-      return [i + 1, c.productName, c.pg, c.packDesc, fmt(c.net), fmt(c.gross)]
+      return [i + 1, c.productName, c.hazard, c.packDesc, fmt(c.net), fmt(c.gross)]
     }),
     styles: { font: 'helvetica', fontSize: 9, cellPadding: 2.4, lineColor: [216, 210, 196], lineWidth: 0.1 },
     headStyles: { fillColor: [r, g, b], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 8 },
     columnStyles: {
-      0: { cellWidth: 9, halign: 'center' }, 2: { cellWidth: 28 },
+      0: { cellWidth: 9, halign: 'center' }, 2: { cellWidth: 32 },
       4: { halign: 'right', font: 'courier' }, 5: { halign: 'right', font: 'courier' },
     },
     alternateRowStyles: { fillColor: [247, 244, 236] },
