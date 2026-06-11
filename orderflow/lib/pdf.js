@@ -80,7 +80,17 @@ function drawSigLines(doc, y, r, g, b, W, M) {
   return y + 12
 }
 
-// doc_ = { docNo, date, customer, deliver, lines, options, pallets, showHazard }
+function dnFilename(dateStr, docNo, customerName) {
+  const d = new Date((dateStr || new Date().toISOString().slice(0, 10)) + 'T00:00:00')
+  const dd = String(d.getDate()).padStart(2, '0')
+  const mm = String(d.getMonth() + 1).padStart(2, '0')
+  const yy = String(d.getFullYear()).slice(-2)
+  const safeNo = String(docNo || 'DN').replace(/[^a-z0-9\-_]/gi, '_')
+  const safeName = (customerName || 'customer').replace(/[^a-z0-9]/gi, '_').replace(/_+/g, '_').replace(/^_|_$/g, '').toLowerCase()
+  return `${dd}${mm}${yy}_${safeNo}_${safeName}.pdf`
+}
+
+// doc_ = { docNo, date, invoiceTo, customer, customerName, lines, options, pallets, showHazard }
 // lh   = { company, address, footer, color, logo }
 export function generateDispatchPDF(doc_, lh, products, packaging) {
   const [r, g, b] = hexToRgb(lh.color)
@@ -133,8 +143,8 @@ export function generateDispatchPDF(doc_, lh, products, packaging) {
     doc.setFont('helvetica', 'normal').setFontSize(8.5).setTextColor(25, 25, 25).text(bLines, x + 3, cy + 10)
     return h
   }
-  const bh1 = block(M, 'Customer', doc_.customer)
-  const bh2 = block(M + colW + 5, 'Deliver to', doc_.deliver)
+  const bh1 = block(M, 'Invoice To', doc_.invoiceTo || doc_.deliver)
+  const bh2 = block(M + colW + 5, 'Deliver to', doc_.customer)
   cy += Math.max(bh1, bh2) + 5
 
   // ── Line items table ──────────────────────────────────────────────────────
@@ -198,9 +208,9 @@ export function generateDispatchPDF(doc_, lh, products, packaging) {
   doc.setFont('helvetica', 'normal').setFontSize(7.5).setTextColor(130, 130, 130)
     .text(doc.splitTextToSize(lh.footer || '', W - 2 * M), W / 2, fy, { align: 'center' })
 
-  const safe = String(doc_.docNo || 'document').replace(/[^a-z0-9\-_]/gi, '_')
-  doc.save(`${safe}.pdf`)
-  return { totals: { ...t, pallets, showHazard } }
+  const custName = doc_.customerName || (doc_.customer || '').split('\n')[0]
+  doc.save(dnFilename(doc_.date, doc_.docNo, custName))
+  return { totals: { ...t, pallets, showHazard, invoice_to: doc_.invoiceTo || '' } }
 }
 
 
@@ -257,8 +267,9 @@ export function reprintPDF(d) {
       doc.setFont('helvetica', 'normal').setFontSize(8.5).setTextColor(25, 25, 25).text(bLines, x + 3, cy + 10)
       return h
     }
-    const bh1 = block(M, 'Customer', d.customer)
-    const bh2 = block(M + colW + 5, 'Deliver to', d.deliver)
+    const invoiceTo = d.totals?.invoice_to || d.deliver
+    const bh1 = block(M, 'Invoice To', invoiceTo)
+    const bh2 = block(M + colW + 5, 'Deliver to', d.customer)
     cy += Math.max(bh1, bh2) + 5
 
     // ── Table ────────────────────────────────────────────────────────────────
@@ -350,6 +361,7 @@ export function reprintPDF(d) {
     doc.setFont('helvetica', 'normal').setFontSize(7.5).setTextColor(130, 130, 130)
       .text(doc.splitTextToSize(lh.footer || '', W - 2 * M), W / 2, fy, { align: 'center' })
 
-    doc.save(`${String(d.doc_no).replace(/[^a-z0-9\-_]/gi, '_')}.pdf`)
+    const custName = (d.customer || '').split('\n')[0]
+    doc.save(dnFilename(d.doc_date, d.doc_no, custName))
   }))
 }

@@ -158,6 +158,13 @@ table.tbl input,table.tbl select{padding:7px 10px;font-size:12.5px;border-radius
 .paper table.it td{padding:5px 6px;border-bottom:1px solid #d8d2c4}
 .paper .r{text-align:right;font-family:"IBM Plex Mono"}
 
+/* ── pallets flash validation ── */
+@keyframes flash-error {
+  0%,100%{border-color:var(--bad);background:rgba(176,53,48,.08)}
+  50%{border-color:var(--bad);background:rgba(176,53,48,.18);box-shadow:0 0 0 3px rgba(176,53,48,.25)}
+}
+.flash-error{animation:flash-error 0.35s ease-in-out 3;border-color:var(--bad)!important}
+
 /* ── toast ── */
 .toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%);background:var(--navy);color:#fff;
   padding:11px 22px;border-radius:50px;font-size:13px;font-weight:700;
