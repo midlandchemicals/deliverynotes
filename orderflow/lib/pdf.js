@@ -8,172 +8,201 @@ function hexToRgb(h) {
   return [parseInt(m.slice(0, 2), 16), parseInt(m.slice(2, 4), 16), parseInt(m.slice(4, 6), 16)]
 }
 
-// Build hazard groups from live lines (for new generation)
+// Build hazard groups — exclude non-hazardous (key === '—')
 function hazardGroups(lines, products, packaging) {
   const map = {}
   lines.forEach((l) => {
     const c = computeLine(l, products, packaging)
     const key = c.hazard || '—'
+    if (key === '—') return
     if (!map[key]) map[key] = { vol: 0, net: 0, gross: 0 }
     map[key].vol += c.totalVol; map[key].net += c.net; map[key].gross += c.gross
   })
   return map
 }
 
-// Build hazard groups from stored snapshot (for reprint)
 function hazardGroupsFromSnap(snap) {
   const map = {}
   ;(snap || []).forEach((s) => {
     const key = s.hazard || (s.un_number ? `${s.un_number} · ${s.pg}` : (s.pg || '—'))
+    if (key === '—') return
     if (!map[key]) map[key] = { vol: 0, net: 0, gross: 0 }
     map[key].vol += s.vol || 0; map[key].net += s.net || 0; map[key].gross += s.gross || 0
   })
   return map
 }
 
-function drawHazardTable(doc, startY, groups, r, g, b, W, M) {
-  const rows = Object.entries(groups).map(([hazard, v]) => [
-    hazard,
-    fmt(v.vol) + ' L',
-    fmt(v.net) + ' kg',
-    fmt(v.gross) + ' kg',
-  ])
-  autoTable(doc, {
-    startY,
-    margin: { left: M, right: M },
-    head: [['Hazard / Packing Group', 'Total Volume', 'Total Net Weight', 'Total Gross Weight']],
-    body: rows,
-    styles: {
-      font: 'helvetica', fontSize: 11, cellPadding: 4,
-      lineColor: [r, g, b], lineWidth: 0.4,
-    },
-    headStyles: {
-      fillColor: [r, g, b], textColor: [255, 255, 255],
-      fontStyle: 'bold', fontSize: 10,
-    },
-    columnStyles: {
-      0: { fontStyle: 'bold', cellWidth: 65 },
-      1: { halign: 'right' },
-      2: { halign: 'right' },
-      3: { halign: 'right', fontStyle: 'bold' },
-    },
-    tableLineColor: [r, g, b],
-    tableLineWidth: 0.5,
-    alternateRowStyles: { fillColor: [240, 248, 244] },
+// Compact bordered text box — NOT a full-width table
+function drawHazardBox(doc, startY, groups, r, g, b, M) {
+  const entries = Object.entries(groups)
+  if (!entries.length) return startY
+
+  const boxW = 120
+  const lhPx = 5
+  // count lines per entry: 2 text lines + 1 divider (except last)
+  const totalLines = entries.length * 2 + Math.max(0, entries.length - 1)
+  const boxH = 9 + totalLines * lhPx
+
+  doc.setFont('helvetica', 'bold').setFontSize(8).setTextColor(r, g, b)
+  doc.text('HAZARDOUS GOODS SUMMARY', M, startY)
+  startY += 3
+
+  doc.setDrawColor(r, g, b).setLineWidth(0.5)
+  doc.setFillColor(248, 252, 250)
+  doc.roundedRect(M, startY, boxW, boxH, 2, 2, 'FD')
+
+  let ty = startY + 7
+  entries.forEach(([hazard, v], i) => {
+    doc.setFont('helvetica', 'bold').setFontSize(10).setTextColor(20, 20, 20)
+    doc.text(hazard, M + 4, ty); ty += lhPx
+    doc.setFont('helvetica', 'normal').setFontSize(9).setTextColor(50, 50, 50)
+    doc.text(`Vol: ${fmt(v.vol)} L  ·  Net: ${fmt(v.net)} kg  ·  Gross: ${fmt(v.gross)} kg`, M + 4, ty)
+    ty += lhPx
+    if (i < entries.length - 1) {
+      doc.setDrawColor(200, 218, 210).setLineWidth(0.15).line(M + 2, ty, M + boxW - 2, ty)
+      ty += lhPx
+    }
   })
-  return doc.lastAutoTable.finalY
+
+  return startY + boxH + 5
 }
 
-// doc_ = { type, docNo, date, customer, deliver, lines, options, pallets }
-// lh   = letterhead row { company, address, footer, color, logo }
+// Signature lines — three equal fields
+function drawSigLines(doc, y, r, g, b, W, M) {
+  const labels = ['Customer name', 'Print name', 'Date']
+  const fw = 54, gap = 4
+  doc.setFont('helvetica', 'normal').setFontSize(8.5).setTextColor(80, 80, 80)
+  labels.forEach((label, i) => {
+    const sx = M + i * (fw + gap)
+    doc.text(label, sx, y)
+    doc.setDrawColor(r, g, b).setLineWidth(0.4).line(sx, y + 7, sx + fw, y + 7)
+  })
+  return y + 12
+}
+
+// doc_ = { docNo, date, customer, deliver, lines, options, pallets, showHazard }
+// lh   = { company, address, footer, color, logo }
 export function generateDispatchPDF(doc_, lh, products, packaging) {
   const [r, g, b] = hexToRgb(lh.color)
   const t = docTotals(doc_.lines, products, packaging)
   const pallets = Math.max(0, parseInt(doc_.pallets || 0, 10) || 0)
+  const showHazard = doc_.showHazard !== false
   const doc = new jsPDF({ unit: 'mm', format: 'a4' })
   const W = 210, M = 16
-  let y = 18
+  let y = 16
 
+  // ── Logo ──────────────────────────────────────────────────────────────────
   if (lh.logo) {
     try {
       const props = doc.getImageProperties(lh.logo)
-      const w = Math.min(40, props.width * 0.18)
-      const h = Math.min((w * props.height) / props.width, 20)
-      doc.addImage(lh.logo, 'PNG', M, y, w, h); y += h + 2
+      const lw = Math.min(36, props.width * 0.16)
+      const lh2 = Math.min((lw * props.height) / props.width, 14)
+      doc.addImage(lh.logo, 'PNG', M, y, lw, lh2); y += lh2 + 2
     } catch (e) {}
   }
-  doc.setFont('helvetica', 'bold').setFontSize(16).setTextColor(20, 20, 20).text(lh.company || '', M, y + 2)
-  doc.setFont('helvetica', 'normal').setFontSize(8.5).setTextColor(90, 90, 90)
-    .text(String(lh.address || '').split('\n'), M, y + 8)
 
+  // ── Company ───────────────────────────────────────────────────────────────
+  doc.setFont('helvetica', 'bold').setFontSize(13).setTextColor(20, 20, 20).text(lh.company || '', M, y + 2)
+  const addrLines = String(lh.address || '').split('\n')
+  doc.setFont('helvetica', 'normal').setFontSize(8).setTextColor(90, 90, 90)
+    .text(addrLines, M, y + 7)
+
+  // ── DELIVERY NOTE title (right side) ──────────────────────────────────────
   doc.setFont('helvetica', 'bold').setFontSize(22).setTextColor(r, g, b)
-    .text('DELIVERY NOTE', W - M, 22, { align: 'right' })
+    .text('DELIVERY NOTE', W - M, 20, { align: 'right' })
   doc.setFont('helvetica', 'normal').setFontSize(10).setTextColor(40, 40, 40)
-  doc.text(`No.   ${doc_.docNo || ''}`, W - M, 30, { align: 'right' })
-  doc.text(`Date  ${prettyDate(doc_.date)}`, W - M, 36, { align: 'right' })
+  doc.text(`No.   ${doc_.docNo || ''}`, W - M, 28, { align: 'right' })
+  doc.text(`Date  ${prettyDate(doc_.date)}`, W - M, 34, { align: 'right' })
 
-  const barY = Math.max(y + String(lh.address || '').split('\n').length * 4 + 8, 46)
-  doc.setFillColor(r, g, b).rect(M, barY, W - 2 * M, 1.4, 'F')
-  let cy = barY + 9
-  const colW = (W - 2 * M - 6) / 2
+  // ── Coloured bar — max 4 inches from top (≈ 40mm for typical letterhead) ──
+  const barY = Math.max(y + addrLines.length * 3.4 + 5, 38)
+  doc.setFillColor(r, g, b).rect(M, barY, W - 2 * M, 1.2, 'F')
+  let cy = barY + 7
+  const colW = (W - 2 * M - 5) / 2
 
+  // ── Customer + Deliver blocks ─────────────────────────────────────────────
   function block(x, title, text) {
     doc.setDrawColor(r, g, b).setLineWidth(0.25)
-    const lines = doc.splitTextToSize(text || '', colW - 8)
-    const h = 12 + lines.length * 5
-    doc.roundedRect(x, cy, colW, h, 2, 2, 'S')
-    doc.setFont('helvetica', 'bold').setFontSize(7.5).setTextColor(r, g, b).text(title.toUpperCase(), x + 4, cy + 6)
-    doc.setFont('helvetica', 'normal').setFontSize(10).setTextColor(30, 30, 30).text(lines, x + 4, cy + 12)
+    const bLines = doc.splitTextToSize(text || '', colW - 6)
+    const h = 7 + bLines.length * 3.5
+    doc.roundedRect(x, cy, colW, h, 1.5, 1.5, 'S')
+    doc.setFont('helvetica', 'bold').setFontSize(7).setTextColor(r, g, b).text(title.toUpperCase(), x + 3, cy + 5)
+    doc.setFont('helvetica', 'normal').setFontSize(8.5).setTextColor(25, 25, 25).text(bLines, x + 3, cy + 10)
     return h
   }
-  const h1 = block(M, 'Customer', doc_.customer)
-  const h2 = block(M + colW + 6, 'Deliver to', doc_.deliver)
-  cy += Math.max(h1, h2) + 8
+  const bh1 = block(M, 'Customer', doc_.customer)
+  const bh2 = block(M + colW + 5, 'Deliver to', doc_.deliver)
+  cy += Math.max(bh1, bh2) + 5
 
+  // ── Line items table ──────────────────────────────────────────────────────
+  // Product and packaging merged into one column for readability
   autoTable(doc, {
     startY: cy,
     margin: { left: M, right: M },
-    head: [['#', 'Product', 'Hazard / UN', 'Packaging', 'Net (kg)', 'Gross (kg)']],
+    head: [['#', 'Product', 'Hazard / UN', 'Net (kg)', 'Gross (kg)']],
     body: doc_.lines.map((l, i) => {
       const c = computeLine(l, products, packaging)
-      return [i + 1, c.productName, c.hazard, c.packDesc, fmt(c.net), fmt(c.gross)]
+      const desc = c.packaging?.name ? `${c.productName} — ${c.qty} x ${c.packaging.name}` : c.productName
+      return [i + 1, desc, c.hazard, fmt(c.net), fmt(c.gross)]
     }),
-    styles: { font: 'helvetica', fontSize: 11, cellPadding: 3, lineColor: [210, 220, 215], lineWidth: 0.15 },
-    headStyles: { fillColor: [r, g, b], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 10 },
+    styles: { font: 'helvetica', fontSize: 10, cellPadding: 2.5, lineColor: [210, 220, 215], lineWidth: 0.15 },
+    headStyles: { fillColor: [r, g, b], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 9 },
     columnStyles: {
       0: { cellWidth: 9, halign: 'center' },
-      2: { cellWidth: 34 },
-      4: { halign: 'right' },
-      5: { halign: 'right', fontStyle: 'bold' },
+      2: { cellWidth: 36 },
+      3: { halign: 'right' },
+      4: { halign: 'right', fontStyle: 'bold' },
     },
-    alternateRowStyles: { fillColor: [240, 248, 244] },
+    alternateRowStyles: { fillColor: [242, 249, 245] },
   })
 
-  let ty = doc.lastAutoTable.finalY + 7
-  const tx = W - M - 80
-  doc.setFont('helvetica', 'normal').setFontSize(12).setTextColor(40, 40, 40)
+  // ── Totals ────────────────────────────────────────────────────────────────
+  let ty = doc.lastAutoTable.finalY + 5
+  const tx = W - M - 78
   const totRows = [
-    ['Total volume', fmt(t.volume) + ' L'],
-    ['Total net weight', fmt(t.net) + ' kg'],
-    ['Total gross weight', fmt(t.gross) + ' kg'],
+    { label: 'Total volume',       val: fmt(t.volume) + ' L',   bold: false },
+    { label: 'Total net weight',   val: fmt(t.net) + ' kg',     bold: false },
+    { label: 'Total gross weight', val: fmt(t.gross) + ' kg',   bold: true  },
   ]
-  if (pallets > 0) totRows.push(['Total pallets', String(pallets)])
-  totRows.forEach(([k, v], i) => {
-    if (i === totRows.length - 1) doc.setFont('helvetica', 'bold').setFontSize(13)
-    doc.text(k, tx, ty); doc.text(v, W - M, ty, { align: 'right' }); ty += 6.5
+  if (pallets > 0) totRows.push({ label: 'Total pallets', val: String(pallets), bold: true })
+  totRows.forEach(({ label, val, bold }) => {
+    doc.setFont('helvetica', bold ? 'bold' : 'normal').setFontSize(bold ? 12 : 11).setTextColor(40, 40, 40)
+    doc.text(label, tx, ty); doc.text(val, W - M, ty, { align: 'right' }); ty += 6
   })
 
+  // ── Notes ─────────────────────────────────────────────────────────────────
   if (doc_.options) {
+    ty += 3
+    doc.setFont('helvetica', 'bold').setFontSize(8.5).setTextColor(r, g, b).text('NOTES', M, ty)
+    doc.setFont('helvetica', 'normal').setFontSize(9.5).setTextColor(40, 40, 40)
+      .text(doc.splitTextToSize(doc_.options, W - 2 * M), M, ty + 5)
+    ty += 5 + doc.splitTextToSize(doc_.options, W - 2 * M).length * 4.5 + 3
+  }
+
+  // ── Hazard summary box (optional) ─────────────────────────────────────────
+  if (showHazard) {
     ty += 4
-    doc.setFont('helvetica', 'bold').setFontSize(9).setTextColor(110, 110, 110).text('NOTES', M, ty)
-    doc.setFont('helvetica', 'normal').setFontSize(10).setTextColor(40, 40, 40)
-      .text(doc.splitTextToSize(doc_.options, W - 2 * M), M, ty + 6)
-    ty += 6 + doc.splitTextToSize(doc_.options, W - 2 * M).length * 5 + 4
+    const groups = hazardGroups(doc_.lines, products, packaging)
+    ty = drawHazardBox(doc, ty, groups, r, g, b, M)
   }
 
-  ty += 6
-  doc.setFont('helvetica', 'bold').setFontSize(11).setTextColor(r, g, b)
-    .text('HAZARDOUS GOODS SUMMARY', M, ty)
-  ty += 4
-  const groups = hazardGroups(doc_.lines, products, packaging)
-  drawHazardTable(doc, ty, groups, r, g, b, W, M)
-  const afterHazard = doc.lastAutoTable.finalY
+  // ── Signature lines ───────────────────────────────────────────────────────
+  ty += 2
+  drawSigLines(doc, ty, r, g, b, W, M)
 
+  // ── Footer ────────────────────────────────────────────────────────────────
   const fy = 287
-  if (afterHazard < fy - 10) {
-    doc.setDrawColor(210, 220, 215).setLineWidth(0.2).line(M, fy - 5, W - M, fy - 5)
-    doc.setFont('helvetica', 'normal').setFontSize(8).setTextColor(130, 130, 130)
-      .text(doc.splitTextToSize(lh.footer || '', W - 2 * M), W / 2, fy, { align: 'center' })
-  }
+  doc.setDrawColor(210, 220, 215).setLineWidth(0.2).line(M, fy - 5, W - M, fy - 5)
+  doc.setFont('helvetica', 'normal').setFontSize(7.5).setTextColor(130, 130, 130)
+    .text(doc.splitTextToSize(lh.footer || '', W - 2 * M), W / 2, fy, { align: 'center' })
 
   const safe = String(doc_.docNo || 'document').replace(/[^a-z0-9\-_]/gi, '_')
   doc.save(`${safe}.pdf`)
-  return { totals: { ...t, pallets } }
+  return { totals: { ...t, pallets, showHazard } }
 }
 
 
-// ── reprint helper (called from order detail page) ──────────────────────────
-// All drawing logic is duplicated here so old snapshots stay identical.
+// ── Reprint from stored snapshot ────────────────────────────────────────────
 export function reprintPDF(d) {
   import('jspdf').then(({ jsPDF }) => import('jspdf-autotable').then((mod) => {
     const autoTable = mod.default
@@ -186,103 +215,133 @@ export function reprintPDF(d) {
     const W = 210, M = 16
     const n2 = (n) => (Math.round((n || 0) * 100) / 100).toLocaleString(undefined, { maximumFractionDigits: 2 })
 
-    doc.setFont('helvetica', 'bold').setFontSize(16).setTextColor(20, 20, 20).text(lh.company || '', M, 20)
-    doc.setFont('helvetica', 'normal').setFontSize(8.5).setTextColor(90, 90, 90)
-      .text(String(lh.address || '').split('\n'), M, 26)
-    doc.setFont('helvetica', 'bold').setFontSize(22).setTextColor(r, g, b)
-      .text('DELIVERY NOTE', W - M, 22, { align: 'right' })
-    doc.setFont('helvetica', 'normal').setFontSize(10).setTextColor(40, 40, 40)
-    doc.text(`No.   ${d.doc_no}`, W - M, 30, { align: 'right' })
-    doc.text(`Date  ${d.doc_date || ''}`, W - M, 36, { align: 'right' })
+    // ── Company ──────────────────────────────────────────────────────────────
+    doc.setFont('helvetica', 'bold').setFontSize(13).setTextColor(20, 20, 20).text(lh.company || '', M, 18)
+    const addrLines = String(lh.address || '').split('\n')
+    doc.setFont('helvetica', 'normal').setFontSize(8).setTextColor(90, 90, 90).text(addrLines, M, 23)
 
-    const barY = Math.max(26 + String(lh.address || '').split('\n').length * 4 + 6, 46)
-    doc.setFillColor(r, g, b).rect(M, barY, W - 2 * M, 1.4, 'F')
-    let cy = barY + 9
-    const colW = (W - 2 * M - 6) / 2
+    // ── Title ────────────────────────────────────────────────────────────────
+    doc.setFont('helvetica', 'bold').setFontSize(22).setTextColor(r, g, b)
+      .text('DELIVERY NOTE', W - M, 20, { align: 'right' })
+    doc.setFont('helvetica', 'normal').setFontSize(10).setTextColor(40, 40, 40)
+    doc.text(`No.   ${d.doc_no}`, W - M, 28, { align: 'right' })
+    doc.text(`Date  ${d.doc_date || ''}`, W - M, 34, { align: 'right' })
+
+    const barY = Math.max(23 + addrLines.length * 3.4 + 5, 38)
+    doc.setFillColor(r, g, b).rect(M, barY, W - 2 * M, 1.2, 'F')
+    let cy = barY + 7
+    const colW = (W - 2 * M - 5) / 2
 
     function block(x, title, text) {
       doc.setDrawColor(r, g, b).setLineWidth(0.25)
-      const lines = doc.splitTextToSize(text || '', colW - 8)
-      const h = 12 + lines.length * 5
-      doc.roundedRect(x, cy, colW, h, 2, 2, 'S')
-      doc.setFont('helvetica', 'bold').setFontSize(7.5).setTextColor(r, g, b).text(title.toUpperCase(), x + 4, cy + 6)
-      doc.setFont('helvetica', 'normal').setFontSize(10).setTextColor(30, 30, 30).text(lines, x + 4, cy + 12)
+      const bLines = doc.splitTextToSize(text || '', colW - 6)
+      const h = 7 + bLines.length * 3.5
+      doc.roundedRect(x, cy, colW, h, 1.5, 1.5, 'S')
+      doc.setFont('helvetica', 'bold').setFontSize(7).setTextColor(r, g, b).text(title.toUpperCase(), x + 3, cy + 5)
+      doc.setFont('helvetica', 'normal').setFontSize(8.5).setTextColor(25, 25, 25).text(bLines, x + 3, cy + 10)
       return h
     }
-    const h1 = block(M, 'Customer', d.customer)
-    const h2 = block(M + colW + 6, 'Deliver to', d.deliver)
-    cy += Math.max(h1, h2) + 8
+    const bh1 = block(M, 'Customer', d.customer)
+    const bh2 = block(M + colW + 5, 'Deliver to', d.deliver)
+    cy += Math.max(bh1, bh2) + 5
 
+    // ── Table ────────────────────────────────────────────────────────────────
     autoTable(doc, {
       startY: cy, margin: { left: M, right: M },
-      head: [['#', 'Product', 'Hazard / UN', 'Packaging', 'Net (kg)', 'Gross (kg)']],
+      head: [['#', 'Product', 'Hazard / UN', 'Net (kg)', 'Gross (kg)']],
       body: (d.lines_snapshot || []).map((s, i) => {
         const hazard = s.hazard || (s.un_number ? `${s.un_number} · ${s.pg}` : (s.pg || '—'))
-        return [i + 1, s.productName, hazard, s.packDesc, n2(s.net), n2(s.gross)]
+        // Use stored packDesc; format as "Name — N x Pack" if it has the old "N × Pack" style
+        const packInfo = s.packDesc ? s.packDesc.replace('×', 'x') : ''
+        const desc = packInfo ? `${s.productName} — ${packInfo}` : s.productName
+        return [i + 1, desc, hazard, n2(s.net), n2(s.gross)]
       }),
-      styles: { font: 'helvetica', fontSize: 11, cellPadding: 3, lineColor: [210, 220, 215], lineWidth: 0.15 },
-      headStyles: { fillColor: [r, g, b], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 10 },
+      styles: { font: 'helvetica', fontSize: 10, cellPadding: 2.5, lineColor: [210, 220, 215], lineWidth: 0.15 },
+      headStyles: { fillColor: [r, g, b], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 9 },
       columnStyles: {
-        0: { cellWidth: 9, halign: 'center' }, 2: { cellWidth: 34 },
-        4: { halign: 'right' }, 5: { halign: 'right', fontStyle: 'bold' },
+        0: { cellWidth: 9, halign: 'center' }, 2: { cellWidth: 36 },
+        3: { halign: 'right' }, 4: { halign: 'right', fontStyle: 'bold' },
       },
-      alternateRowStyles: { fillColor: [240, 248, 244] },
+      alternateRowStyles: { fillColor: [242, 249, 245] },
     })
 
+    // ── Totals ───────────────────────────────────────────────────────────────
     const t = d.totals || {}
     const pallets = parseInt(t.pallets || 0, 10) || 0
-    let ty = doc.lastAutoTable.finalY + 7
-    const tx = W - M - 80
-    doc.setFont('helvetica', 'normal').setFontSize(12).setTextColor(40, 40, 40)
+    const showHazard = t.showHazard !== false
+    let ty = doc.lastAutoTable.finalY + 5
+    const tx = W - M - 78
     const totRows = [
-      ['Total volume', n2(t.volume) + ' L'],
-      ['Total net weight', n2(t.net) + ' kg'],
-      ['Total gross weight', n2(t.gross) + ' kg'],
+      { label: 'Total volume',       val: n2(t.volume) + ' L',  bold: false },
+      { label: 'Total net weight',   val: n2(t.net) + ' kg',    bold: false },
+      { label: 'Total gross weight', val: n2(t.gross) + ' kg',  bold: true  },
     ]
-    if (pallets > 0) totRows.push(['Total pallets', String(pallets)])
-    totRows.forEach(([k, v], i) => {
-      if (i === totRows.length - 1) doc.setFont('helvetica', 'bold').setFontSize(13)
-      doc.text(k, tx, ty); doc.text(v, W - M, ty, { align: 'right' }); ty += 6.5
+    if (pallets > 0) totRows.push({ label: 'Total pallets', val: String(pallets), bold: true })
+    totRows.forEach(({ label, val, bold }) => {
+      doc.setFont('helvetica', bold ? 'bold' : 'normal').setFontSize(bold ? 12 : 11).setTextColor(40, 40, 40)
+      doc.text(label, tx, ty); doc.text(val, W - M, ty, { align: 'right' }); ty += 6
     })
 
+    // ── Notes ────────────────────────────────────────────────────────────────
     if (d.options) {
-      ty += 4
-      doc.setFont('helvetica', 'bold').setFontSize(9).setTextColor(110, 110, 110).text('NOTES', M, ty)
-      doc.setFont('helvetica', 'normal').setFontSize(10).setTextColor(40, 40, 40)
-        .text(doc.splitTextToSize(d.options, W - 2 * M), M, ty + 6)
-      ty += 6 + doc.splitTextToSize(d.options, W - 2 * M).length * 5 + 4
+      ty += 3
+      doc.setFont('helvetica', 'bold').setFontSize(8.5).setTextColor(r, g, b).text('NOTES', M, ty)
+      doc.setFont('helvetica', 'normal').setFontSize(9.5).setTextColor(40, 40, 40)
+        .text(doc.splitTextToSize(d.options, W - 2 * M), M, ty + 5)
+      ty += 5 + doc.splitTextToSize(d.options, W - 2 * M).length * 4.5 + 3
     }
 
-    ty += 6
-    doc.setFont('helvetica', 'bold').setFontSize(11).setTextColor(r, g, b)
-      .text('HAZARDOUS GOODS SUMMARY', M, ty)
-    ty += 4
+    // ── Hazard box ───────────────────────────────────────────────────────────
+    if (showHazard) {
+      ty += 4
+      const groups = hazardGroupsFromSnap(d.lines_snapshot)
+      const entries = Object.entries(groups)
+      if (entries.length) {
+        const lhPx = 5
+        const totalLines = entries.length * 2 + Math.max(0, entries.length - 1)
+        const boxH = 9 + totalLines * lhPx
+        const boxW = 120
 
-    const groups = hazardGroupsFromSnap(d.lines_snapshot)
-    const rows = Object.entries(groups).map(([hazard, v]) => [
-      hazard, v.vol > 0 ? n2(v.vol) + ' L' : '—', n2(v.net) + ' kg', n2(v.gross) + ' kg',
-    ])
-    autoTable(doc, {
-      startY: ty, margin: { left: M, right: M },
-      head: [['Hazard / Packing Group', 'Total Volume', 'Total Net Weight', 'Total Gross Weight']],
-      body: rows,
-      styles: { font: 'helvetica', fontSize: 11, cellPadding: 4, lineColor: [r, g, b], lineWidth: 0.4 },
-      headStyles: { fillColor: [r, g, b], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 10 },
-      columnStyles: {
-        0: { fontStyle: 'bold', cellWidth: 65 },
-        1: { halign: 'right' }, 2: { halign: 'right' }, 3: { halign: 'right', fontStyle: 'bold' },
-      },
-      tableLineColor: [r, g, b], tableLineWidth: 0.5,
-      alternateRowStyles: { fillColor: [240, 248, 244] },
+        doc.setFont('helvetica', 'bold').setFontSize(8).setTextColor(r, g, b)
+        doc.text('HAZARDOUS GOODS SUMMARY', M, ty); ty += 3
+
+        doc.setDrawColor(r, g, b).setLineWidth(0.5).setFillColor(248, 252, 250)
+        doc.roundedRect(M, ty, boxW, boxH, 2, 2, 'FD')
+
+        let bty = ty + 7
+        entries.forEach(([hazard, v], idx) => {
+          doc.setFont('helvetica', 'bold').setFontSize(10).setTextColor(20, 20, 20)
+          doc.text(hazard, M + 4, bty); bty += lhPx
+          doc.setFont('helvetica', 'normal').setFontSize(9).setTextColor(50, 50, 50)
+          const volStr = v.vol > 0 ? n2(v.vol) + ' L' : '—'
+          doc.text(`Vol: ${volStr}  ·  Net: ${n2(v.net)} kg  ·  Gross: ${n2(v.gross)} kg`, M + 4, bty)
+          bty += lhPx
+          if (idx < entries.length - 1) {
+            doc.setDrawColor(200, 218, 210).setLineWidth(0.15).line(M + 2, bty, M + boxW - 2, bty)
+            bty += lhPx
+          }
+        })
+        ty = ty + boxH + 5
+      }
+    }
+
+    // ── Sig lines ────────────────────────────────────────────────────────────
+    ty += 2
+    const sigLabels = ['Customer name', 'Print name', 'Date']
+    const fw = 54, sgap = 4
+    doc.setFont('helvetica', 'normal').setFontSize(8.5).setTextColor(80, 80, 80)
+    sigLabels.forEach((label, i) => {
+      const sx = M + i * (fw + sgap)
+      doc.text(label, sx, ty)
+      doc.setDrawColor(r, g, b).setLineWidth(0.4).line(sx, ty + 7, sx + fw, ty + 7)
     })
 
-    const afterHazard = doc.lastAutoTable.finalY
+    // ── Footer ───────────────────────────────────────────────────────────────
     const fy = 287
-    if (afterHazard < fy - 10) {
-      doc.setDrawColor(210, 220, 215).setLineWidth(0.2).line(M, fy - 5, W - M, fy - 5)
-      doc.setFont('helvetica', 'normal').setFontSize(8).setTextColor(130, 130, 130)
-        .text(doc.splitTextToSize(lh.footer || '', W - 2 * M), W / 2, fy, { align: 'center' })
-    }
+    doc.setDrawColor(210, 220, 215).setLineWidth(0.2).line(M, fy - 5, W - M, fy - 5)
+    doc.setFont('helvetica', 'normal').setFontSize(7.5).setTextColor(130, 130, 130)
+      .text(doc.splitTextToSize(lh.footer || '', W - 2 * M), W / 2, fy, { align: 'center' })
+
     doc.save(`${String(d.doc_no).replace(/[^a-z0-9\-_]/gi, '_')}.pdf`)
   }))
 }
