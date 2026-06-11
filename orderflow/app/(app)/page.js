@@ -1,6 +1,7 @@
 'use client'
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { prettyDate } from '@/lib/calc'
 
@@ -8,6 +9,7 @@ const STATUSES = ['All', 'New', 'In progress', 'Dispatched', 'Invoiced']
 
 export default function OrdersPage() {
   const supabase = createClient()
+  const router = useRouter()
   const [orders, setOrders] = useState(null)
   const [products, setProducts] = useState([])
   const [filter, setFilter] = useState('All')
@@ -23,6 +25,13 @@ export default function OrdersPage() {
       setOrders(o.data || [])
     })()
   }, [])
+
+  async function remove(e, order) {
+    e.stopPropagation()
+    if (!confirm(`Delete order ${order.order_no}? This cannot be undone.`)) return
+    await supabase.from('orders').delete().eq('id', order.id)
+    setOrders((list) => list.filter((x) => x.id !== order.id))
+  }
 
   if (orders === null) return <div className="card"><div className="empty">Loading orders…</div></div>
 
@@ -62,25 +71,23 @@ export default function OrdersPage() {
           <div className="empty">No orders match. Log one from <b>New order</b>.</div>
         ) : (
           filtered.map((o) => (
-            <Link key={o.id} href={`/orders/${o.id}`}>
-              <div className="list-row">
-                <div>
-                  <div className="ono">{o.order_no} <StatusBadge status={o.status} /></div>
-                  {productSummary(o) ? (
-                    <div style={{ color: 'var(--accent)', fontSize: 13.5, fontWeight: 600, margin: '3px 0' }}>
-                      {productSummary(o)}
-                    </div>
-                  ) : null}
-                  <div className="meta">
-                    {o.customer_snapshot?.name || '—'}
-                    {o.po_ref ? ` · PO ${o.po_ref}` : ''} · ordered {prettyDate(o.order_date)}
-                    {o.requested_date ? ` · wanted ${prettyDate(o.requested_date)}` : ''}
-                    {` · ${(o.lines || []).length} line(s)`}
+            <div key={o.id} className="list-row" onClick={() => router.push(`/orders/${o.id}`)} style={{ cursor: 'pointer' }}>
+              <div>
+                <div className="ono">{o.order_no} <StatusBadge status={o.status} /></div>
+                {productSummary(o) ? (
+                  <div style={{ color: 'var(--accent)', fontSize: 13.5, fontWeight: 600, margin: '3px 0' }}>
+                    {productSummary(o)}
                   </div>
+                ) : null}
+                <div className="meta">
+                  {o.customer_snapshot?.name || '—'}
+                  {o.po_ref ? ` · PO ${o.po_ref}` : ''} · ordered {prettyDate(o.order_date)}
+                  {o.requested_date ? ` · wanted ${prettyDate(o.requested_date)}` : ''}
+                  {` · ${(o.lines || []).length} line(s)`}
                 </div>
-                <div className="muted" style={{ fontSize: 18 }}>›</div>
               </div>
-            </Link>
+              <button className="btn-dl" onClick={(e) => remove(e, o)} title="Delete order">×</button>
+            </div>
           ))
         )}
       </div>
