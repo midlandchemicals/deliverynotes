@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import { computeLine, docTotals, fmt, prettyDate, nextNo } from '@/lib/calc'
+import { computeLine, docTotals, fmt, prettyDate } from '@/lib/calc'
 import { generateDispatchPDF, reprintPDF } from '@/lib/pdf'
 import { StatusBadge } from '../../page'
 import LineEditor from '../LineEditor'
@@ -23,7 +23,6 @@ export default function OrderDetailPage() {
 
   // dispatch panel state
   const [lhIndex, setLhIndex] = useState(0)
-  const [docNo, setDocNo] = useState('')
   const [docDate, setDocDate] = useState(new Date().toISOString().slice(0, 10))
   const [invoiceTo, setInvoiceTo] = useState('')
   const [options, setOptions] = useState('')
@@ -50,9 +49,6 @@ export default function OrderDetailPage() {
       setLhIndex(midlandIdx >= 0 ? midlandIdx : 0)
       setInvoiceTo(o.data?.customer_snapshot?.deliver || '')
 
-      setDocNo((o.data?.order_no || 'DN-1001').replace(/^ORD/, 'DN'))
-      const dn = await supabase.from('dispatch_notes').select('doc_no').order('created_at', { ascending: false }).limit(1)
-      if (dn.data?.[0]?.doc_no) setDocNo(nextNo(dn.data[0].doc_no))
       const existing = await supabase.from('dispatch_notes').select('*').eq('order_id', id).order('created_at', { ascending: false })
       setDispatched(existing.data || [])
     })()
@@ -117,6 +113,7 @@ ${items.map((it) => `  <li>${it.name}${it.pack ? ` — ${it.qty} x ${it.pack}` :
       toast('Please enter number of pallets')
       return
     }
+    const docNo = order.order_no
     const docData = {
       type: 'Delivery Note', docNo, date: docDate,
       invoiceTo,
@@ -143,7 +140,6 @@ ${items.map((it) => `  <li>${it.name}${it.pack ? ` — ${it.qty} x ${it.pack}` :
     setOrder({ ...order, status: 'Delivery Note Generated' })
     const refreshed = await supabase.from('dispatch_notes').select('*').eq('order_id', id).order('created_at', { ascending: false })
     setDispatched(refreshed.data || [])
-    setDocNo(nextNo(docNo))
     setPallets('')
     toast('Delivery note generated')
   }
@@ -194,13 +190,11 @@ ${items.map((it) => `  <li>${it.name}${it.pack ? ` — ${it.qty} x ${it.pack}` :
 
       <div className="card">
         <div className="ttl"><h2>Create delivery note</h2></div>
-        <div className="row c4">
+        <div className="row c3">
           <div className="field"><label>Letterhead</label>
             <select value={lhIndex} onChange={(e) => setLhIndex(+e.target.value)}>
               {letterheads.map((l, i) => <option key={l.id} value={i}>{l.name} — {l.company}</option>)}
             </select></div>
-          <div className="field"><label>Delivery Note Number</label>
-            <input className="mono" value={docNo} onChange={(e) => setDocNo(e.target.value)} /></div>
           <div className="field"><label>Date</label>
             <input className="mono" type="date" value={docDate} onChange={(e) => setDocDate(e.target.value)} /></div>
           <div className="field"><label>Number of pallets</label>
