@@ -25,8 +25,10 @@ export default function OrderDetailPage() {
   const [lhIndex, setLhIndex] = useState(0)
   const [docNo, setDocNo] = useState('')
   const [docDate, setDocDate] = useState(new Date().toISOString().slice(0, 10))
+  const [invoiceTo, setInvoiceTo] = useState('')
   const [options, setOptions] = useState('')
   const [pallets, setPallets] = useState('')
+  const [palletsFlash, setPalletsFlash] = useState(false)
   const [showHazard, setShowHazard] = useState(true)
 
   useEffect(() => {
@@ -46,6 +48,7 @@ export default function OrderDetailPage() {
         (l) => l.name.toLowerCase().includes('midland') || l.company.toLowerCase().includes('midland')
       )
       setLhIndex(midlandIdx >= 0 ? midlandIdx : 0)
+      setInvoiceTo(o.data?.customer_snapshot?.deliver || '')
 
       setDocNo((o.data?.order_no || 'DN-1001').replace(/^ORD/, 'DN'))
       const dn = await supabase.from('dispatch_notes').select('doc_no').order('created_at', { ascending: false }).limit(1)
@@ -108,10 +111,17 @@ ${items.map((it) => `  <li>${it.name}${it.pack ? ` — ${it.qty} x ${it.pack}` :
   async function createDispatch() {
     const lh = letterheads[lhIndex]
     if (!lh) { alert('Add a letterhead first (Letterheads tab).'); return }
+    if (!pallets || parseInt(pallets, 10) <= 0) {
+      setPalletsFlash(true)
+      setTimeout(() => setPalletsFlash(false), 1200)
+      toast('Please enter number of pallets')
+      return
+    }
     const docData = {
       type: 'Delivery Note', docNo, date: docDate,
+      invoiceTo,
       customer: order.customer_snapshot?.details || '',
-      deliver: order.customer_snapshot?.deliver || '',
+      customerName: order.customer_snapshot?.name || '',
       lines, options, pallets, showHazard,
     }
     const { totals } = generateDispatchPDF(docData, lh, products, packaging)
@@ -126,7 +136,7 @@ ${items.map((it) => `  <li>${it.name}${it.pack ? ` — ${it.qty} x ${it.pack}` :
     const { data: { user } } = await supabase.auth.getUser()
     await supabase.from('dispatch_notes').insert({
       doc_no: docNo, doc_type: 'Delivery Note', doc_date: docDate, order_id: id,
-      letterhead_snapshot: lh, customer: docData.customer, deliver: docData.deliver,
+      letterhead_snapshot: lh, customer: docData.customer, deliver: invoiceTo,
       lines_snapshot: linesSnap, totals, options, created_by: user?.id || null,
     })
     await supabase.from('orders').update({ status: 'Delivery Note Generated' }).eq('id', id)
@@ -189,22 +199,28 @@ ${items.map((it) => `  <li>${it.name}${it.pack ? ` — ${it.qty} x ${it.pack}` :
             <select value={lhIndex} onChange={(e) => setLhIndex(+e.target.value)}>
               {letterheads.map((l, i) => <option key={l.id} value={i}>{l.name} — {l.company}</option>)}
             </select></div>
-          <div className="field"><label>Doc no.</label>
+          <div className="field"><label>Delivery Note Number</label>
             <input className="mono" value={docNo} onChange={(e) => setDocNo(e.target.value)} /></div>
           <div className="field"><label>Date</label>
             <input className="mono" type="date" value={docDate} onChange={(e) => setDocDate(e.target.value)} /></div>
           <div className="field"><label>Number of pallets</label>
-            <input className="mono" type="number" min="0" value={pallets} onChange={(e) => setPallets(e.target.value)} placeholder="0" /></div>
+            <input
+              className={'mono' + (palletsFlash ? ' flash-error' : '')}
+              type="number" min="0" value={pallets}
+              onChange={(e) => { setPallets(e.target.value); setPalletsFlash(false) }}
+              placeholder="required" /></div>
         </div>
-        <div className="row c2">
+        <div className="row c2" style={{ marginBottom: 10 }}>
+          <div className="field"><label>Invoice To (on PDF)</label>
+            <textarea value={invoiceTo} onChange={(e) => setInvoiceTo(e.target.value)} style={{ minHeight: 62 }} /></div>
           <div className="field"><label>Additional options / notes on the note</label>
-            <textarea value={options} onChange={(e) => setOptions(e.target.value)} placeholder="e.g. tail-lift required, deliver before noon…" style={{ minHeight: 46 }} /></div>
-          <div className="field" style={{ display: 'flex', alignItems: 'flex-end', paddingBottom: 2 }}>
-            <label style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: 8, textTransform: 'none', letterSpacing: 0, fontSize: 13 }}>
-              <input type="checkbox" checked={showHazard} onChange={(e) => setShowHazard(e.target.checked)} style={{ width: 'auto', height: 16, accentColor: 'var(--accent)' }} />
-              Include hazard summary on PDF
-            </label>
-          </div>
+            <textarea value={options} onChange={(e) => setOptions(e.target.value)} placeholder="e.g. tail-lift required, deliver before noon…" style={{ minHeight: 62 }} /></div>
+        </div>
+        <div style={{ marginBottom: 14 }}>
+          <label style={{ display: 'inline-flex', flexDirection: 'row', alignItems: 'center', gap: 8, textTransform: 'none', letterSpacing: 0, fontSize: 13, cursor: 'pointer' }}>
+            <input type="checkbox" checked={showHazard} onChange={(e) => setShowHazard(e.target.checked)} style={{ width: 'auto', height: 16, accentColor: 'var(--accent)' }} />
+            Include hazard summary on PDF
+          </label>
         </div>
         <button className="btn btn-a" onClick={createDispatch}>Generate delivery note</button>
       </div>
