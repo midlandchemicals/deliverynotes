@@ -118,8 +118,8 @@ export default function OrderDetailPage() {
 
       <div className="card">
         <div className="ttl">
-          <h2>Lines</h2>
-          <button className="btn btn-g btn-sm" onClick={saveLines}>Save line edits</button>
+          <h2>Products</h2>
+          <button className="btn btn-g btn-sm" onClick={saveLines}>Save products</button>
         </div>
         <LineEditor lines={lines} setLines={setLines} products={products} packaging={packaging} />
         <p className="hint">Totals: {totals.packages} packages · {fmt(totals.volume)} L · net {fmt(totals.net)} kg · gross {fmt(totals.gross)} kg</p>

@@ -1,52 +1,65 @@
 'use client'
 import { useState, useRef, useEffect } from 'react'
+import { createPortal } from 'react-dom'
 import { computeLine, fmt } from '@/lib/calc'
 
 function InlineCombo({ options, value, onChange }) {
   const [query, setQuery] = useState('')
   const [open, setOpen] = useState(false)
-  const ref = useRef(null)
+  const [dropStyle, setDropStyle] = useState(null)
+  const wrapRef = useRef(null)
+  const inputRef = useRef(null)
   const selected = options.find((o) => o.id === value)
   const filtered = query
     ? options.filter((o) => o.label.toLowerCase().includes(query.toLowerCase()))
     : options
 
+  function calcDrop() {
+    if (inputRef.current) {
+      const r = inputRef.current.getBoundingClientRect()
+      setDropStyle({ position: 'fixed', top: r.bottom + 4, left: r.left, width: Math.max(r.width, 200), zIndex: 9999 })
+    }
+  }
+
   useEffect(() => {
     function handleClick(e) {
-      if (ref.current && !ref.current.contains(e.target)) { setOpen(false); setQuery('') }
+      if (wrapRef.current && !wrapRef.current.contains(e.target)) { setOpen(false); setQuery('') }
     }
     document.addEventListener('mousedown', handleClick)
     return () => document.removeEventListener('mousedown', handleClick)
   }, [])
 
+  const dropdown = open && filtered.length > 0 && dropStyle ? createPortal(
+    <div className="combo-list" style={dropStyle}>
+      {filtered.map((opt) => (
+        <div
+          key={opt.id}
+          className={'combo-item' + (opt.id === value ? ' sel' : '')}
+          onMouseDown={() => { onChange(opt.id); setQuery(''); setOpen(false) }}
+        >
+          {opt.label}
+        </div>
+      ))}
+    </div>,
+    document.body
+  ) : null
+
   return (
-    <div ref={ref} style={{ position: 'relative' }}>
+    <div ref={wrapRef}>
       <input
+        ref={inputRef}
         value={open ? query : (selected?.label || '')}
-        onChange={(e) => { setQuery(e.target.value); setOpen(true) }}
-        onFocus={() => { setOpen(true); setQuery('') }}
+        onChange={(e) => { setQuery(e.target.value); calcDrop(); setOpen(true) }}
+        onFocus={() => { calcDrop(); setOpen(true); setQuery('') }}
         placeholder="Search…"
         autoComplete="off"
         style={{ fontSize: 12.5, padding: '7px 8px' }}
       />
-      {open && filtered.length > 0 && (
-        <div className="combo-list">
-          {filtered.map((opt) => (
-            <div
-              key={opt.id}
-              className={'combo-item' + (opt.id === value ? ' sel' : '')}
-              onMouseDown={() => { onChange(opt.id); setQuery(''); setOpen(false) }}
-            >
-              {opt.label}
-            </div>
-          ))}
-        </div>
-      )}
+      {dropdown}
     </div>
   )
 }
 
-// A controlled editor for an array of { productId, packagingId, qty } lines.
 export default function LineEditor({ lines, setLines, products, packaging }) {
   function update(i, k, v) {
     const next = lines.map((l, idx) => (idx === i ? { ...l, [k]: v } : l))
@@ -108,7 +121,7 @@ export default function LineEditor({ lines, setLines, products, packaging }) {
           })}
         </tbody>
       </table>
-      <button type="button" className="addrow" onClick={add}>+ Add line</button>
+      <button type="button" className="addrow" onClick={add}>+ Add product</button>
     </div>
   )
 }
