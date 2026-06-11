@@ -72,7 +72,10 @@ export default function LineEditor({ lines, setLines, products, packaging }) {
     setLines(lines.filter((_, idx) => idx !== i))
   }
 
-  const productOptions = products.map((p) => ({ id: p.id, label: p.name }))
+  const productOptions = products.map((p) => ({
+    id: p.id,
+    label: p.category ? `${p.name} (${p.category})` : p.name,
+  }))
   const packagingOptions = packaging.map((k) => ({ id: k.id, label: k.name }))
 
   return (
