@@ -27,6 +27,7 @@ export default function OrderDetailPage() {
   const [docDate, setDocDate] = useState(new Date().toISOString().slice(0, 10))
   const [options, setOptions] = useState('')
   const [pallets, setPallets] = useState('')
+  const [showHazard, setShowHazard] = useState(true)
 
   useEffect(() => {
     (async () => {
@@ -94,7 +95,7 @@ b{font-weight:700}
 </div>
 <div class="ph">Products</div>
 <ul>
-${items.map((it) => `  <li><b>${it.qty}×</b> ${it.name}${it.pack ? ` — ${it.pack}` : ''}</li>`).join('\n')}
+${items.map((it) => `  <li>${it.name}${it.pack ? ` — ${it.qty} x ${it.pack}` : ` (qty ${it.qty})`}</li>`).join('\n')}
 </ul>
 </body></html>`
     const w = window.open('', '_blank', 'width=420,height=600')
@@ -111,7 +112,7 @@ ${items.map((it) => `  <li><b>${it.qty}×</b> ${it.name}${it.pack ? ` — ${it.p
       type: 'Delivery Note', docNo, date: docDate,
       customer: order.customer_snapshot?.details || '',
       deliver: order.customer_snapshot?.deliver || '',
-      lines, options, pallets,
+      lines, options, pallets, showHazard,
     }
     const { totals } = generateDispatchPDF(docData, lh, products, packaging)
     const linesSnap = lines.map((l) => {
@@ -195,9 +196,15 @@ ${items.map((it) => `  <li><b>${it.qty}×</b> ${it.name}${it.pack ? ` — ${it.p
           <div className="field"><label>Number of pallets</label>
             <input className="mono" type="number" min="0" value={pallets} onChange={(e) => setPallets(e.target.value)} placeholder="0" /></div>
         </div>
-        <div className="row">
+        <div className="row c2">
           <div className="field"><label>Additional options / notes on the note</label>
             <textarea value={options} onChange={(e) => setOptions(e.target.value)} placeholder="e.g. tail-lift required, deliver before noon…" style={{ minHeight: 46 }} /></div>
+          <div className="field" style={{ display: 'flex', alignItems: 'flex-end', paddingBottom: 2 }}>
+            <label style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: 8, textTransform: 'none', letterSpacing: 0, fontSize: 13 }}>
+              <input type="checkbox" checked={showHazard} onChange={(e) => setShowHazard(e.target.checked)} style={{ width: 'auto', height: 16, accentColor: 'var(--accent)' }} />
+              Include hazard summary on PDF
+            </label>
+          </div>
         </div>
         <button className="btn btn-a" onClick={createDispatch}>Generate delivery note</button>
       </div>
