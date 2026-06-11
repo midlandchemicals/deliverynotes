@@ -74,16 +74,19 @@ export default function OrdersPage() {
             <div key={o.id} className="list-row" onClick={() => router.push(`/orders/${o.id}`)} style={{ cursor: 'pointer' }}>
               <div>
                 <div className="ono">{o.order_no} <StatusBadge status={o.status} /></div>
-                {productSummary(o) ? (
-                  <div style={{ color: 'var(--accent)', fontSize: 13.5, fontWeight: 600, margin: '3px 0' }}>
-                    {productSummary(o)}
+                {(o.lines || []).length > 0 && (
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, margin: '5px 0 2px' }}>
+                    {(o.lines || []).map((l, i) => {
+                      const name = nameOf(l.productId)
+                      return name ? <span key={i} className="prod-tag">{name}</span> : null
+                    })}
                   </div>
-                ) : null}
+                )}
                 <div className="meta">
                   {o.customer_snapshot?.name || '—'}
                   {o.po_ref ? ` · Customer Order: ${o.po_ref}` : ''} · ordered {prettyDate(o.order_date)}
                   {o.requested_date ? ` · wanted ${prettyDate(o.requested_date)}` : ''}
-                  {` · ${(o.lines || []).length} line(s)`}
+                  {` · ${(o.lines || []).length} product(s)`}
                 </div>
               </div>
               <button className="btn-dl" onClick={(e) => remove(e, o)} title="Delete">×</button>

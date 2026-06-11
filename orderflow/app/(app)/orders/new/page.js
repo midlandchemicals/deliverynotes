@@ -108,7 +108,7 @@ export default function NewOrderPage() {
       </div>
 
       <div className="card">
-        <div className="ttl"><h2>Order lines</h2></div>
+        <div className="ttl"><h2>Products</h2></div>
         <LineEditor lines={lines} setLines={setLines} products={products} packaging={packaging} />
       </div>
 

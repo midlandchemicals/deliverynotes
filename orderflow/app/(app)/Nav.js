@@ -1,6 +1,5 @@
 'use client'
 import Link from 'next/link'
-import Image from 'next/image'
 import { usePathname, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 
@@ -31,7 +30,8 @@ export default function Nav({ email }) {
   return (
     <div className="topbar">
       <Link href="/" className="brand">
-        <Image src="/logo.png" alt="Logo" width={36} height={36} style={{ borderRadius: 6 }} priority />
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src="/logo.png" alt="Logo" style={{ height: 44, width: 'auto', display: 'block' }} />
         <span>Order<b>Flow</b></span>
       </Link>
       <nav className="nav">
