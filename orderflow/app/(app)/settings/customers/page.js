@@ -16,7 +16,7 @@ export default function CustomersPage() {
     await supabase.from('customers').update(patch).eq('id', id)
   }
   async function add() {
-    const { data } = await supabase.from('customers').insert({ name: 'New customer', details: '', deliver: '' }).select('*').single()
+    const { data } = await supabase.from('customers').insert({ name: 'New customer', details: '', deliver: '', contact_name: '', email: '', phone: '' }).select('*').single()
     setRows((r) => [...r, data])
   }
   async function remove(id) {
@@ -31,17 +31,23 @@ export default function CustomersPage() {
       <div className="ttl"><h2>Address Book</h2></div>
       <table className="tbl">
         <thead><tr>
-          <th style={{ width: '24%' }}>Name</th>
-          <th style={{ width: '36%' }}>Details</th>
-          <th style={{ width: '36%' }}>Default delivery</th>
+          <th style={{ width: '16%' }}>Name</th>
+          <th style={{ width: '24%' }}>Invoice to</th>
+          <th style={{ width: '24%' }}>Delivery address</th>
+          <th style={{ width: '32%' }}>Contact (name / email / phone)</th>
           <th style={{ width: '4%' }}></th>
         </tr></thead>
         <tbody>
           {rows.map((it) => (
             <tr key={it.id}>
               <td><input value={it.name} onChange={(e) => update(it.id, { name: e.target.value })} /></td>
-              <td><textarea style={{ minHeight: 54 }} value={it.details || ''} onChange={(e) => update(it.id, { details: e.target.value })} /></td>
-              <td><textarea style={{ minHeight: 54 }} value={it.deliver || ''} onChange={(e) => update(it.id, { deliver: e.target.value })} /></td>
+              <td><textarea style={{ minHeight: 72 }} value={it.details || ''} onChange={(e) => update(it.id, { details: e.target.value })} /></td>
+              <td><textarea style={{ minHeight: 72 }} value={it.deliver || ''} onChange={(e) => update(it.id, { deliver: e.target.value })} /></td>
+              <td>
+                <input style={{ marginBottom: 5 }} placeholder="Contact name" value={it.contact_name || ''} onChange={(e) => update(it.id, { contact_name: e.target.value })} />
+                <input style={{ marginBottom: 5 }} placeholder="Email" value={it.email || ''} onChange={(e) => update(it.id, { email: e.target.value })} />
+                <input placeholder="Telephone" value={it.phone || ''} onChange={(e) => update(it.id, { phone: e.target.value })} />
+              </td>
               <td><button className="btn-dl" onClick={() => remove(it.id)}>×</button></td>
             </tr>
           ))}
