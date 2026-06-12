@@ -46,6 +46,9 @@ function drawHazardBox(doc, startY, groups, r, g, b, M) {
   const totalLines = entries.reduce((n, _, i) => n + 2 + psnLines[i].length, 0) + Math.max(0, entries.length - 1)
   const boxH = 9 + totalLines * lhPx
 
+  // Never collide with the signature block (pinned at 265) — overflow to a new page
+  if (startY + 3 + boxH > 258) { doc.addPage(); startY = 20 }
+
   doc.setFont('helvetica', 'bold').setFontSize(8).setTextColor(r, g, b)
   doc.text('HAZARDOUS GOODS SUMMARY', M, startY)
   startY += 3
@@ -176,7 +179,8 @@ export function generateDispatchPDF(doc_, lh, products, packaging) {
   // Product and packaging merged into one column for readability
   autoTable(doc, {
     startY: cy,
-    margin: { left: M, right: M },
+    // bottom margin keeps table rows clear of the pinned signature block
+    margin: { left: M, right: M, bottom: 45 },
     head: [['#', 'Batch', 'Product', 'Hazard / UN', 'Net (kg)', 'Gross (kg)']],
     body: doc_.lines.map((l, i) => {
       const c = computeLine(l, products, packaging)
@@ -207,6 +211,7 @@ export function generateDispatchPDF(doc_, lh, products, packaging) {
     { label: 'Total gross weight', val: fmt(grossTotal) + ' kg',  bold: true  },
   ]
   if (pallets > 0) totRows.push({ label: 'Total pallets', val: String(pallets), bold: true })
+  if (ty + totRows.length * 6 > 258) { doc.addPage(); ty = 20 }
   totRows.forEach(({ label, val, bold }) => {
     doc.setFont('helvetica', bold ? 'bold' : 'normal').setFontSize(bold ? 12 : 11).setTextColor(40, 40, 40)
     doc.text(label, tx, ty); doc.text(val, W - M, ty, { align: 'right' }); ty += 6
@@ -215,10 +220,12 @@ export function generateDispatchPDF(doc_, lh, products, packaging) {
   // ── Notes ─────────────────────────────────────────────────────────────────
   if (doc_.options) {
     ty += 3
+    const noteLines = doc.splitTextToSize(doc_.options, W - 2 * M)
+    if (ty + 5 + noteLines.length * 4.5 > 258) { doc.addPage(); ty = 20 }
     doc.setFont('helvetica', 'bold').setFontSize(8.5).setTextColor(r, g, b).text('NOTES', M, ty)
     doc.setFont('helvetica', 'normal').setFontSize(9.5).setTextColor(40, 40, 40)
-      .text(doc.splitTextToSize(doc_.options, W - 2 * M), M, ty + 5)
-    ty += 5 + doc.splitTextToSize(doc_.options, W - 2 * M).length * 4.5 + 3
+      .text(noteLines, M, ty + 5)
+    ty += 5 + noteLines.length * 4.5 + 3
   }
 
   // ── Hazard summary box (optional) ─────────────────────────────────────────
@@ -311,7 +318,7 @@ export function reprintPDF(d) {
 
     // ── Table ────────────────────────────────────────────────────────────────
     autoTable(doc, {
-      startY: cy, margin: { left: M, right: M },
+      startY: cy, margin: { left: M, right: M, bottom: 45 },
       head: [['#', 'Batch', 'Product', 'Hazard / UN', 'Net (kg)', 'Gross (kg)']],
       body: (d.lines_snapshot || []).map((s, i) => {
         const hazard = s.hazard || (s.un_number ? `${s.un_number} · ${s.pg}` : (s.pg || '—'))
@@ -342,6 +349,7 @@ export function reprintPDF(d) {
     ]
     // Stored gross already includes pallet weight (20 kg each)
     if (pallets > 0) totRows.push({ label: 'Total pallets', val: String(pallets), bold: true })
+    if (ty + totRows.length * 6 > 258) { doc.addPage(); ty = 20 }
     totRows.forEach(({ label, val, bold }) => {
       doc.setFont('helvetica', bold ? 'bold' : 'normal').setFontSize(bold ? 12 : 11).setTextColor(40, 40, 40)
       doc.text(label, tx, ty); doc.text(val, W - M, ty, { align: 'right' }); ty += 6
@@ -350,10 +358,12 @@ export function reprintPDF(d) {
     // ── Notes ────────────────────────────────────────────────────────────────
     if (d.options) {
       ty += 3
+      const noteLines = doc.splitTextToSize(d.options, W - 2 * M)
+      if (ty + 5 + noteLines.length * 4.5 > 258) { doc.addPage(); ty = 20 }
       doc.setFont('helvetica', 'bold').setFontSize(8.5).setTextColor(r, g, b).text('NOTES', M, ty)
       doc.setFont('helvetica', 'normal').setFontSize(9.5).setTextColor(40, 40, 40)
-        .text(doc.splitTextToSize(d.options, W - 2 * M), M, ty + 5)
-      ty += 5 + doc.splitTextToSize(d.options, W - 2 * M).length * 4.5 + 3
+        .text(noteLines, M, ty + 5)
+      ty += 5 + noteLines.length * 4.5 + 3
     }
 
     // ── Hazard box ───────────────────────────────────────────────────────────
@@ -368,6 +378,9 @@ export function reprintPDF(d) {
         const psnLines = entries.map(([, v]) => (v.psn ? doc.splitTextToSize(v.psn, boxW - 8) : []))
         const totalLines = entries.reduce((n, _, i) => n + 2 + psnLines[i].length, 0) + Math.max(0, entries.length - 1)
         const boxH = 9 + totalLines * lhPx
+
+        // Never collide with the signature block (pinned at 265) — overflow to a new page
+        if (ty + 3 + boxH > 258) { doc.addPage(); ty = 20 }
 
         doc.setFont('helvetica', 'bold').setFontSize(8).setTextColor(r, g, b)
         doc.text('HAZARDOUS GOODS SUMMARY', M, ty); ty += 3
