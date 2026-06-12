@@ -8,6 +8,21 @@ function hexToRgb(h) {
   return [parseInt(m.slice(0, 2), 16), parseInt(m.slice(2, 4), 16), parseInt(m.slice(4, 6), 16)]
 }
 
+// Join consecutive short address lines so addresses read across rather than down.
+// "Farthing Road\nIpswich\nIP1 5AP" → "Farthing Road, Ipswich, IP1 5AP"
+function compactAddress(text, maxLen = 52) {
+  const lines = String(text || '').split('\n').map((l) => l.trim()).filter(Boolean)
+  const out = []
+  let cur = ''
+  for (const line of lines) {
+    if (!cur) { cur = line }
+    else if ((cur + ', ' + line).length <= maxLen) { cur += ', ' + line }
+    else { out.push(cur); cur = line }
+  }
+  if (cur) out.push(cur)
+  return out.join('\n')
+}
+
 // Build hazard groups — exclude non-hazardous (key === '—')
 function hazardGroups(lines, products, packaging) {
   const map = {}
@@ -156,12 +171,12 @@ export function generateDispatchPDF(doc_, lh, products, packaging) {
   // Generous inner padding so the boxes don't crowd the text
   function block(x, title, text, yPos = cy) {
     doc.setDrawColor(r, g, b).setLineWidth(0.25)
-    const bLines = doc.splitTextToSize(text || '', colW - 11)
-    const h = 12.5 + bLines.length * 4.2
+    const bLines = doc.splitTextToSize(compactAddress(text || ''), colW - 10)
+    const h = 11 + bLines.length * 3.9
     doc.roundedRect(x, yPos, colW, h, 2, 2, 'S')
-    doc.setFont('helvetica', 'bold').setFontSize(7).setTextColor(r, g, b).text(title.toUpperCase(), x + 5.5, yPos + 6.5)
-    doc.setFont('helvetica', 'normal').setFontSize(8.5).setTextColor(25, 25, 25)
-      .text(bLines, x + 5.5, yPos + 12.5, { lineHeightFactor: 1.4 })
+    doc.setFont('helvetica', 'bold').setFontSize(7).setTextColor(r, g, b).text(title.toUpperCase(), x + 5, yPos + 5.5)
+    doc.setFont('helvetica', 'normal').setFontSize(8).setTextColor(25, 25, 25)
+      .text(bLines, x + 5, yPos + 10.5, { lineHeightFactor: 1.25 })
     return h
   }
   const rightX = M + colW + 5
@@ -181,20 +196,19 @@ export function generateDispatchPDF(doc_, lh, products, packaging) {
     startY: cy,
     // bottom margin keeps table rows clear of the pinned signature block
     margin: { left: M, right: M, bottom: 45 },
-    head: [['#', 'Batch', 'Product', 'Hazard / UN', 'Net (kg)', 'Gross (kg)']],
+    head: [['Batch', 'Product', 'Hazard / UN', 'Net (kg)', 'Gross (kg)']],
     body: doc_.lines.map((l, i) => {
       const c = computeLine(l, products, packaging)
       const desc = c.packaging?.name ? `${c.productName} — ${c.qty} x ${c.packaging.name}` : c.productName
-      return [i + 1, (doc_.batches && doc_.batches[i]) || '', desc, c.hazard, fmt(c.net), fmt(c.gross)]
+      return [(doc_.batches && doc_.batches[i]) || '', desc, c.hazard, fmt(c.net), fmt(c.gross)]
     }),
-    styles: { font: 'helvetica', fontSize: 10, cellPadding: 2.5, lineColor: [210, 220, 215], lineWidth: 0.15 },
-    headStyles: { fillColor: [r, g, b], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 9 },
+    styles: { font: 'helvetica', fontSize: 9, cellPadding: 1.6, lineColor: [210, 220, 215], lineWidth: 0.15 },
+    headStyles: { fillColor: [r, g, b], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 8 },
     columnStyles: {
-      0: { cellWidth: 9, halign: 'center' },
-      1: { cellWidth: 24 },
-      3: { cellWidth: 30 },
-      4: { halign: 'right' },
-      5: { halign: 'right', fontStyle: 'bold' },
+      0: { cellWidth: 20 },
+      2: { cellWidth: 32 },
+      3: { halign: 'right' },
+      4: { halign: 'right', fontStyle: 'bold' },
     },
     alternateRowStyles: { fillColor: [242, 249, 245] },
   })
@@ -297,12 +311,12 @@ export function reprintPDF(d) {
 
     function block(x, title, text, yPos = cy) {
       doc.setDrawColor(r, g, b).setLineWidth(0.25)
-      const bLines = doc.splitTextToSize(text || '', colW - 11)
-      const h = 12.5 + bLines.length * 4.2
+      const bLines = doc.splitTextToSize(compactAddress(text || ''), colW - 10)
+      const h = 11 + bLines.length * 3.9
       doc.roundedRect(x, yPos, colW, h, 2, 2, 'S')
-      doc.setFont('helvetica', 'bold').setFontSize(7).setTextColor(r, g, b).text(title.toUpperCase(), x + 5.5, yPos + 6.5)
-      doc.setFont('helvetica', 'normal').setFontSize(8.5).setTextColor(25, 25, 25)
-        .text(bLines, x + 5.5, yPos + 12.5, { lineHeightFactor: 1.4 })
+      doc.setFont('helvetica', 'bold').setFontSize(7).setTextColor(r, g, b).text(title.toUpperCase(), x + 5, yPos + 5.5)
+      doc.setFont('helvetica', 'normal').setFontSize(8).setTextColor(25, 25, 25)
+        .text(bLines, x + 5, yPos + 10.5, { lineHeightFactor: 1.25 })
       return h
     }
     const rightX = M + colW + 5
@@ -319,19 +333,18 @@ export function reprintPDF(d) {
     // ── Table ────────────────────────────────────────────────────────────────
     autoTable(doc, {
       startY: cy, margin: { left: M, right: M, bottom: 45 },
-      head: [['#', 'Batch', 'Product', 'Hazard / UN', 'Net (kg)', 'Gross (kg)']],
-      body: (d.lines_snapshot || []).map((s, i) => {
+      head: [['Batch', 'Product', 'Hazard / UN', 'Net (kg)', 'Gross (kg)']],
+      body: (d.lines_snapshot || []).map((s) => {
         const hazard = s.hazard || (s.un_number ? `${s.un_number} · ${s.pg}` : (s.pg || '—'))
-        // Use stored packDesc; format as "Name — N x Pack" if it has the old "N × Pack" style
         const packInfo = s.packDesc ? s.packDesc.replace('×', 'x') : ''
         const desc = packInfo ? `${s.productName} — ${packInfo}` : s.productName
-        return [i + 1, s.batch || '', desc, hazard, n2(s.net), n2(s.gross)]
+        return [s.batch || '', desc, hazard, n2(s.net), n2(s.gross)]
       }),
-      styles: { font: 'helvetica', fontSize: 10, cellPadding: 2.5, lineColor: [210, 220, 215], lineWidth: 0.15 },
-      headStyles: { fillColor: [r, g, b], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 9 },
+      styles: { font: 'helvetica', fontSize: 9, cellPadding: 1.6, lineColor: [210, 220, 215], lineWidth: 0.15 },
+      headStyles: { fillColor: [r, g, b], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 8 },
       columnStyles: {
-        0: { cellWidth: 9, halign: 'center' }, 1: { cellWidth: 24 }, 3: { cellWidth: 30 },
-        4: { halign: 'right' }, 5: { halign: 'right', fontStyle: 'bold' },
+        0: { cellWidth: 20 }, 2: { cellWidth: 32 },
+        3: { halign: 'right' }, 4: { halign: 'right', fontStyle: 'bold' },
       },
       alternateRowStyles: { fillColor: [242, 249, 245] },
     })
