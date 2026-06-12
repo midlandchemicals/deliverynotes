@@ -102,6 +102,7 @@ export function computeLine(line, products, packaging) {
     pg,
     un_number: un,
     hazard,
+    psn: p?.adr_psn || '',
     packDesc: k ? `${qty} × ${k.name}` : `${qty} ×`,
   }
 }

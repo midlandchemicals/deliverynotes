@@ -15,7 +15,7 @@ function hazardGroups(lines, products, packaging) {
     const c = computeLine(l, products, packaging)
     const key = c.hazard || '—'
     if (key === '—') return
-    if (!map[key]) map[key] = { vol: 0, net: 0, gross: 0 }
+    if (!map[key]) map[key] = { vol: 0, net: 0, gross: 0, psn: c.psn || '' }
     map[key].vol += c.totalVol; map[key].net += c.net; map[key].gross += c.gross
   })
   return map
@@ -26,7 +26,7 @@ function hazardGroupsFromSnap(snap) {
   ;(snap || []).forEach((s) => {
     const key = s.hazard || (s.un_number ? `${s.un_number} · ${s.pg}` : (s.pg || '—'))
     if (key === '—') return
-    if (!map[key]) map[key] = { vol: 0, net: 0, gross: 0 }
+    if (!map[key]) map[key] = { vol: 0, net: 0, gross: 0, psn: s.psn || '' }
     map[key].vol += s.vol || 0; map[key].net += s.net || 0; map[key].gross += s.gross || 0
   })
   return map
@@ -39,8 +39,11 @@ function drawHazardBox(doc, startY, groups, r, g, b, M) {
 
   const boxW = 120
   const lhPx = 5
-  // count lines per entry: 2 text lines + 1 divider (except last)
-  const totalLines = entries.length * 2 + Math.max(0, entries.length - 1)
+  // Proper shipping name lines wrap within the box width
+  doc.setFontSize(8.5)
+  const psnLines = entries.map(([, v]) => (v.psn ? doc.splitTextToSize(v.psn, boxW - 8) : []))
+  // lines per entry: notation + PSN lines + stats, plus a divider between entries
+  const totalLines = entries.reduce((n, _, i) => n + 2 + psnLines[i].length, 0) + Math.max(0, entries.length - 1)
   const boxH = 9 + totalLines * lhPx
 
   doc.setFont('helvetica', 'bold').setFontSize(8).setTextColor(r, g, b)
@@ -55,6 +58,10 @@ function drawHazardBox(doc, startY, groups, r, g, b, M) {
   entries.forEach(([hazard, v], i) => {
     doc.setFont('helvetica', 'bold').setFontSize(10).setTextColor(20, 20, 20)
     doc.text(hazard, M + 4, ty); ty += lhPx
+    if (psnLines[i].length) {
+      doc.setFont('helvetica', 'italic').setFontSize(8.5).setTextColor(60, 60, 60)
+      psnLines[i].forEach((ln) => { doc.text(ln, M + 4, ty); ty += lhPx })
+    }
     doc.setFont('helvetica', 'normal').setFontSize(9).setTextColor(50, 50, 50)
     doc.text(`Vol: ${fmt(v.vol)} L  ·  Net: ${fmt(v.net)} kg  ·  Gross: ${fmt(v.gross)} kg`, M + 4, ty)
     ty += lhPx
@@ -356,9 +363,11 @@ export function reprintPDF(d) {
       const entries = Object.entries(groups)
       if (entries.length) {
         const lhPx = 5
-        const totalLines = entries.length * 2 + Math.max(0, entries.length - 1)
-        const boxH = 9 + totalLines * lhPx
         const boxW = 120
+        doc.setFontSize(8.5)
+        const psnLines = entries.map(([, v]) => (v.psn ? doc.splitTextToSize(v.psn, boxW - 8) : []))
+        const totalLines = entries.reduce((n, _, i) => n + 2 + psnLines[i].length, 0) + Math.max(0, entries.length - 1)
+        const boxH = 9 + totalLines * lhPx
 
         doc.setFont('helvetica', 'bold').setFontSize(8).setTextColor(r, g, b)
         doc.text('HAZARDOUS GOODS SUMMARY', M, ty); ty += 3
@@ -370,6 +379,10 @@ export function reprintPDF(d) {
         entries.forEach(([hazard, v], idx) => {
           doc.setFont('helvetica', 'bold').setFontSize(10).setTextColor(20, 20, 20)
           doc.text(hazard, M + 4, bty); bty += lhPx
+          if (psnLines[idx].length) {
+            doc.setFont('helvetica', 'italic').setFontSize(8.5).setTextColor(60, 60, 60)
+            psnLines[idx].forEach((ln) => { doc.text(ln, M + 4, bty); bty += lhPx })
+          }
           doc.setFont('helvetica', 'normal').setFontSize(9).setTextColor(50, 50, 50)
           const volStr = v.vol > 0 ? n2(v.vol) + ' L' : '—'
           doc.text(`Vol: ${volStr}  ·  Net: ${n2(v.net)} kg  ·  Gross: ${n2(v.gross)} kg`, M + 4, bty)
