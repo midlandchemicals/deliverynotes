@@ -143,13 +143,15 @@ export function generateDispatchPDF(doc_, lh, products, packaging) {
   const colW = (W - 2 * M - 5) / 2
 
   // ── Invoice To + Deliver To (+ contact) blocks ────────────────────────────
+  // Generous inner padding so the boxes don't crowd the text
   function block(x, title, text, yPos = cy) {
     doc.setDrawColor(r, g, b).setLineWidth(0.25)
-    const bLines = doc.splitTextToSize(text || '', colW - 6)
-    const h = 7 + bLines.length * 3.5
-    doc.roundedRect(x, yPos, colW, h, 1.5, 1.5, 'S')
-    doc.setFont('helvetica', 'bold').setFontSize(7).setTextColor(r, g, b).text(title.toUpperCase(), x + 3, yPos + 5)
-    doc.setFont('helvetica', 'normal').setFontSize(8.5).setTextColor(25, 25, 25).text(bLines, x + 3, yPos + 10)
+    const bLines = doc.splitTextToSize(text || '', colW - 11)
+    const h = 12.5 + bLines.length * 4.2
+    doc.roundedRect(x, yPos, colW, h, 2, 2, 'S')
+    doc.setFont('helvetica', 'bold').setFontSize(7).setTextColor(r, g, b).text(title.toUpperCase(), x + 5.5, yPos + 6.5)
+    doc.setFont('helvetica', 'normal').setFontSize(8.5).setTextColor(25, 25, 25)
+      .text(bLines, x + 5.5, yPos + 12.5, { lineHeightFactor: 1.4 })
     return h
   }
   const rightX = M + colW + 5
@@ -197,7 +199,7 @@ export function generateDispatchPDF(doc_, lh, products, packaging) {
     { label: 'Total net weight',   val: fmt(t.net) + ' kg',       bold: false },
     { label: 'Total gross weight', val: fmt(grossTotal) + ' kg',  bold: true  },
   ]
-  if (pallets > 0) totRows.push({ label: 'Total pallets', val: `${pallets} (+${palletKg} kg)`, bold: true })
+  if (pallets > 0) totRows.push({ label: 'Total pallets', val: String(pallets), bold: true })
   totRows.forEach(({ label, val, bold }) => {
     doc.setFont('helvetica', bold ? 'bold' : 'normal').setFontSize(bold ? 12 : 11).setTextColor(40, 40, 40)
     doc.text(label, tx, ty); doc.text(val, W - M, ty, { align: 'right' }); ty += 6
@@ -281,11 +283,12 @@ export function reprintPDF(d) {
 
     function block(x, title, text, yPos = cy) {
       doc.setDrawColor(r, g, b).setLineWidth(0.25)
-      const bLines = doc.splitTextToSize(text || '', colW - 6)
-      const h = 7 + bLines.length * 3.5
-      doc.roundedRect(x, yPos, colW, h, 1.5, 1.5, 'S')
-      doc.setFont('helvetica', 'bold').setFontSize(7).setTextColor(r, g, b).text(title.toUpperCase(), x + 3, yPos + 5)
-      doc.setFont('helvetica', 'normal').setFontSize(8.5).setTextColor(25, 25, 25).text(bLines, x + 3, yPos + 10)
+      const bLines = doc.splitTextToSize(text || '', colW - 11)
+      const h = 12.5 + bLines.length * 4.2
+      doc.roundedRect(x, yPos, colW, h, 2, 2, 'S')
+      doc.setFont('helvetica', 'bold').setFontSize(7).setTextColor(r, g, b).text(title.toUpperCase(), x + 5.5, yPos + 6.5)
+      doc.setFont('helvetica', 'normal').setFontSize(8.5).setTextColor(25, 25, 25)
+        .text(bLines, x + 5.5, yPos + 12.5, { lineHeightFactor: 1.4 })
       return h
     }
     const rightX = M + colW + 5
@@ -331,7 +334,7 @@ export function reprintPDF(d) {
       { label: 'Total gross weight', val: n2(t.gross) + ' kg',  bold: true  },
     ]
     // Stored gross already includes pallet weight (20 kg each)
-    if (pallets > 0) totRows.push({ label: 'Total pallets', val: `${pallets} (+${pallets * 20} kg)`, bold: true })
+    if (pallets > 0) totRows.push({ label: 'Total pallets', val: String(pallets), bold: true })
     totRows.forEach(({ label, val, bold }) => {
       doc.setFont('helvetica', bold ? 'bold' : 'normal').setFontSize(bold ? 12 : 11).setTextColor(40, 40, 40)
       doc.text(label, tx, ty); doc.text(val, W - M, ty, { align: 'right' }); ty += 6
