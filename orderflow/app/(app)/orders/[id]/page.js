@@ -27,6 +27,7 @@ export default function OrderDetailPage() {
   const [invoiceTo, setInvoiceTo] = useState('')
   const [options, setOptions] = useState('')
   const [pallets, setPallets] = useState('')
+  const [noPallets, setNoPallets] = useState(false)
   const [palletsFlash, setPalletsFlash] = useState(false)
   const [showHazard, setShowHazard] = useState(true)
   const [batchModal, setBatchModal] = useState(null) // null | [{ name, batch, na }]
@@ -112,10 +113,10 @@ ${items.map((it) => `  <li>${it.name}${it.pack ? ` — ${it.qty} x ${it.pack}` :
   function startDispatch() {
     const lh = letterheads[lhIndex]
     if (!lh) { alert('Add a letterhead first (Letterheads tab).'); return }
-    if (!pallets || parseInt(pallets, 10) <= 0) {
+    if (!noPallets && (!pallets || parseInt(pallets, 10) <= 0)) {
       setPalletsFlash(true)
       setTimeout(() => setPalletsFlash(false), 1200)
-      toast('Please enter number of pallets')
+      toast('Please enter number of pallets, or tick "No pallets"')
       return
     }
     const rows = lines.map((l) => {
@@ -144,7 +145,7 @@ ${items.map((it) => `  <li>${it.name}${it.pack ? ` — ${it.qty} x ${it.pack}` :
       deliver: splitContact(order.customer_snapshot?.deliver || '').address,
       contact,
       customerName: order.customer_snapshot?.name || '',
-      lines, options, pallets, showHazard, batches,
+      lines, options, pallets: noPallets ? 0 : pallets, showHazard, batches,
     }
     const { totals } = generateDispatchPDF(docData, lh, products, packaging)
     const linesSnap = lines.map((l, i) => {
@@ -166,6 +167,7 @@ ${items.map((it) => `  <li>${it.name}${it.pack ? ` — ${it.qty} x ${it.pack}` :
     const refreshed = await supabase.from('dispatch_notes').select('*').eq('order_id', id).order('created_at', { ascending: false })
     setDispatched(refreshed.data || [])
     setPallets('')
+    setNoPallets(false)
     setBatchModal(null)
     setBusy(false)
     toast('Delivery note generated')
@@ -234,8 +236,16 @@ ${items.map((it) => `  <li>${it.name}${it.pack ? ` — ${it.qty} x ${it.pack}` :
             <input
               className={'mono' + (palletsFlash ? ' flash-error' : '')}
               type="number" min="0" value={pallets}
+              disabled={noPallets}
               onChange={(e) => { setPallets(e.target.value); setPalletsFlash(false) }}
-              placeholder="required" /></div>
+              placeholder={noPallets ? 'no pallets' : 'required'} />
+            <label style={{ display: 'inline-flex', flexDirection: 'row', alignItems: 'center', gap: 6, textTransform: 'none', letterSpacing: 0, fontSize: 12, cursor: 'pointer', marginTop: 6 }}>
+              <input type="checkbox" checked={noPallets}
+                onChange={(e) => { setNoPallets(e.target.checked); if (e.target.checked) { setPallets(''); setPalletsFlash(false) } }}
+                style={{ width: 'auto', height: 15, accentColor: 'var(--accent)' }} />
+              No pallets required
+            </label>
+          </div>
         </div>
         <div className="row c2" style={{ marginBottom: 10 }}>
           <div className="field"><label>Invoice To (on PDF)</label>

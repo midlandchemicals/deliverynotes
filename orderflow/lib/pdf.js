@@ -168,17 +168,17 @@ export function generateDispatchPDF(doc_, lh, products, packaging) {
   autoTable(doc, {
     startY: cy,
     margin: { left: M, right: M },
-    head: [['#', 'Product', 'Batch', 'Hazard / UN', 'Net (kg)', 'Gross (kg)']],
+    head: [['#', 'Batch', 'Product', 'Hazard / UN', 'Net (kg)', 'Gross (kg)']],
     body: doc_.lines.map((l, i) => {
       const c = computeLine(l, products, packaging)
       const desc = c.packaging?.name ? `${c.productName} — ${c.qty} x ${c.packaging.name}` : c.productName
-      return [i + 1, desc, (doc_.batches && doc_.batches[i]) || '', c.hazard, fmt(c.net), fmt(c.gross)]
+      return [i + 1, (doc_.batches && doc_.batches[i]) || '', desc, c.hazard, fmt(c.net), fmt(c.gross)]
     }),
     styles: { font: 'helvetica', fontSize: 10, cellPadding: 2.5, lineColor: [210, 220, 215], lineWidth: 0.15 },
     headStyles: { fillColor: [r, g, b], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 9 },
     columnStyles: {
       0: { cellWidth: 9, halign: 'center' },
-      2: { cellWidth: 24 },
+      1: { cellWidth: 24 },
       3: { cellWidth: 30 },
       4: { halign: 'right' },
       5: { halign: 'right', fontStyle: 'bold' },
@@ -187,14 +187,17 @@ export function generateDispatchPDF(doc_, lh, products, packaging) {
   })
 
   // ── Totals ────────────────────────────────────────────────────────────────
+  // Each pallet adds 20 kg to the gross weight
+  const palletKg = pallets * 20
+  const grossTotal = t.gross + palletKg
   let ty = doc.lastAutoTable.finalY + 5
   const tx = W - M - 78
   const totRows = [
-    { label: 'Total volume',       val: fmt(t.volume) + ' L',   bold: false },
-    { label: 'Total net weight',   val: fmt(t.net) + ' kg',     bold: false },
-    { label: 'Total gross weight', val: fmt(t.gross) + ' kg',   bold: true  },
+    { label: 'Total volume',       val: fmt(t.volume) + ' L',     bold: false },
+    { label: 'Total net weight',   val: fmt(t.net) + ' kg',       bold: false },
+    { label: 'Total gross weight', val: fmt(grossTotal) + ' kg',  bold: true  },
   ]
-  if (pallets > 0) totRows.push({ label: 'Total pallets', val: String(pallets), bold: true })
+  if (pallets > 0) totRows.push({ label: 'Total pallets', val: `${pallets} (+${palletKg} kg)`, bold: true })
   totRows.forEach(({ label, val, bold }) => {
     doc.setFont('helvetica', bold ? 'bold' : 'normal').setFontSize(bold ? 12 : 11).setTextColor(40, 40, 40)
     doc.text(label, tx, ty); doc.text(val, W - M, ty, { align: 'right' }); ty += 6
@@ -227,7 +230,8 @@ export function generateDispatchPDF(doc_, lh, products, packaging) {
 
   const custName = doc_.customerName || (doc_.customer || '').split('\n')[0]
   doc.save(dnFilename(doc_.date, doc_.docNo, custName))
-  return { totals: { ...t, pallets, showHazard, invoice_to: doc_.invoiceTo || '' } }
+  // Stored gross includes pallet weight so the log and reprints match the PDF
+  return { totals: { ...t, gross: grossTotal, pallets, showHazard, invoice_to: doc_.invoiceTo || '' } }
 }
 
 
@@ -298,18 +302,18 @@ export function reprintPDF(d) {
     // ── Table ────────────────────────────────────────────────────────────────
     autoTable(doc, {
       startY: cy, margin: { left: M, right: M },
-      head: [['#', 'Product', 'Batch', 'Hazard / UN', 'Net (kg)', 'Gross (kg)']],
+      head: [['#', 'Batch', 'Product', 'Hazard / UN', 'Net (kg)', 'Gross (kg)']],
       body: (d.lines_snapshot || []).map((s, i) => {
         const hazard = s.hazard || (s.un_number ? `${s.un_number} · ${s.pg}` : (s.pg || '—'))
         // Use stored packDesc; format as "Name — N x Pack" if it has the old "N × Pack" style
         const packInfo = s.packDesc ? s.packDesc.replace('×', 'x') : ''
         const desc = packInfo ? `${s.productName} — ${packInfo}` : s.productName
-        return [i + 1, desc, s.batch || '', hazard, n2(s.net), n2(s.gross)]
+        return [i + 1, s.batch || '', desc, hazard, n2(s.net), n2(s.gross)]
       }),
       styles: { font: 'helvetica', fontSize: 10, cellPadding: 2.5, lineColor: [210, 220, 215], lineWidth: 0.15 },
       headStyles: { fillColor: [r, g, b], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 9 },
       columnStyles: {
-        0: { cellWidth: 9, halign: 'center' }, 2: { cellWidth: 24 }, 3: { cellWidth: 30 },
+        0: { cellWidth: 9, halign: 'center' }, 1: { cellWidth: 24 }, 3: { cellWidth: 30 },
         4: { halign: 'right' }, 5: { halign: 'right', fontStyle: 'bold' },
       },
       alternateRowStyles: { fillColor: [242, 249, 245] },
@@ -326,7 +330,8 @@ export function reprintPDF(d) {
       { label: 'Total net weight',   val: n2(t.net) + ' kg',    bold: false },
       { label: 'Total gross weight', val: n2(t.gross) + ' kg',  bold: true  },
     ]
-    if (pallets > 0) totRows.push({ label: 'Total pallets', val: String(pallets), bold: true })
+    // Stored gross already includes pallet weight (20 kg each)
+    if (pallets > 0) totRows.push({ label: 'Total pallets', val: `${pallets} (+${pallets * 20} kg)`, bold: true })
     totRows.forEach(({ label, val, bold }) => {
       doc.setFont('helvetica', bold ? 'bold' : 'normal').setFontSize(bold ? 12 : 11).setTextColor(40, 40, 40)
       doc.text(label, tx, ty); doc.text(val, W - M, ty, { align: 'right' }); ty += 6
