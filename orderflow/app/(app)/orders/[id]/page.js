@@ -119,6 +119,16 @@ ${items.map((it) => `  <li>${it.name}${it.pack ? ` — ${it.qty} x ${it.pack}` :
       toast('Please enter number of pallets, or tick "No pallets"')
       return
     }
+    // Warn if any hazmat product has not been verified against its SDS
+    const unverifiedNames = lines.reduce((acc, l) => {
+      const p = products.find((x) => x.id === l.productId)
+      if (p?.un_number && !p?.adr_verified_by) acc.push(p.name)
+      return acc
+    }, [])
+    if (unverifiedNames.length > 0) {
+      const list = unverifiedNames.map((n) => `• ${n}`).join('\n')
+      if (!confirm(`The following hazmat products have not been verified against their SDS:\n\n${list}\n\nADR hazard notation may be incomplete. Proceed anyway?`)) return
+    }
     const rows = lines.map((l) => {
       const c = computeLine(l, products, packaging)
       return { name: c.packaging?.name ? `${c.productName} — ${c.qty} x ${c.packaging.name}` : c.productName, batch: '', na: false }
