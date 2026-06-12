@@ -73,9 +73,12 @@ function buildHazard(un, pg, product) {
   }
   if (adrClass) {
     const pgNorm = pg.replace(/^PG\s*/i, '').trim()
+    // Tunnel field may contain the transport category too (Table A col 15 reads
+    // e.g. "3 (D/E)") — print only the bracketed tunnel code
+    const tunClean = (String(adrTun).match(/\([A-E][A-E/]*\)/i) || [String(adrTun).trim()])[0]
     const subStr = adrSub ? ` (${adrSub})` : ''
     const pgStr = pgNorm ? `, PG ${pgNorm}` : ''
-    const tunStr = adrTun ? `, ${adrTun}` : ''
+    const tunStr = tunClean ? `, ${tunClean}` : ''
     return `${un}, Class ${adrClass}${subStr}${pgStr}${tunStr}`
   }
   return `${un} · ${pg}`
