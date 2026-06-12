@@ -1,25 +1,76 @@
 'use client'
-import { useEffect, useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { num } from '@/lib/calc'
+import { num, prettyDate } from '@/lib/calc'
+import { lookupADR, adrPgOptions, adrTunnelForPG } from '@/lib/adr'
+
+function normPG(pg) {
+  return String(pg || '').replace(/^PG\s*/i, '').trim()
+}
 
 export default function ProductsPage() {
   const supabase = createClient()
   const [rows, setRows] = useState(null)
   const [q, setQ] = useState('')
+  const [expandedId, setExpandedId] = useState(null)
 
   useEffect(() => { load() }, [])
   async function load() {
     const { data } = await supabase.from('products').select('*').order('category').order('name')
     setRows(data || [])
   }
+
   async function update(id, patch) {
     setRows((r) => r.map((x) => (x.id === id ? { ...x, ...patch } : x)))
     await supabase.from('products').update(patch).eq('id', id)
   }
+
+  async function handleUNChange(id, un) {
+    const product = rows.find((r) => r.id === id)
+    const entry = lookupADR(un)
+    const patch = {
+      un_number: un,
+      adr_class: '',
+      adr_subsidiary: '',
+      adr_tunnel: '',
+      adr_verified_by: '',
+      adr_verified_at: null,
+    }
+    if (entry) {
+      patch.adr_class = entry.class
+      patch.adr_subsidiary = entry.subsidiary
+      // Keep existing PG if it's valid for this UN, else default to first option
+      const currentPGNorm = normPG(product?.pg || '').toUpperCase()
+      const pg = entry.pgOptions.includes(currentPGNorm) ? currentPGNorm : (entry.pgOptions[0] || '')
+      if (pg !== currentPGNorm) patch.pg = pg
+      patch.adr_tunnel = adrTunnelForPG(un, pg)
+    }
+    setRows((r) => r.map((x) => (x.id === id ? { ...x, ...patch } : x)))
+    await supabase.from('products').update(patch).eq('id', id)
+  }
+
+  async function handlePGChange(id, pg) {
+    const product = rows.find((r) => r.id === id)
+    const patch = { pg, adr_verified_by: '', adr_verified_at: null }
+    if (product?.un_number && lookupADR(product.un_number)) {
+      patch.adr_tunnel = adrTunnelForPG(product.un_number, pg)
+    }
+    setRows((r) => r.map((x) => (x.id === id ? { ...x, ...patch } : x)))
+    await supabase.from('products').update(patch).eq('id', id)
+  }
+
+  async function verifyProduct(id) {
+    const { data: { user } } = await supabase.auth.getUser()
+    const patch = { adr_verified_by: user?.email || 'unknown', adr_verified_at: new Date().toISOString() }
+    setRows((r) => r.map((x) => (x.id === id ? { ...x, ...patch } : x)))
+    await supabase.from('products').update(patch).eq('id', id)
+  }
+
   async function add() {
     const { data } = await supabase.from('products')
-      .insert({ name: 'New product', sg: 1.0, pg: '', un_number: '', category: '' }).select('*').single()
+      .insert({ name: 'New product', sg: 1.0, pg: '', un_number: '', category: '',
+                adr_class: '', adr_subsidiary: '', adr_tunnel: '', adr_verified_by: '', adr_verified_at: null })
+      .select('*').single()
     setRows((r) => [...r, data])
   }
   async function remove(id) {
@@ -46,28 +97,140 @@ export default function ProductsPage() {
       </div>
       <table className="tbl">
         <thead><tr>
-          <th style={{ width: '18%' }}>Range</th>
-          <th style={{ width: '34%' }}>Product name</th>
-          <th style={{ width: '14%' }}>Specific gravity</th>
-          <th style={{ width: '15%' }}>UN number</th>
-          <th style={{ width: '13%' }}>Packing group</th>
+          <th style={{ width: '15%' }}>Range</th>
+          <th style={{ width: '28%' }}>Product name</th>
+          <th style={{ width: '10%' }}>SG</th>
+          <th style={{ width: '13%' }}>UN number</th>
+          <th style={{ width: '14%' }}>Packing group</th>
+          <th style={{ width: '14%' }}>ADR status</th>
           <th style={{ width: '6%' }}></th>
         </tr></thead>
         <tbody>
-          {filtered.map((it) => (
-            <tr key={it.id}>
-              <td><input value={it.category || ''} onChange={(e) => update(it.id, { category: e.target.value })} /></td>
-              <td><input value={it.name} onChange={(e) => update(it.id, { name: e.target.value })} /></td>
-              <td><input className="mono" style={{ textAlign: 'right' }} value={it.sg ?? ''}
-                onChange={(e) => update(it.id, { sg: num(e.target.value) })} /></td>
-              <td><input className="mono" value={it.un_number || ''} onChange={(e) => update(it.id, { un_number: e.target.value })} placeholder="—" /></td>
-              <td><input value={it.pg || ''} onChange={(e) => update(it.id, { pg: e.target.value })} placeholder="—" /></td>
-              <td><button className="btn-dl" onClick={() => remove(it.id)}>×</button></td>
-            </tr>
-          ))}
+          {filtered.map((it) => {
+            const entry = lookupADR(it.un_number)
+            const pgOpts = adrPgOptions(it.un_number)  // null = unknown, [] = gas (no PG), [...] = list
+            const isHazmat = Boolean(it.un_number)
+            const isVerified = Boolean(it.adr_verified_by)
+            const expanded = expandedId === it.id
+
+            return (
+              <React.Fragment key={it.id}>
+                <tr>
+                  <td><input value={it.category || ''} onChange={(e) => update(it.id, { category: e.target.value })} /></td>
+                  <td><input value={it.name} onChange={(e) => update(it.id, { name: e.target.value })} /></td>
+                  <td><input className="mono" style={{ textAlign: 'right' }} value={it.sg ?? ''}
+                    onChange={(e) => update(it.id, { sg: num(e.target.value) })} /></td>
+                  <td>
+                    <input className="mono" value={it.un_number || ''}
+                      onChange={(e) => handleUNChange(it.id, e.target.value)}
+                      placeholder="—"
+                    />
+                  </td>
+                  <td>
+                    {pgOpts && pgOpts.length > 0 ? (
+                      <select value={normPG(it.pg)} onChange={(e) => handlePGChange(it.id, e.target.value)}>
+                        {pgOpts.map((pg) => <option key={pg} value={pg}>PG {pg}</option>)}
+                      </select>
+                    ) : (
+                      <input value={it.pg || ''} onChange={(e) => handlePGChange(it.id, e.target.value)} placeholder="—" />
+                    )}
+                  </td>
+                  <td>
+                    {isHazmat ? (
+                      <button
+                        className={'adr-badge ' + (isVerified ? 'adr-verified' : 'adr-warning')}
+                        onClick={() => setExpandedId(expanded ? null : it.id)}
+                        title={expanded ? 'Collapse ADR details' : 'View / verify ADR details'}
+                      >
+                        {isVerified ? '✓ Verified' : '⚠ Unverified'}
+                      </button>
+                    ) : (
+                      <span className="adr-badge adr-none">—</span>
+                    )}
+                  </td>
+                  <td><button className="btn-dl" onClick={() => remove(it.id)}>×</button></td>
+                </tr>
+
+                {expanded && (
+                  <tr className="adr-expand-row">
+                    <td colSpan={7}>
+                      <div className="adr-panel">
+                        {entry ? (
+                          <>
+                            <div className="adr-panel-title">ADR details — auto-filled from ADR 2023 Table A</div>
+                            <div className="adr-fields">
+                              <div>
+                                <label>Hazard class</label>
+                                <div className="adr-ro">{it.adr_class || entry.class}</div>
+                              </div>
+                              <div>
+                                <label>Subsidiary risk</label>
+                                <div className="adr-ro">{it.adr_subsidiary || entry.subsidiary || '—'}</div>
+                              </div>
+                              <div>
+                                <label>Tunnel code</label>
+                                <div className="adr-ro">{it.adr_tunnel || '—'}</div>
+                              </div>
+                              <div>
+                                <label>Packing group</label>
+                                <div className="adr-ro">{normPG(it.pg) || '—'}</div>
+                              </div>
+                            </div>
+                            <div className="adr-entry-name">{entry.name}</div>
+                          </>
+                        ) : (
+                          <>
+                            <div className="adr-panel-title">ADR details — manual entry (UN number not in Table A)</div>
+                            <div className="adr-fields">
+                              <div>
+                                <label>Hazard class</label>
+                                <input value={it.adr_class || ''} onChange={(e) => update(it.id, { adr_class: e.target.value, adr_verified_by: '', adr_verified_at: null })} placeholder="e.g. 8" />
+                              </div>
+                              <div>
+                                <label>Subsidiary risk</label>
+                                <input value={it.adr_subsidiary || ''} onChange={(e) => update(it.id, { adr_subsidiary: e.target.value, adr_verified_by: '', adr_verified_at: null })} placeholder="e.g. 6.1" />
+                              </div>
+                              <div>
+                                <label>Tunnel code</label>
+                                <input value={it.adr_tunnel || ''} onChange={(e) => update(it.id, { adr_tunnel: e.target.value, adr_verified_by: '', adr_verified_at: null })} placeholder="e.g. (E)" />
+                              </div>
+                              <div>
+                                <label>Packing group</label>
+                                <input value={it.pg || ''} onChange={(e) => handlePGChange(it.id, e.target.value)} placeholder="e.g. II" />
+                              </div>
+                            </div>
+                          </>
+                        )}
+
+                        <div className="adr-verify-row">
+                          {isVerified ? (
+                            <>
+                              <span className="adr-verified-info">✓ Verified by {it.adr_verified_by} on {prettyDate(it.adr_verified_at)}</span>
+                              <button className="btn btn-g btn-sm" style={{ marginLeft: 12 }}
+                                onClick={() => update(it.id, { adr_verified_by: '', adr_verified_at: null })}>
+                                Clear verification
+                              </button>
+                            </>
+                          ) : (
+                            <>
+                              <span className="adr-unverified-warn">Cross-check these values against the product SDS before verifying.</span>
+                              <button className="btn btn-a btn-sm" style={{ marginLeft: 12 }}
+                                onClick={() => verifyProduct(it.id)}>
+                                ✓ Mark as verified against SDS
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    </td>
+                  </tr>
+                )}
+              </React.Fragment>
+            )
+          })}
         </tbody>
       </table>
-      <p className="hint">Net weight per unit = container volume × specific gravity. A blank UN number means non-hazardous.</p>
+      <p className="hint">Net weight = container volume × specific gravity. A blank UN number means non-hazardous. ADR details are auto-filled from ADR 2023 Table A where the UN number is recognised — verify each hazmat product against its SDS.</p>
     </div>
   )
 }

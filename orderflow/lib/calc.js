@@ -1,4 +1,5 @@
 // Pure calculation helpers shared across the app.
+import { lookupADR } from './adr'
 
 export function num(v) {
   const n = parseFloat(String(v ?? '').replace(/,/g, ''))
@@ -54,6 +55,32 @@ export function splitContact(text) {
   return { address: keep.join('\n'), contact }
 }
 
+// Build the full ADR hazard notation string.
+// Uses stored adr_class if available, otherwise falls back to a live lookup.
+function buildHazard(un, pg, product) {
+  if (!un) return pg || '—'
+  let adrClass = product?.adr_class || ''
+  let adrSub = product?.adr_subsidiary || ''
+  let adrTun = product?.adr_tunnel || ''
+  if (!adrClass) {
+    const entry = lookupADR(un)
+    if (entry) {
+      adrClass = entry.class
+      adrSub = entry.subsidiary
+      const pgKey = pg.replace(/^PG\s*/i, '').trim().toUpperCase()
+      adrTun = entry.tunnelByPG?.[pgKey] ?? entry.tunnelByPG?.default ?? ''
+    }
+  }
+  if (adrClass) {
+    const pgNorm = pg.replace(/^PG\s*/i, '').trim()
+    const subStr = adrSub ? ` (${adrSub})` : ''
+    const pgStr = pgNorm ? `, PG ${pgNorm}` : ''
+    const tunStr = adrTun ? `, ${adrTun}` : ''
+    return `${un}, Class ${adrClass}${subStr}${pgStr}${tunStr}`
+  }
+  return `${un} · ${pg}`
+}
+
 // Resolve a single order/dispatch line against the catalogs and compute weights.
 // line = { productId, packagingId, qty }
 export function computeLine(line, products, packaging) {
@@ -67,7 +94,7 @@ export function computeLine(line, products, packaging) {
   const gross = net + tare * qty
   const un = p?.un_number || ''
   const pg = p?.pg || ''
-  const hazard = un ? `${un} · ${pg}` : (pg || '—')
+  const hazard = buildHazard(un, pg, p)
   return {
     product: p, packaging: k, qty, vol, sg, tare, net, gross,
     totalVol: vol * qty,
