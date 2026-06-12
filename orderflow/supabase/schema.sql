@@ -11,6 +11,9 @@ create table if not exists customers (
   name text not null,
   details text default '',
   deliver text default '',
+  contact_name text default '',
+  email text default '',
+  phone text default '',
   created_at timestamptz default now()
 );
 
@@ -123,7 +126,14 @@ insert into packaging (name, volume, tare) values
  ('1000 L IBC',     1000, 55),
  ('5 L Bottle',     5, 0.3);
 
-insert into customers (name, details, deliver) values
+insert into customers (name, details, deliver, contact_name, email, phone) values
  ('Acme Industrial Ltd',
   E'Acme Industrial Ltd\nAttn: Purchasing Dept\nVAT: GB123456789',
-  E'Unit 4, Dock Road\nLiverpool\nL20 8XX\nUnited Kingdom');
+  E'Unit 4, Dock Road\nLiverpool\nL20 8XX\nUnited Kingdom',
+  'Jane Smith', 'orders@acme.co.uk', '0151 000 0000');
+
+-- ---------- migration for existing databases ----------
+-- If your customers table already exists, run these once:
+--   alter table customers add column if not exists contact_name text default '';
+--   alter table customers add column if not exists email text default '';
+--   alter table customers add column if not exists phone text default '';

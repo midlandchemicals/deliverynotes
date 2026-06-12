@@ -90,7 +90,16 @@ function dnFilename(dateStr, docNo, customerName) {
   return `${dd}${mm}${yy}_${safeNo}_${safeName}.pdf`
 }
 
-// doc_ = { docNo, date, invoiceTo, customer, customerName, lines, options, pallets, showHazard }
+function contactPdfLines(c) {
+  if (!c) return []
+  const out = []
+  if (c.name) out.push(c.name)
+  if (c.phone) out.push('Tel: ' + c.phone)
+  if (c.email) out.push(c.email)
+  return out
+}
+
+// doc_ = { docNo, date, invoiceTo, deliver, contact, customerName, lines, batches, options, pallets, showHazard }
 // lh   = { company, address, footer, color, logo }
 export function generateDispatchPDF(doc_, lh, products, packaging) {
   const [r, g, b] = hexToRgb(lh.color)
@@ -133,38 +142,46 @@ export function generateDispatchPDF(doc_, lh, products, packaging) {
   let cy = barY + 7
   const colW = (W - 2 * M - 5) / 2
 
-  // ── Customer + Deliver blocks ─────────────────────────────────────────────
-  function block(x, title, text) {
+  // ── Invoice To + Deliver To (+ contact) blocks ────────────────────────────
+  function block(x, title, text, yPos = cy) {
     doc.setDrawColor(r, g, b).setLineWidth(0.25)
     const bLines = doc.splitTextToSize(text || '', colW - 6)
     const h = 7 + bLines.length * 3.5
-    doc.roundedRect(x, cy, colW, h, 1.5, 1.5, 'S')
-    doc.setFont('helvetica', 'bold').setFontSize(7).setTextColor(r, g, b).text(title.toUpperCase(), x + 3, cy + 5)
-    doc.setFont('helvetica', 'normal').setFontSize(8.5).setTextColor(25, 25, 25).text(bLines, x + 3, cy + 10)
+    doc.roundedRect(x, yPos, colW, h, 1.5, 1.5, 'S')
+    doc.setFont('helvetica', 'bold').setFontSize(7).setTextColor(r, g, b).text(title.toUpperCase(), x + 3, yPos + 5)
+    doc.setFont('helvetica', 'normal').setFontSize(8.5).setTextColor(25, 25, 25).text(bLines, x + 3, yPos + 10)
     return h
   }
-  const bh1 = block(M, 'Invoice To', doc_.invoiceTo || doc_.deliver)
-  const bh2 = block(M + colW + 5, 'Deliver to', doc_.customer)
-  cy += Math.max(bh1, bh2) + 5
+  const rightX = M + colW + 5
+  const bh1 = block(M, 'Invoice To', doc_.invoiceTo)
+  const bh2 = block(rightX, 'Deliver To', doc_.deliver)
+  let rightH = bh2
+  const cLines = contactPdfLines(doc_.contact)
+  if (cLines.length) {
+    const cbh = block(rightX, 'Contact', cLines.join('\n'), cy + bh2 + 3)
+    rightH = bh2 + 3 + cbh
+  }
+  cy += Math.max(bh1, rightH) + 5
 
   // ── Line items table ──────────────────────────────────────────────────────
   // Product and packaging merged into one column for readability
   autoTable(doc, {
     startY: cy,
     margin: { left: M, right: M },
-    head: [['#', 'Product', 'Hazard / UN', 'Net (kg)', 'Gross (kg)']],
+    head: [['#', 'Product', 'Batch', 'Hazard / UN', 'Net (kg)', 'Gross (kg)']],
     body: doc_.lines.map((l, i) => {
       const c = computeLine(l, products, packaging)
       const desc = c.packaging?.name ? `${c.productName} — ${c.qty} x ${c.packaging.name}` : c.productName
-      return [i + 1, desc, c.hazard, fmt(c.net), fmt(c.gross)]
+      return [i + 1, desc, (doc_.batches && doc_.batches[i]) || '', c.hazard, fmt(c.net), fmt(c.gross)]
     }),
     styles: { font: 'helvetica', fontSize: 10, cellPadding: 2.5, lineColor: [210, 220, 215], lineWidth: 0.15 },
     headStyles: { fillColor: [r, g, b], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 9 },
     columnStyles: {
       0: { cellWidth: 9, halign: 'center' },
-      2: { cellWidth: 36 },
-      3: { halign: 'right' },
-      4: { halign: 'right', fontStyle: 'bold' },
+      2: { cellWidth: 24 },
+      3: { cellWidth: 30 },
+      4: { halign: 'right' },
+      5: { halign: 'right', fontStyle: 'bold' },
     },
     alternateRowStyles: { fillColor: [242, 249, 245] },
   })
@@ -258,36 +275,42 @@ export function reprintPDF(d) {
     let cy = barY + 7
     const colW = (W - 2 * M - 5) / 2
 
-    function block(x, title, text) {
+    function block(x, title, text, yPos = cy) {
       doc.setDrawColor(r, g, b).setLineWidth(0.25)
       const bLines = doc.splitTextToSize(text || '', colW - 6)
       const h = 7 + bLines.length * 3.5
-      doc.roundedRect(x, cy, colW, h, 1.5, 1.5, 'S')
-      doc.setFont('helvetica', 'bold').setFontSize(7).setTextColor(r, g, b).text(title.toUpperCase(), x + 3, cy + 5)
-      doc.setFont('helvetica', 'normal').setFontSize(8.5).setTextColor(25, 25, 25).text(bLines, x + 3, cy + 10)
+      doc.roundedRect(x, yPos, colW, h, 1.5, 1.5, 'S')
+      doc.setFont('helvetica', 'bold').setFontSize(7).setTextColor(r, g, b).text(title.toUpperCase(), x + 3, yPos + 5)
+      doc.setFont('helvetica', 'normal').setFontSize(8.5).setTextColor(25, 25, 25).text(bLines, x + 3, yPos + 10)
       return h
     }
-    const invoiceTo = d.totals?.invoice_to || d.deliver
-    const bh1 = block(M, 'Invoice To', invoiceTo)
-    const bh2 = block(M + colW + 5, 'Deliver to', d.customer)
-    cy += Math.max(bh1, bh2) + 5
+    const rightX = M + colW + 5
+    const bh1 = block(M, 'Invoice To', d.customer)
+    const bh2 = block(rightX, 'Deliver To', d.deliver)
+    let rightH = bh2
+    const cLines = contactPdfLines(d.totals?.contact)
+    if (cLines.length) {
+      const cbh = block(rightX, 'Contact', cLines.join('\n'), cy + bh2 + 3)
+      rightH = bh2 + 3 + cbh
+    }
+    cy += Math.max(bh1, rightH) + 5
 
     // ── Table ────────────────────────────────────────────────────────────────
     autoTable(doc, {
       startY: cy, margin: { left: M, right: M },
-      head: [['#', 'Product', 'Hazard / UN', 'Net (kg)', 'Gross (kg)']],
+      head: [['#', 'Product', 'Batch', 'Hazard / UN', 'Net (kg)', 'Gross (kg)']],
       body: (d.lines_snapshot || []).map((s, i) => {
         const hazard = s.hazard || (s.un_number ? `${s.un_number} · ${s.pg}` : (s.pg || '—'))
         // Use stored packDesc; format as "Name — N x Pack" if it has the old "N × Pack" style
         const packInfo = s.packDesc ? s.packDesc.replace('×', 'x') : ''
         const desc = packInfo ? `${s.productName} — ${packInfo}` : s.productName
-        return [i + 1, desc, hazard, n2(s.net), n2(s.gross)]
+        return [i + 1, desc, s.batch || '', hazard, n2(s.net), n2(s.gross)]
       }),
       styles: { font: 'helvetica', fontSize: 10, cellPadding: 2.5, lineColor: [210, 220, 215], lineWidth: 0.15 },
       headStyles: { fillColor: [r, g, b], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 9 },
       columnStyles: {
-        0: { cellWidth: 9, halign: 'center' }, 2: { cellWidth: 36 },
-        3: { halign: 'right' }, 4: { halign: 'right', fontStyle: 'bold' },
+        0: { cellWidth: 9, halign: 'center' }, 2: { cellWidth: 24 }, 3: { cellWidth: 30 },
+        4: { halign: 'right' }, 5: { halign: 'right', fontStyle: 'bold' },
       },
       alternateRowStyles: { fillColor: [242, 249, 245] },
     })

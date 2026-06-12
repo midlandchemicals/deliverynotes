@@ -29,6 +29,8 @@ export default function OrderDetailPage() {
   const [pallets, setPallets] = useState('')
   const [palletsFlash, setPalletsFlash] = useState(false)
   const [showHazard, setShowHazard] = useState(true)
+  const [batchModal, setBatchModal] = useState(null) // null | [{ name, batch, na }]
+  const [busy, setBusy] = useState(false)
 
   useEffect(() => {
     (async () => {
@@ -47,7 +49,7 @@ export default function OrderDetailPage() {
         (l) => l.name.toLowerCase().includes('midland') || l.company.toLowerCase().includes('midland')
       )
       setLhIndex(midlandIdx >= 0 ? midlandIdx : 0)
-      setInvoiceTo(o.data?.customer_snapshot?.deliver || '')
+      setInvoiceTo(o.data?.customer_snapshot?.details || '')
 
       const existing = await supabase.from('dispatch_notes').select('*').eq('order_id', id).order('created_at', { ascending: false })
       setDispatched(existing.data || [])
@@ -104,7 +106,8 @@ ${items.map((it) => `  <li>${it.name}${it.pack ? ` — ${it.qty} x ${it.pack}` :
     w.print()
   }
 
-  async function createDispatch() {
+  // Step 1 — validate, then open the batch-number modal
+  function startDispatch() {
     const lh = letterheads[lhIndex]
     if (!lh) { alert('Add a letterhead first (Letterheads tab).'); return }
     if (!pallets || parseInt(pallets, 10) <= 0) {
@@ -113,34 +116,56 @@ ${items.map((it) => `  <li>${it.name}${it.pack ? ` — ${it.qty} x ${it.pack}` :
       toast('Please enter number of pallets')
       return
     }
+    const rows = lines.map((l) => {
+      const c = computeLine(l, products, packaging)
+      return { name: c.packaging?.name ? `${c.productName} — ${c.qty} x ${c.packaging.name}` : c.productName, batch: '', na: false }
+    })
+    setBatchModal(rows)
+  }
+
+  function setBatchRow(i, patch) {
+    setBatchModal((rows) => rows.map((r, idx) => (idx === i ? { ...r, ...patch } : r)))
+  }
+
+  // Step 2 — every line must have a batch number OR be marked Not Applicable
+  async function confirmDispatch() {
+    const incomplete = batchModal.some((r) => !r.na && !r.batch.trim())
+    if (incomplete) { toast('Enter a batch number or tick Not Applicable for each product'); return }
+    setBusy(true)
+    const lh = letterheads[lhIndex]
     const docNo = order.order_no
+    const contact = order.customer_snapshot?.contact || null
+    const batches = batchModal.map((r) => (r.na ? 'N/A' : r.batch.trim()))
     const docData = {
       type: 'Delivery Note', docNo, date: docDate,
       invoiceTo,
-      customer: order.customer_snapshot?.details || '',
+      deliver: order.customer_snapshot?.deliver || '',
+      contact,
       customerName: order.customer_snapshot?.name || '',
-      lines, options, pallets, showHazard,
+      lines, options, pallets, showHazard, batches,
     }
     const { totals } = generateDispatchPDF(docData, lh, products, packaging)
-    const linesSnap = lines.map((l) => {
+    const linesSnap = lines.map((l, i) => {
       const c = computeLine(l, products, packaging)
       return {
         productName: c.productName, pg: c.pg, un_number: c.un_number,
-        hazard: c.hazard, packDesc: c.packDesc,
+        hazard: c.hazard, packDesc: c.packDesc, batch: batches[i],
         vol: c.totalVol, net: c.net, gross: c.gross,
       }
     })
     const { data: { user } } = await supabase.auth.getUser()
     await supabase.from('dispatch_notes').insert({
       doc_no: docNo, doc_type: 'Delivery Note', doc_date: docDate, order_id: id,
-      letterhead_snapshot: lh, customer: docData.customer, deliver: invoiceTo,
-      lines_snapshot: linesSnap, totals, options, created_by: user?.id || null,
+      letterhead_snapshot: lh, customer: invoiceTo, deliver: docData.deliver,
+      lines_snapshot: linesSnap, totals: { ...totals, contact }, options, created_by: user?.id || null,
     })
     await supabase.from('orders').update({ status: 'Delivery Note Generated' }).eq('id', id)
     setOrder({ ...order, status: 'Delivery Note Generated' })
     const refreshed = await supabase.from('dispatch_notes').select('*').eq('order_id', id).order('created_at', { ascending: false })
     setDispatched(refreshed.data || [])
     setPallets('')
+    setBatchModal(null)
+    setBusy(false)
     toast('Delivery note generated')
   }
 
@@ -164,10 +189,16 @@ ${items.map((it) => `  <li>${it.name}${it.pack ? ` — ${it.qty} x ${it.pack}` :
           <Info label="Ordered" value={prettyDate(order.order_date)} />
         </div>
         <div className="row c2" style={{ marginTop: 4 }}>
-          <div className="field"><label>Customer</label>
+          <div className="field"><label>Invoice to</label>
             <div className="paper" style={{ background: 'var(--panel-2)', color: 'var(--ink)', boxShadow: 'none', whiteSpace: 'pre-line', fontFamily: 'inherit' }}>{order.customer_snapshot?.details}</div></div>
           <div className="field"><label>Deliver to</label>
-            <div className="paper" style={{ background: 'var(--panel-2)', color: 'var(--ink)', boxShadow: 'none', whiteSpace: 'pre-line', fontFamily: 'inherit' }}>{order.customer_snapshot?.deliver}</div></div>
+            <div className="paper" style={{ background: 'var(--panel-2)', color: 'var(--ink)', boxShadow: 'none', whiteSpace: 'pre-line', fontFamily: 'inherit' }}>{order.customer_snapshot?.deliver}</div>
+            {contactLines(order.customer_snapshot?.contact).length > 0 && (
+              <div className="paper" style={{ background: 'var(--panel-2)', color: 'var(--ink)', boxShadow: 'none', whiteSpace: 'pre-line', fontFamily: 'inherit', marginTop: 6, fontSize: 12 }}>
+                <b style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted)' }}>Contact</b>{'\n'}{contactLines(order.customer_snapshot?.contact).join('\n')}
+              </div>
+            )}
+          </div>
         </div>
         {order.notes ? <p className="hint"><b>Notes:</b> {order.notes}</p> : null}
         {order.added_by ? <p className="hint">Order added by <b>{order.added_by}</b></p> : null}
@@ -216,7 +247,7 @@ ${items.map((it) => `  <li>${it.name}${it.pack ? ` — ${it.qty} x ${it.pack}` :
             Include hazard summary on PDF
           </label>
         </div>
-        <button className="btn btn-a" onClick={createDispatch}>Generate delivery note</button>
+        <button className="btn btn-a" onClick={startDispatch}>Generate delivery note</button>
       </div>
 
       {dispatched.length > 0 && (
@@ -237,12 +268,51 @@ ${items.map((it) => `  <li>${it.name}${it.pack ? ` — ${it.qty} x ${it.pack}` :
           ))}
         </div>
       )}
+
+      {batchModal && (
+        <div className="modal-bg" onClick={() => !busy && setBatchModal(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <h2 style={{ marginBottom: 6 }}>Batch numbers</h2>
+            <p className="hint" style={{ marginTop: 0, marginBottom: 14 }}>Enter the batch number for each product, or tick <b>Not Applicable</b>.</p>
+            <div className="batch-list">
+              {batchModal.map((r, i) => (
+                <div key={i} className="batch-row">
+                  <div className="batch-name">{r.name}</div>
+                  <input
+                    value={r.batch}
+                    disabled={r.na}
+                    placeholder={r.na ? 'Not applicable' : 'Batch number'}
+                    onChange={(e) => setBatchRow(i, { batch: e.target.value })}
+                  />
+                  <label className="batch-na">
+                    <input type="checkbox" checked={r.na} onChange={(e) => setBatchRow(i, { na: e.target.checked, batch: e.target.checked ? '' : r.batch })} style={{ width: 'auto', height: 16, accentColor: 'var(--accent)' }} />
+                    Not Applicable
+                  </label>
+                </div>
+              ))}
+            </div>
+            <div style={{ display: 'flex', gap: 10, marginTop: 18, justifyContent: 'flex-end' }}>
+              <button className="btn btn-g" onClick={() => setBatchModal(null)} disabled={busy}>Cancel</button>
+              <button className="btn btn-a" onClick={confirmDispatch} disabled={busy}>{busy ? 'Generating…' : 'Generate delivery note'}</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
 
 function Info({ label, value }) {
   return <div className="field"><label>{label}</label><div className="mono" style={{ paddingTop: 4 }}>{value || '—'}</div></div>
+}
+
+function contactLines(contact) {
+  if (!contact) return []
+  const out = []
+  if (contact.name) out.push(contact.name)
+  if (contact.phone) out.push('Tel: ' + contact.phone)
+  if (contact.email) out.push(contact.email)
+  return out
 }
 
 function toast(msg) {

@@ -20,6 +20,9 @@ export default function NewOrderPage() {
   const [customerId, setCustomerId] = useState('')
   const [custDetails, setCustDetails] = useState('')
   const [custDeliver, setCustDeliver] = useState('')
+  const [contactName, setContactName] = useState('')
+  const [contactEmail, setContactEmail] = useState('')
+  const [contactPhone, setContactPhone] = useState('')
   const [poRef, setPoRef] = useState('')
   const [orderDate, setOrderDate] = useState(new Date().toISOString().slice(0, 10))
   const [requestedDate, setRequestedDate] = useState('')
@@ -45,7 +48,10 @@ export default function NewOrderPage() {
   function pickCustomer(id) {
     setCustomerId(id)
     const c = customers.find((x) => x.id === id)
-    if (c) { setCustDetails(c.details || ''); setCustDeliver(c.deliver || '') }
+    if (c) {
+      setCustDetails(c.details || ''); setCustDeliver(c.deliver || '')
+      setContactName(c.contact_name || ''); setContactEmail(c.email || ''); setContactPhone(c.phone || '')
+    }
   }
 
   async function saveOrder() {
@@ -56,7 +62,10 @@ export default function NewOrderPage() {
     const { data, error } = await supabase.from('orders').insert({
       order_no: orderNo,
       customer_id: customerId || null,
-      customer_snapshot: { name, details: custDetails, deliver: custDeliver },
+      customer_snapshot: {
+        name, details: custDetails, deliver: custDeliver,
+        contact: { name: contactName, email: contactEmail, phone: contactPhone },
+      },
       po_ref: poRef,
       order_date: orderDate || null,
       requested_date: requestedDate || null,
@@ -100,10 +109,18 @@ export default function NewOrderPage() {
           </div>
         </div>
         <div className="row c2">
-          <div className="field"><label>Customer details</label>
-            <textarea value={custDetails} onChange={(e) => setCustDetails(e.target.value)} /></div>
+          <div className="field"><label>Invoice to</label>
+            <textarea value={custDetails} onChange={(e) => setCustDetails(e.target.value)} placeholder="Company / invoice address (no contact details)" /></div>
           <div className="field"><label>Delivery address</label>
             <textarea value={custDeliver} onChange={(e) => setCustDeliver(e.target.value)} /></div>
+        </div>
+        <div className="field" style={{ marginTop: 4 }}>
+          <label>Delivery contact</label>
+          <div className="row c3" style={{ marginBottom: 0 }}>
+            <input placeholder="Contact name" value={contactName} onChange={(e) => setContactName(e.target.value)} />
+            <input placeholder="Email" value={contactEmail} onChange={(e) => setContactEmail(e.target.value)} />
+            <input placeholder="Telephone" value={contactPhone} onChange={(e) => setContactPhone(e.target.value)} />
+          </div>
         </div>
       </div>
 
