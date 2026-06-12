@@ -9,9 +9,14 @@ const ADR_TABLE = {
 
   // ── Class 3 (Flammable liquids) ───────────────────────────────────────────────
   UN1090: { name: 'ACETONE',                                         class: '3', subsidiary: '',     pgOptions: ['II'],              tunnelByPG: { II: '(D/E)' } },
+  UN1114: { name: 'BENZENE',                                         class: '3', subsidiary: '6.1',  pgOptions: ['II'],              tunnelByPG: { II: '(D/E)' } },
   UN1170: { name: 'ETHANOL SOLUTION',                               class: '3', subsidiary: '',     pgOptions: ['II', 'III'],       tunnelByPG: { II: '(D/E)', III: '(E)' } },
   UN1193: { name: 'METHYL ETHYL KETONE (BUTANONE)',                 class: '3', subsidiary: '',     pgOptions: ['II'],              tunnelByPG: { II: '(D/E)' } },
+  UN1219: { name: 'ISOPROPANOL (ISOPROPYL ALCOHOL)',                class: '3', subsidiary: '',     pgOptions: ['II'],              tunnelByPG: { II: '(D/E)' } },
+  UN1230: { name: 'METHANOL',                                        class: '3', subsidiary: '6.1',  pgOptions: ['II'],              tunnelByPG: { II: '(D/E)' } },
   UN1263: { name: 'PAINT',                                           class: '3', subsidiary: '',     pgOptions: ['I', 'II', 'III'], tunnelByPG: { I: '(D/E)', II: '(D/E)', III: '(E)' } },
+  UN1294: { name: 'TOLUENE',                                         class: '3', subsidiary: '',     pgOptions: ['II'],              tunnelByPG: { II: '(D/E)' } },
+  UN1307: { name: 'XYLENES',                                        class: '3', subsidiary: '',     pgOptions: ['II', 'III'],       tunnelByPG: { II: '(D/E)', III: '(E)' } },
   UN1866: { name: 'RESIN SOLUTION, FLAMMABLE',                      class: '3', subsidiary: '',     pgOptions: ['I', 'II', 'III'], tunnelByPG: { I: '(D/E)', II: '(D/E)', III: '(E)' } },
   UN1993: { name: 'FLAMMABLE LIQUID, N.O.S.',                       class: '3', subsidiary: '',     pgOptions: ['I', 'II', 'III'], tunnelByPG: { I: '(D/E)', II: '(D/E)', III: '(E)' } },
   UN2924: { name: 'FLAMMABLE LIQUID, CORROSIVE, N.O.S.',            class: '3', subsidiary: '8',    pgOptions: ['I', 'II', 'III'], tunnelByPG: { I: '(D/E)', II: '(D/E)', III: '(E)' } },
@@ -26,9 +31,16 @@ const ADR_TABLE = {
 
   // ── Class 8 (Corrosive substances) ───────────────────────────────────────────
   UN1719: { name: 'CAUSTIC ALKALI LIQUID, N.O.S.',                  class: '8', subsidiary: '',     pgOptions: ['I', 'II', 'III'], tunnelByPG: { I: '(E)', II: '(E)', III: '(E)' } },
+  UN1728: { name: 'AMYLTRICHLOROSILANE',                            class: '8', subsidiary: '3',    pgOptions: ['II'],              tunnelByPG: { II: '(E)' } },
+  UN1730: { name: 'ANTIMONY PENTACHLORIDE, LIQUID',                 class: '8', subsidiary: '',     pgOptions: ['II'],              tunnelByPG: { II: '(E)' } },
+  UN1740: { name: 'HYDROFLUORIDES, SOLID, N.O.S.',                  class: '8', subsidiary: '6.1',  pgOptions: ['II', 'III'],       tunnelByPG: { II: '(E)', III: '(E)' } },
+  UN1744: { name: 'BROMINE SOLUTION',                               class: '8', subsidiary: '6.1',  pgOptions: ['I'],               tunnelByPG: { I: '(B/D/E)' } },
   UN1760: { name: 'CORROSIVE LIQUID, N.O.S.',                        class: '8', subsidiary: '',     pgOptions: ['I', 'II', 'III'], tunnelByPG: { I: '(E)', II: '(E)', III: '(E)' } },
+  UN1764: { name: 'DICHLOROACETIC ACID',                            class: '8', subsidiary: '',     pgOptions: ['II'],              tunnelByPG: { II: '(E)' } },
   UN1779: { name: 'FORMIC ACID (>85%)',                              class: '8', subsidiary: '3',    pgOptions: ['II'],              tunnelByPG: { II: '(E)' } },
+  UN1780: { name: 'FUMARYL CHLORIDE',                               class: '8', subsidiary: '6.1',  pgOptions: ['II'],              tunnelByPG: { II: '(E)' } },
   UN1789: { name: 'HYDROCHLORIC ACID SOLUTION',                     class: '8', subsidiary: '',     pgOptions: ['II', 'III'],       tunnelByPG: { II: '(E)', III: '(E)' } },
+  UN1790: { name: 'HYDROFLUORIC ACID (>85%)',                       class: '8', subsidiary: '6.1',  pgOptions: ['I'],               tunnelByPG: { I: '(B/D/E)' } },
   UN1791: { name: 'HYPOCHLORITE SOLUTION',                          class: '8', subsidiary: '',     pgOptions: ['II', 'III'],       tunnelByPG: { II: '(E)', III: '(E)' } },
   UN1805: { name: 'PHOSPHORIC ACID SOLUTION',                       class: '8', subsidiary: '',     pgOptions: ['III'],             tunnelByPG: { III: '(E)' } },
   UN1823: { name: 'SODIUM HYDROXIDE, SOLID',                        class: '8', subsidiary: '',     pgOptions: ['II'],              tunnelByPG: { II: '(E)' } },
