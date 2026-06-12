@@ -15,6 +15,44 @@ export function prettyDate(d) {
   return isNaN(dt) ? d : dt.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
 }
 
+// Pull contact details (name / email / phone) OUT of an address block.
+// Returns { address, contact: { name, email, phone } } — address has the
+// contact lines stripped so the Invoice To box stays clean.
+export function splitContact(text) {
+  const contact = { name: '', email: '', phone: '' }
+  const keep = []
+  String(text || '').split('\n').forEach((raw) => {
+    let line = raw
+
+    // email — anywhere in the line
+    const em = line.match(/[\w.+-]+@[\w-]+\.[\w.-]+/)
+    if (em) {
+      if (!contact.email) contact.email = em[0]
+      line = line.replace(em[0], '')
+    }
+
+    // phone — "Tel: …" style, or a line that is purely a number
+    let ph = line.match(/(?:tel|telephone|phone|mobile|mob|fax)[:.]?\s*([+()\d][\d\s()/-]{5,}\d)/i)
+    if (!ph) ph = line.match(/(?:^|\s)([+(]?\d[\d\s()/-]{7,}\d)(?=\s|$)/)
+    if (ph) {
+      if (!contact.phone) contact.phone = ph[1].trim()
+      line = line.replace(ph[0], '')
+    }
+
+    // contact name — "Attn:", "FAO", "Contact:" lines
+    const at = line.match(/^\s*(?:attn|fao|contact)[:.]?\s*(.+)$/i)
+    if (at) {
+      if (!contact.name) contact.name = at[1].trim()
+      line = ''
+    }
+
+    // keep the line only if something meaningful is left after stripping
+    const residue = line.replace(/[\s·.,;|/-]+/g, '')
+    if (residue.length > 1) keep.push(line.replace(/\s*[·|,;]\s*$/, '').replace(/^\s*[·|,;]\s*/, '').trim())
+  })
+  return { address: keep.join('\n'), contact }
+}
+
 // Resolve a single order/dispatch line against the catalogs and compute weights.
 // line = { productId, packagingId, qty }
 export function computeLine(line, products, packaging) {

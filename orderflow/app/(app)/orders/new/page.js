@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import { nextNo } from '@/lib/calc'
+import { nextNo, splitContact } from '@/lib/calc'
 import LineEditor from '../LineEditor'
 import Combobox from '../../Combobox'
 
@@ -49,8 +49,16 @@ export default function NewOrderPage() {
     setCustomerId(id)
     const c = customers.find((x) => x.id === id)
     if (c) {
-      setCustDetails(c.details || ''); setCustDeliver(c.deliver || '')
-      setContactName(c.contact_name || ''); setContactEmail(c.email || ''); setContactPhone(c.phone || '')
+      // Contact details live embedded in the address text on older records —
+      // extract them so the Invoice To box stays clean and the contact
+      // fields populate either way.
+      const inv = splitContact(c.details || '')
+      const del = splitContact(c.deliver || '')
+      setCustDetails(inv.address)
+      setCustDeliver(del.address)
+      setContactName(c.contact_name || inv.contact.name || del.contact.name || '')
+      setContactEmail(c.email || inv.contact.email || del.contact.email || '')
+      setContactPhone(c.phone || inv.contact.phone || del.contact.phone || '')
     }
   }
 
