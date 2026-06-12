@@ -28,7 +28,8 @@ export function splitContact(text) {
     const em = line.match(/[\w.+-]+@[\w-]+\.[\w.-]+/)
     if (em) {
       if (!contact.email) contact.email = em[0]
-      line = line.replace(em[0], '')
+      // Remove the email and any preceding label like "Email:", "E-mail:", etc.
+      line = line.replace(/(?:e[-.]?mail|email)[:.\s]*/i, '').replace(em[0], '')
     }
 
     // phone — "Tel: …" style, or a line that is purely a number
