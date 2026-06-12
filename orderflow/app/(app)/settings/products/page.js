@@ -33,12 +33,14 @@ export default function ProductsPage() {
       adr_class: '',
       adr_subsidiary: '',
       adr_tunnel: '',
+      adr_psn: '',
       adr_verified_by: '',
       adr_verified_at: null,
     }
     if (entry) {
       patch.adr_class = entry.class
       patch.adr_subsidiary = entry.subsidiary
+      patch.adr_psn = entry.name
       // Keep existing PG if it's valid for this UN, else default to first option
       const currentPGNorm = normPG(product?.pg || '').toUpperCase()
       const pg = entry.pgOptions.includes(currentPGNorm) ? currentPGNorm : (entry.pgOptions[0] || '')
@@ -69,7 +71,7 @@ export default function ProductsPage() {
   async function add() {
     const { data } = await supabase.from('products')
       .insert({ name: 'New product', sg: 1.0, pg: '', un_number: '', category: '',
-                adr_class: '', adr_subsidiary: '', adr_tunnel: '', adr_verified_by: '', adr_verified_at: null })
+                adr_class: '', adr_subsidiary: '', adr_tunnel: '', adr_psn: '', adr_verified_by: '', adr_verified_at: null })
       .select('*').single()
     setRows((r) => [...r, data])
   }
@@ -129,6 +131,7 @@ export default function ProductsPage() {
                   <td>
                     {pgOpts && pgOpts.length > 0 ? (
                       <select value={normPG(it.pg)} onChange={(e) => handlePGChange(it.id, e.target.value)}>
+                        {!pgOpts.includes(normPG(it.pg).toUpperCase()) && <option value={normPG(it.pg)}>{normPG(it.pg) ? `PG ${normPG(it.pg)}` : '—'}</option>}
                         {pgOpts.map((pg) => <option key={pg} value={pg}>PG {pg}</option>)}
                       </select>
                     ) : (
@@ -155,52 +158,32 @@ export default function ProductsPage() {
                   <tr className="adr-expand-row">
                     <td colSpan={7}>
                       <div className="adr-panel">
-                        {entry ? (
-                          <>
-                            <div className="adr-panel-title">ADR details — auto-filled from ADR 2023 Table A</div>
-                            <div className="adr-fields">
-                              <div>
-                                <label>Hazard class</label>
-                                <div className="adr-ro">{it.adr_class || entry.class}</div>
-                              </div>
-                              <div>
-                                <label>Subsidiary risk</label>
-                                <div className="adr-ro">{it.adr_subsidiary || entry.subsidiary || '—'}</div>
-                              </div>
-                              <div>
-                                <label>Tunnel code</label>
-                                <div className="adr-ro">{it.adr_tunnel || '—'}</div>
-                              </div>
-                              <div>
-                                <label>Packing group</label>
-                                <div className="adr-ro">{normPG(it.pg) || '—'}</div>
-                              </div>
-                            </div>
-                            <div className="adr-entry-name">{entry.name}</div>
-                          </>
-                        ) : (
-                          <>
-                            <div className="adr-panel-title">ADR details — manual entry (UN number not in Table A)</div>
-                            <div className="adr-fields">
-                              <div>
-                                <label>Hazard class</label>
-                                <input value={it.adr_class || ''} onChange={(e) => update(it.id, { adr_class: e.target.value, adr_verified_by: '', adr_verified_at: null })} placeholder="e.g. 8" />
-                              </div>
-                              <div>
-                                <label>Subsidiary risk</label>
-                                <input value={it.adr_subsidiary || ''} onChange={(e) => update(it.id, { adr_subsidiary: e.target.value, adr_verified_by: '', adr_verified_at: null })} placeholder="e.g. 6.1" />
-                              </div>
-                              <div>
-                                <label>Tunnel code</label>
-                                <input value={it.adr_tunnel || ''} onChange={(e) => update(it.id, { adr_tunnel: e.target.value, adr_verified_by: '', adr_verified_at: null })} placeholder="e.g. (E)" />
-                              </div>
-                              <div>
-                                <label>Packing group</label>
-                                <input value={it.pg || ''} onChange={(e) => handlePGChange(it.id, e.target.value)} placeholder="e.g. II" />
-                              </div>
-                            </div>
-                          </>
-                        )}
+                        <div className="adr-panel-title">
+                          {entry ? 'ADR details — auto-filled from ADR 2023 Table A, editable' : 'ADR details — manual entry (UN number not in Table A)'}
+                        </div>
+                        <div className="adr-fields">
+                          <div>
+                            <label>Hazard class</label>
+                            <input className="mono" value={it.adr_class || ''} onChange={(e) => update(it.id, { adr_class: e.target.value, adr_verified_by: '', adr_verified_at: null })} placeholder="e.g. 8" />
+                          </div>
+                          <div>
+                            <label>Subsidiary risk</label>
+                            <input className="mono" value={it.adr_subsidiary || ''} onChange={(e) => update(it.id, { adr_subsidiary: e.target.value, adr_verified_by: '', adr_verified_at: null })} placeholder="e.g. 6.1" />
+                          </div>
+                          <div>
+                            <label>Tunnel code</label>
+                            <input className="mono" value={it.adr_tunnel || ''} onChange={(e) => update(it.id, { adr_tunnel: e.target.value, adr_verified_by: '', adr_verified_at: null })} placeholder="e.g. (E)" />
+                          </div>
+                          <div>
+                            <label>Packing group</label>
+                            <input className="mono" value={it.pg || ''} onChange={(e) => handlePGChange(it.id, e.target.value)} placeholder="e.g. II" />
+                          </div>
+                        </div>
+                        <div className="adr-psn-field">
+                          <label>Proper shipping name {entry ? <span className="muted" style={{ textTransform: 'none', letterSpacing: 0 }}>— for N.O.S. entries add the technical name, e.g. (contains Hydrofluoric Acid)</span> : null}</label>
+                          <input value={it.adr_psn || ''} onChange={(e) => update(it.id, { adr_psn: e.target.value, adr_verified_by: '', adr_verified_at: null })}
+                            placeholder={entry ? entry.name : 'e.g. CORROSIVE LIQUID, TOXIC, N.O.S. (contains Hydrofluoric Acid)'} />
+                        </div>
 
                         <div className="adr-verify-row">
                           {isVerified ? (

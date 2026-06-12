@@ -162,7 +162,7 @@ ${items.map((it) => `  <li>${it.name}${it.pack ? ` — ${it.qty} x ${it.pack}` :
       const c = computeLine(l, products, packaging)
       return {
         productName: c.productName, pg: c.pg, un_number: c.un_number,
-        hazard: c.hazard, packDesc: c.packDesc, batch: batches[i],
+        hazard: c.hazard, psn: c.psn, packDesc: c.packDesc, batch: batches[i],
         vol: c.totalVol, net: c.net, gross: c.gross,
       }
     })
