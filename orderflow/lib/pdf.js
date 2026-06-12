@@ -115,7 +115,7 @@ export function generateDispatchPDF(doc_, lh, products, packaging) {
     try {
       const props = doc.getImageProperties(lh.logo)
       const maxW = 40, maxH = 14
-      let lw = Math.min(maxW, props.width * 0.18)
+      let lw = maxW
       let logoH = (lw * props.height) / props.width
       if (logoH > maxH) { logoH = maxH; lw = (logoH * props.width) / props.height }
       const imgFmt = (lh.logo.match(/data:image\/(\w+)/) || [])[1]?.toUpperCase() || 'PNG'
@@ -231,7 +231,7 @@ export function generateDispatchPDF(doc_, lh, products, packaging) {
     .text(doc.splitTextToSize(lh.footer || '', W - 2 * M), W / 2, fy, { align: 'center' })
 
   const custName = doc_.customerName || (doc_.customer || '').split('\n')[0]
-  doc.save(dnFilename(doc_.date, doc_.docNo, custName))
+  window.open(URL.createObjectURL(new Blob([doc.output('arraybuffer')], { type: 'application/pdf' })), '_blank')
   // Stored gross includes pallet weight so the log and reprints match the PDF
   return { totals: { ...t, gross: grossTotal, pallets, showHazard, invoice_to: doc_.invoiceTo || '' } }
 }
@@ -392,7 +392,6 @@ export function reprintPDF(d) {
     doc.setFont('helvetica', 'normal').setFontSize(7.5).setTextColor(130, 130, 130)
       .text(doc.splitTextToSize(lh.footer || '', W - 2 * M), W / 2, fy, { align: 'center' })
 
-    const custName = (d.customer || '').split('\n')[0]
-    doc.save(dnFilename(d.doc_date, d.doc_no, custName))
+    window.open(URL.createObjectURL(new Blob([doc.output('arraybuffer')], { type: 'application/pdf' })), '_blank')
   }))
 }
