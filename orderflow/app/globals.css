@@ -98,12 +98,22 @@ table.tbl input,table.tbl select{padding:7px 10px;font-size:12.5px;border-radius
 .st-DeliveryNoteGenerated{color:var(--accent-dark);border-color:#a8d8bc;background:rgba(25,123,85,.09)}
 
 /* ── order log rows ── */
-.list-row{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:15px 18px;
-  border:1.5px solid var(--line-solid);border-radius:var(--radius-sm);margin-bottom:10px;
-  background:rgba(255,255,255,0.55);transition:.15s}
-.list-row:hover{border-color:var(--accent);box-shadow:0 4px 16px rgba(31,168,107,.1)}
+.list-row{display:flex;justify-content:space-between;align-items:stretch;gap:16px;
+  padding:16px 18px 16px 20px;
+  border:1.5px solid var(--line-solid);border-left:4px solid var(--line-solid);
+  border-radius:var(--radius-sm);margin-bottom:10px;
+  background:rgba(255,255,255,0.6);transition:.15s}
+.list-row:hover{background:rgba(255,255,255,0.85);box-shadow:0 4px 18px rgba(20,40,80,.09)}
+/* left-border accent by status */
+.list-row.st-border-New{border-left-color:#5b8de8}
+.list-row.st-border-Inprogress{border-left-color:#d4860a}
+.list-row.st-border-DeliveryNoteGenerated{border-left-color:var(--accent)}
+/* text elements */
+.list-customer{font-size:15px;font-weight:700;color:var(--navy);line-height:1.2}
+.list-orderno{font-family:"IBM Plex Mono";font-size:11.5px;color:var(--muted);font-weight:500}
+.list-date{font-size:11.5px;color:var(--muted);margin-top:4px}
+/* legacy selectors kept for detail page */
 .list-row .meta{font-size:12px;color:var(--muted);margin-top:3px}
-.list-row .meta b{color:var(--ink);font-family:"IBM Plex Mono"}
 .list-row .ono{font-family:"IBM Plex Mono";font-weight:600;font-size:14px;color:var(--navy)}
 
 /* ── filters ── */

@@ -71,25 +71,29 @@ export default function OrdersPage() {
           <div className="empty">No delivery notes match. Log one from <b>New delivery note</b>.</div>
         ) : (
           filtered.map((o) => (
-            <div key={o.id} className="list-row" onClick={() => router.push(`/orders/${o.id}`)} style={{ cursor: 'pointer' }}>
-              <div>
-                <div className="ono">{o.order_no} <StatusBadge status={o.status} /></div>
+            <div key={o.id} className={'list-row st-border-' + String(o.status || 'New').replace(/\s+/g, '')} onClick={() => router.push(`/orders/${o.id}`)} style={{ cursor: 'pointer' }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
+                  <span className="list-customer">{o.customer_snapshot?.name || '—'}</span>
+                  <span className="list-orderno">{o.order_no}{o.po_ref ? ` · Order: ${o.po_ref}` : ''}</span>
+                </div>
+                <div className="list-date">
+                  {prettyDate(o.order_date)}
+                  {o.requested_date ? ` · required ${prettyDate(o.requested_date)}` : ''}
+                </div>
                 {(o.lines || []).length > 0 && (
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, margin: '5px 0 2px' }}>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 7 }}>
                     {(o.lines || []).map((l, i) => {
                       const name = nameOf(l.productId)
                       return name ? <span key={i} className="prod-tag">{name}</span> : null
                     })}
                   </div>
                 )}
-                <div className="meta">
-                  {o.customer_snapshot?.name || '—'}
-                  {o.po_ref ? ` · Customer Order: ${o.po_ref}` : ''} · ordered {prettyDate(o.order_date)}
-                  {o.requested_date ? ` · wanted ${prettyDate(o.requested_date)}` : ''}
-                  {` · ${(o.lines || []).length} product(s)`}
-                </div>
               </div>
-              <button className="btn-dl" onClick={(e) => remove(e, o)} title="Delete">×</button>
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', justifyContent: 'space-between', gap: 10, flexShrink: 0 }}>
+                <StatusBadge status={o.status} />
+                <button className="btn-dl" onClick={(e) => remove(e, o)} title="Delete">×</button>
+              </div>
             </div>
           ))
         )}
