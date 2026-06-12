@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import { computeLine, docTotals, fmt, prettyDate } from '@/lib/calc'
+import { computeLine, docTotals, fmt, prettyDate, splitContact } from '@/lib/calc'
 import { generateDispatchPDF, reprintPDF } from '@/lib/pdf'
 import { StatusBadge } from '../../page'
 import LineEditor from '../LineEditor'
@@ -49,7 +49,9 @@ export default function OrderDetailPage() {
         (l) => l.name.toLowerCase().includes('midland') || l.company.toLowerCase().includes('midland')
       )
       setLhIndex(midlandIdx >= 0 ? midlandIdx : 0)
-      setInvoiceTo(o.data?.customer_snapshot?.details || '')
+      // Strip any contact lines so the Invoice To box never carries
+      // tel / email / contact name
+      setInvoiceTo(splitContact(o.data?.customer_snapshot?.details || '').address)
 
       const existing = await supabase.from('dispatch_notes').select('*').eq('order_id', id).order('created_at', { ascending: false })
       setDispatched(existing.data || [])
@@ -134,12 +136,12 @@ ${items.map((it) => `  <li>${it.name}${it.pack ? ` — ${it.qty} x ${it.pack}` :
     setBusy(true)
     const lh = letterheads[lhIndex]
     const docNo = order.order_no
-    const contact = order.customer_snapshot?.contact || null
+    const contact = orderContact(order)
     const batches = batchModal.map((r) => (r.na ? 'N/A' : r.batch.trim()))
     const docData = {
       type: 'Delivery Note', docNo, date: docDate,
       invoiceTo,
-      deliver: order.customer_snapshot?.deliver || '',
+      deliver: splitContact(order.customer_snapshot?.deliver || '').address,
       contact,
       customerName: order.customer_snapshot?.name || '',
       lines, options, pallets, showHazard, batches,
@@ -190,12 +192,12 @@ ${items.map((it) => `  <li>${it.name}${it.pack ? ` — ${it.qty} x ${it.pack}` :
         </div>
         <div className="row c2" style={{ marginTop: 4 }}>
           <div className="field"><label>Invoice to</label>
-            <div className="paper" style={{ background: 'var(--panel-2)', color: 'var(--ink)', boxShadow: 'none', whiteSpace: 'pre-line', fontFamily: 'inherit' }}>{order.customer_snapshot?.details}</div></div>
+            <div className="paper" style={{ background: 'var(--panel-2)', color: 'var(--ink)', boxShadow: 'none', whiteSpace: 'pre-line', fontFamily: 'inherit' }}>{splitContact(order.customer_snapshot?.details || '').address}</div></div>
           <div className="field"><label>Deliver to</label>
-            <div className="paper" style={{ background: 'var(--panel-2)', color: 'var(--ink)', boxShadow: 'none', whiteSpace: 'pre-line', fontFamily: 'inherit' }}>{order.customer_snapshot?.deliver}</div>
-            {contactLines(order.customer_snapshot?.contact).length > 0 && (
+            <div className="paper" style={{ background: 'var(--panel-2)', color: 'var(--ink)', boxShadow: 'none', whiteSpace: 'pre-line', fontFamily: 'inherit' }}>{splitContact(order.customer_snapshot?.deliver || '').address}</div>
+            {contactLines(orderContact(order)).length > 0 && (
               <div className="paper" style={{ background: 'var(--panel-2)', color: 'var(--ink)', boxShadow: 'none', whiteSpace: 'pre-line', fontFamily: 'inherit', marginTop: 6, fontSize: 12 }}>
-                <b style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted)' }}>Contact</b>{'\n'}{contactLines(order.customer_snapshot?.contact).join('\n')}
+                <b style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted)' }}>Contact</b>{'\n'}{contactLines(orderContact(order)).join('\n')}
               </div>
             )}
           </div>
@@ -313,6 +315,21 @@ function contactLines(contact) {
   if (contact.phone) out.push('Tel: ' + contact.phone)
   if (contact.email) out.push(contact.email)
   return out
+}
+
+// Contact for an order: use the stored snapshot contact if present,
+// otherwise extract it from the address text (older orders embed it there).
+function orderContact(order) {
+  const c = order?.customer_snapshot?.contact
+  if (c && (c.name || c.email || c.phone)) return c
+  const fromDetails = splitContact(order?.customer_snapshot?.details || '').contact
+  const fromDeliver = splitContact(order?.customer_snapshot?.deliver || '').contact
+  const merged = {
+    name: fromDetails.name || fromDeliver.name,
+    email: fromDetails.email || fromDeliver.email,
+    phone: fromDetails.phone || fromDeliver.phone,
+  }
+  return (merged.name || merged.email || merged.phone) ? merged : null
 }
 
 function toast(msg) {
