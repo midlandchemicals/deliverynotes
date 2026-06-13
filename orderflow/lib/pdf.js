@@ -47,46 +47,71 @@ function hazardGroupsFromSnap(snap) {
   return map
 }
 
-// Compact bordered text box — NOT a full-width table
-function drawHazardBox(doc, startY, groups, r, g, b, M) {
+// Lay out a sequence of styled text segments with word-level wrapping.
+// parts = [{ text, bold, color }]. Returns { lines, endY }.
+function flowText(doc, x, y, maxW, fontSize, parts, lineH, measure) {
+  let cx = x, cy = y, lines = 1
+  doc.setFontSize(fontSize)
+  const spaceW = doc.getTextWidth(' ')
+  parts.forEach((part) => {
+    doc.setFont('helvetica', part.bold ? 'bold' : 'normal')
+    if (!measure) doc.setTextColor(...(part.color || [25, 25, 25]))
+    const tokens = String(part.text).match(/\S+|\s+/g) || []
+    tokens.forEach((tk) => {
+      if (/^\s+$/.test(tk)) { if (cx > x) cx += spaceW; return }
+      const ww = doc.getTextWidth(tk)
+      if (cx + ww > x + maxW && cx > x) { cy += lineH; cx = x; lines++ }
+      if (!measure) doc.text(tk, cx, cy)
+      cx += ww
+    })
+  })
+  return { lines, endY: cy }
+}
+
+// Full-width hazard summary — one flowing line per substance
+function drawHazardBox(doc, startY, groups, r, g, b, M, W) {
   const entries = Object.entries(groups)
   if (!entries.length) return startY
 
-  const boxW = 120
-  const lhPx = 5
-  // Proper shipping name lines wrap within the box width
-  doc.setFontSize(8.5)
-  const psnLines = entries.map(([, v]) => (v.psn ? doc.splitTextToSize(v.psn, boxW - 8) : []))
-  // lines per entry: notation + PSN lines + stats, plus a divider between entries
-  const totalLines = entries.reduce((n, _, i) => n + 2 + psnLines[i].length, 0) + Math.max(0, entries.length - 1)
-  const boxH = 9 + totalLines * lhPx
+  const boxW = W - 2 * M
+  const innerW = boxW - 8
+  const fontSize = 8
+  const lineH = 3.5
+  const entryGap = 1.8
 
-  // Never collide with the signature block (pinned at 265) — overflow to a new page
+  const segmentsFor = (hazard, v) => {
+    const weights = (v.vol > 0 ? `Vol: ${fmt(v.vol)} L · ` : '') + `Net: ${fmt(v.net)} kg · Gross: ${fmt(v.gross)} kg`
+    return [
+      { text: hazard + '   ', bold: true, color: [20, 20, 20] },
+      ...(v.psn ? [{ text: v.psn + '   ', bold: false, color: [60, 60, 60] }] : []),
+      { text: weights, bold: false, color: [90, 90, 90] },
+    ]
+  }
+
+  // Measure total height first
+  let contentH = 0
+  const measured = entries.map(([hazard, v]) => {
+    const parts = segmentsFor(hazard, v)
+    const m = flowText(doc, M + 4, 0, innerW, fontSize, parts, lineH, true)
+    contentH += m.lines * lineH + entryGap
+    return { parts, lines: m.lines }
+  })
+  const boxH = 5 + contentH
+
+  // Never collide with the signature block — overflow to a new page
   if (startY + 3 + boxH > 258) { doc.addPage(); startY = 20 }
 
   doc.setFont('helvetica', 'bold').setFontSize(8).setTextColor(r, g, b)
   doc.text('HAZARDOUS GOODS SUMMARY', M, startY)
   startY += 3
 
-  doc.setDrawColor(r, g, b).setLineWidth(0.5)
-  doc.setFillColor(248, 252, 250)
+  doc.setDrawColor(r, g, b).setLineWidth(0.5).setFillColor(248, 252, 250)
   doc.roundedRect(M, startY, boxW, boxH, 2, 2, 'FD')
 
-  let ty = startY + 7
-  entries.forEach(([hazard, v], i) => {
-    doc.setFont('helvetica', 'bold').setFontSize(10).setTextColor(20, 20, 20)
-    doc.text(hazard, M + 4, ty); ty += lhPx
-    if (psnLines[i].length) {
-      doc.setFont('helvetica', 'italic').setFontSize(8.5).setTextColor(60, 60, 60)
-      psnLines[i].forEach((ln) => { doc.text(ln, M + 4, ty); ty += lhPx })
-    }
-    doc.setFont('helvetica', 'normal').setFontSize(9).setTextColor(50, 50, 50)
-    doc.text(`Vol: ${fmt(v.vol)} L  ·  Net: ${fmt(v.net)} kg  ·  Gross: ${fmt(v.gross)} kg`, M + 4, ty)
-    ty += lhPx
-    if (i < entries.length - 1) {
-      doc.setDrawColor(200, 218, 210).setLineWidth(0.15).line(M + 2, ty, M + boxW - 2, ty)
-      ty += lhPx
-    }
+  let ty = startY + 5
+  measured.forEach(({ parts, lines }) => {
+    flowText(doc, M + 4, ty, innerW, fontSize, parts, lineH, false)
+    ty += lines * lineH + entryGap
   })
 
   return startY + boxH + 5
@@ -196,17 +221,17 @@ export function generateDispatchPDF(doc_, lh, products, packaging) {
     startY: cy,
     // bottom margin keeps table rows clear of the pinned signature block
     margin: { left: M, right: M, bottom: 45 },
-    head: [['Batch', 'Product', 'Hazard / UN', 'Net (kg)', 'Gross (kg)']],
+    head: [['Batch', 'Product', 'UN / PG', 'Net (kg)', 'Gross (kg)']],
     body: doc_.lines.map((l, i) => {
       const c = computeLine(l, products, packaging)
       const desc = c.packaging?.name ? `${c.productName} — ${c.qty} x ${c.packaging.name}` : c.productName
-      return [(doc_.batches && doc_.batches[i]) || '', desc, c.hazard, fmt(c.net), fmt(c.gross)]
+      return [(doc_.batches && doc_.batches[i]) || '', desc, c.hazardShort, fmt(c.net), fmt(c.gross)]
     }),
     styles: { font: 'helvetica', fontSize: 9, cellPadding: 1.6, lineColor: [210, 220, 215], lineWidth: 0.15 },
     headStyles: { fillColor: [r, g, b], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 8 },
     columnStyles: {
       0: { cellWidth: 20 },
-      2: { cellWidth: 32 },
+      2: { cellWidth: 26 },
       3: { halign: 'right' },
       4: { halign: 'right', fontStyle: 'bold' },
     },
@@ -246,7 +271,7 @@ export function generateDispatchPDF(doc_, lh, products, packaging) {
   if (showHazard) {
     ty += 4
     const groups = hazardGroups(doc_.lines, products, packaging)
-    ty = drawHazardBox(doc, ty, groups, r, g, b, M)
+    ty = drawHazardBox(doc, ty, groups, r, g, b, M, W)
   }
 
   // ── Footer (fixed) ────────────────────────────────────────────────────────
@@ -333,17 +358,18 @@ export function reprintPDF(d) {
     // ── Table ────────────────────────────────────────────────────────────────
     autoTable(doc, {
       startY: cy, margin: { left: M, right: M, bottom: 45 },
-      head: [['Batch', 'Product', 'Hazard / UN', 'Net (kg)', 'Gross (kg)']],
+      head: [['Batch', 'Product', 'UN / PG', 'Net (kg)', 'Gross (kg)']],
       body: (d.lines_snapshot || []).map((s) => {
-        const hazard = s.hazard || (s.un_number ? `${s.un_number} · ${s.pg}` : (s.pg || '—'))
+        const pgNorm = String(s.pg || '').replace(/^PG\s*/i, '').trim()
+        const hazardShort = s.un_number ? `${s.un_number}${pgNorm ? ` PG ${pgNorm}` : ''}` : (s.pg || '—')
         const packInfo = s.packDesc ? s.packDesc.replace('×', 'x') : ''
         const desc = packInfo ? `${s.productName} — ${packInfo}` : s.productName
-        return [s.batch || '', desc, hazard, n2(s.net), n2(s.gross)]
+        return [s.batch || '', desc, hazardShort, n2(s.net), n2(s.gross)]
       }),
       styles: { font: 'helvetica', fontSize: 9, cellPadding: 1.6, lineColor: [210, 220, 215], lineWidth: 0.15 },
       headStyles: { fillColor: [r, g, b], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 8 },
       columnStyles: {
-        0: { cellWidth: 20 }, 2: { cellWidth: 32 },
+        0: { cellWidth: 20 }, 2: { cellWidth: 26 },
         3: { halign: 'right' }, 4: { halign: 'right', fontStyle: 'bold' },
       },
       alternateRowStyles: { fillColor: [242, 249, 245] },
@@ -383,43 +409,7 @@ export function reprintPDF(d) {
     if (showHazard) {
       ty += 4
       const groups = hazardGroupsFromSnap(d.lines_snapshot)
-      const entries = Object.entries(groups)
-      if (entries.length) {
-        const lhPx = 5
-        const boxW = 120
-        doc.setFontSize(8.5)
-        const psnLines = entries.map(([, v]) => (v.psn ? doc.splitTextToSize(v.psn, boxW - 8) : []))
-        const totalLines = entries.reduce((n, _, i) => n + 2 + psnLines[i].length, 0) + Math.max(0, entries.length - 1)
-        const boxH = 9 + totalLines * lhPx
-
-        // Never collide with the signature block (pinned at 265) — overflow to a new page
-        if (ty + 3 + boxH > 258) { doc.addPage(); ty = 20 }
-
-        doc.setFont('helvetica', 'bold').setFontSize(8).setTextColor(r, g, b)
-        doc.text('HAZARDOUS GOODS SUMMARY', M, ty); ty += 3
-
-        doc.setDrawColor(r, g, b).setLineWidth(0.5).setFillColor(248, 252, 250)
-        doc.roundedRect(M, ty, boxW, boxH, 2, 2, 'FD')
-
-        let bty = ty + 7
-        entries.forEach(([hazard, v], idx) => {
-          doc.setFont('helvetica', 'bold').setFontSize(10).setTextColor(20, 20, 20)
-          doc.text(hazard, M + 4, bty); bty += lhPx
-          if (psnLines[idx].length) {
-            doc.setFont('helvetica', 'italic').setFontSize(8.5).setTextColor(60, 60, 60)
-            psnLines[idx].forEach((ln) => { doc.text(ln, M + 4, bty); bty += lhPx })
-          }
-          doc.setFont('helvetica', 'normal').setFontSize(9).setTextColor(50, 50, 50)
-          const volStr = v.vol > 0 ? n2(v.vol) + ' L' : '—'
-          doc.text(`Vol: ${volStr}  ·  Net: ${n2(v.net)} kg  ·  Gross: ${n2(v.gross)} kg`, M + 4, bty)
-          bty += lhPx
-          if (idx < entries.length - 1) {
-            doc.setDrawColor(200, 218, 210).setLineWidth(0.15).line(M + 2, bty, M + boxW - 2, bty)
-            bty += lhPx
-          }
-        })
-        ty = ty + boxH + 5
-      }
+      ty = drawHazardBox(doc, ty, groups, r, g, b, M, W)
     }
 
     // ── Sig lines (fixed above footer) ──────────────────────────────────────

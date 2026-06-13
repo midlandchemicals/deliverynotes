@@ -98,6 +98,9 @@ export function computeLine(line, products, packaging) {
   const un = p?.un_number || ''
   const pg = p?.pg || ''
   const hazard = buildHazard(un, pg, p)
+  const pgNorm = pg.replace(/^PG\s*/i, '').trim()
+  // Short form for the line-items table — UN number and packing group only
+  const hazardShort = un ? `${un}${pgNorm ? ` PG ${pgNorm}` : ''}` : (pg || '—')
   return {
     product: p, packaging: k, qty, vol, sg, tare, net, gross,
     totalVol: vol * qty,
@@ -105,6 +108,7 @@ export function computeLine(line, products, packaging) {
     pg,
     un_number: un,
     hazard,
+    hazardShort,
     psn: p?.adr_psn || '',
     packDesc: k ? `${qty} × ${k.name}` : `${qty} ×`,
   }
