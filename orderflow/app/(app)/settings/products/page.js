@@ -159,8 +159,28 @@ export default function ProductsPage() {
                   <tr className="adr-expand-row">
                     <td colSpan={7}>
                       <div className="adr-panel">
-                        <div className="adr-panel-title">
-                          {entry ? 'ADR details — auto-filled from ADR 2023 Table A, editable' : 'ADR details — manual entry (UN number not in Table A)'}
+                        <div className="adr-panel-title" style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                          <span>{entry ? 'ADR details — auto-filled from ADR 2023 Table A, editable' : 'ADR details — manual entry (UN number not in Table A)'}</span>
+                          {entry && (
+                            <button className="btn btn-g btn-sm" style={{ whiteSpace: 'nowrap' }}
+                              onClick={() => {
+                                const currentPGNorm = normPG(it.pg || '').toUpperCase()
+                                const pg = entry.pgOptions.includes(currentPGNorm) ? currentPGNorm : (entry.pgOptions[0] || '')
+                                const patch = {
+                                  adr_class: entry.class,
+                                  adr_subsidiary: entry.subsidiary,
+                                  adr_psn: it.adr_psn || entry.name,
+                                  adr_tunnel: adrTunnelForPG(it.un_number, pg),
+                                  adr_verified_by: '',
+                                  adr_verified_at: null,
+                                }
+                                if (pg !== currentPGNorm) patch.pg = pg
+                                setRows((r) => r.map((x) => (x.id === it.id ? { ...x, ...patch } : x)))
+                                supabase.from('products').update(patch).eq('id', it.id)
+                              }}>
+                              ↺ Fill from ADR table
+                            </button>
+                          )}
                         </div>
                         <div className="adr-fields">
                           <div>
