@@ -28,6 +28,7 @@ create table if not exists products (
   adr_subsidiary text default '',
   adr_tunnel text default '',
   adr_psn text default '',
+  adr_transport_cat text default '',
   adr_verified_by text default '',
   adr_verified_at timestamptz,
   created_at timestamptz default now()
@@ -149,5 +150,6 @@ insert into customers (name, details, deliver, contact_name, email, phone) value
 --   alter table products add column if not exists adr_subsidiary text default '';
 --   alter table products add column if not exists adr_tunnel text default '';
 --   alter table products add column if not exists adr_psn text default '';
+--   alter table products add column if not exists adr_transport_cat text default '';
 --   alter table products add column if not exists adr_verified_by text default '';
 --   alter table products add column if not exists adr_verified_at timestamptz;

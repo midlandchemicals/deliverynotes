@@ -34,6 +34,7 @@ export default function ProductsPage() {
       adr_subsidiary: '',
       adr_tunnel: '',
       adr_psn: '',
+      adr_transport_cat: '',
       adr_verified_by: '',
       adr_verified_at: null,
     }
@@ -71,7 +72,7 @@ export default function ProductsPage() {
   async function add() {
     const { data } = await supabase.from('products')
       .insert({ name: 'New product', sg: 1.0, pg: '', un_number: '', category: '',
-                adr_class: '', adr_subsidiary: '', adr_tunnel: '', adr_psn: '', adr_verified_by: '', adr_verified_at: null })
+                adr_class: '', adr_subsidiary: '', adr_tunnel: '', adr_psn: '', adr_transport_cat: '', adr_verified_by: '', adr_verified_at: null })
       .select('*').single()
     setRows((r) => [...r, data])
   }
@@ -177,6 +178,10 @@ export default function ProductsPage() {
                           <div>
                             <label>Packing group</label>
                             <input className="mono" value={it.pg || ''} onChange={(e) => handlePGChange(it.id, e.target.value)} placeholder="e.g. II" />
+                          </div>
+                          <div>
+                            <label>Transport category <span className="muted" style={{ textTransform: 'none', letterSpacing: 0, fontSize: 10 }}>(ADR 1.1.3.6)</span></label>
+                            <input className="mono" value={it.adr_transport_cat || ''} onChange={(e) => update(it.id, { adr_transport_cat: e.target.value, adr_verified_by: '', adr_verified_at: null })} placeholder="e.g. 2" />
                           </div>
                         </div>
                         <div className="adr-psn-field">

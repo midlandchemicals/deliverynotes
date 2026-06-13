@@ -35,7 +35,7 @@ function hazardGroups(lines, products, packaging) {
     const c = computeLine(l, products, packaging)
     const key = c.hazard || '—'
     if (key === '—') return
-    if (!map[key]) map[key] = { vol: 0, net: 0, gross: 0, psn: c.psn || '' }
+    if (!map[key]) map[key] = { vol: 0, net: 0, gross: 0, psn: c.psn || '', tc: c.product?.adr_transport_cat || '' }
     map[key].vol += c.totalVol; map[key].net += c.net; map[key].gross += c.gross
   })
   return map
@@ -46,7 +46,7 @@ function hazardGroupsFromSnap(snap) {
   ;(snap || []).forEach((s) => {
     const key = s.hazard || (s.un_number ? `${s.un_number} · ${s.pg}` : (s.pg || '—'))
     if (key === '—') return
-    if (!map[key]) map[key] = { vol: 0, net: 0, gross: 0, psn: s.psn || '' }
+    if (!map[key]) map[key] = { vol: 0, net: 0, gross: 0, psn: s.psn || '', tc: s.adr_transport_cat || '' }
     map[key].vol += s.vol || 0; map[key].net += s.net || 0; map[key].gross += s.gross || 0
   })
   return map
@@ -85,7 +85,8 @@ function drawHazardBox(doc, startY, groups, r, g, b, M, W) {
   const entryGap = 1.8
 
   const segmentsFor = (hazard, v) => {
-    const weights = (v.vol > 0 ? `Vol: ${fmt(v.vol)} L · ` : '') + `Net: ${fmt(v.net)} kg · Gross: ${fmt(v.gross)} kg`
+    const tcStr = v.tc ? `   Transport cat. ${v.tc}` : ''
+    const weights = (v.vol > 0 ? `Vol: ${fmt(v.vol)} L · ` : '') + `Net: ${fmt(v.net)} kg · Gross: ${fmt(v.gross)} kg` + tcStr
     return [
       { text: hazard + '   ', bold: true, color: [20, 20, 20] },
       ...(v.psn ? [{ text: v.psn + '   ', bold: false, color: [60, 60, 60] }] : []),
