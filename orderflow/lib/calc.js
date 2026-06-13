@@ -84,6 +84,14 @@ function buildHazard(un, pg, product) {
   return `${un} · ${pg}`
 }
 
+// Compact container size from a packaging name, e.g. "25 L Container" -> "25L".
+export function packSize(name) {
+  const m = String(name || '').match(/(\d+(?:\.\d+)?)\s*(ml|cl|l|kg|g)\b/i)
+  if (!m) return ''
+  const unit = /^l$/i.test(m[2]) ? 'L' : m[2].toLowerCase()
+  return `${m[1]}${unit}`
+}
+
 // Resolve a single order/dispatch line against the catalogs and compute weights.
 // line = { productId, packagingId, qty }
 export function computeLine(line, products, packaging) {
@@ -111,6 +119,8 @@ export function computeLine(line, products, packaging) {
     hazardShort,
     psn: p?.adr_psn || '',
     packDesc: k ? `${qty} × ${k.name}` : `${qty} ×`,
+    // Compact quantity label for its own table column, e.g. "25x25L"
+    packQty: k ? `${qty}x${packSize(k.name) || (vol ? fmt(vol) + 'L' : '')}` : `${qty}`,
   }
 }
 
