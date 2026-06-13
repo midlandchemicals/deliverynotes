@@ -1,7 +1,12 @@
 'use client'
 import { jsPDF } from 'jspdf'
 import autoTable from 'jspdf-autotable'
-import { computeLine, docTotals, fmt, prettyDate } from '@/lib/calc'
+import { computeLine, docTotals, fmt, prettyDate, packSize } from '@/lib/calc'
+import { registerFonts } from '@/lib/fonts'
+
+// Typeface used throughout the PDF — matches the web app (Plus Jakarta Sans).
+// registerFonts() sets this to 'PlusJakarta', or falls back to 'helvetica'.
+let FONT = 'helvetica'
 
 function hexToRgb(h) {
   const m = (h || '#197B55').replace('#', '')
@@ -54,7 +59,7 @@ function flowText(doc, x, y, maxW, fontSize, parts, lineH, measure) {
   doc.setFontSize(fontSize)
   const spaceW = doc.getTextWidth(' ')
   parts.forEach((part) => {
-    doc.setFont('helvetica', part.bold ? 'bold' : 'normal')
+    doc.setFont(FONT, part.bold ? 'bold' : 'normal')
     if (!measure) doc.setTextColor(...(part.color || [25, 25, 25]))
     const tokens = String(part.text).match(/\S+|\s+/g) || []
     tokens.forEach((tk) => {
@@ -101,7 +106,7 @@ function drawHazardBox(doc, startY, groups, r, g, b, M, W) {
   // Never collide with the signature block — overflow to a new page
   if (startY + 3 + boxH > 258) { doc.addPage(); startY = 20 }
 
-  doc.setFont('helvetica', 'bold').setFontSize(8).setTextColor(r, g, b)
+  doc.setFont(FONT, 'bold').setFontSize(8).setTextColor(r, g, b)
   doc.text('HAZARDOUS GOODS SUMMARY', M, startY)
   startY += 3
 
@@ -121,7 +126,7 @@ function drawHazardBox(doc, startY, groups, r, g, b, M, W) {
 function drawSigLines(doc, y, r, g, b, W, M) {
   const labels = ['Customer name', 'Print name', 'Date']
   const fw = 54, gap = 4
-  doc.setFont('helvetica', 'normal').setFontSize(8.5).setTextColor(80, 80, 80)
+  doc.setFont(FONT, 'normal').setFontSize(8.5).setTextColor(80, 80, 80)
   labels.forEach((label, i) => {
     const sx = M + i * (fw + gap)
     doc.text(label, sx, y)
@@ -157,6 +162,7 @@ export function generateDispatchPDF(doc_, lh, products, packaging) {
   const pallets = Math.max(0, parseInt(doc_.pallets || 0, 10) || 0)
   const showHazard = doc_.showHazard !== false
   const doc = new jsPDF({ unit: 'mm', format: 'a4' })
+  FONT = registerFonts(doc)
   const W = 210, M = 16
   let y = 16
 
@@ -174,15 +180,15 @@ export function generateDispatchPDF(doc_, lh, products, packaging) {
   }
 
   // ── Company ───────────────────────────────────────────────────────────────
-  doc.setFont('helvetica', 'bold').setFontSize(13).setTextColor(20, 20, 20).text(lh.company || '', M, y + 2)
+  doc.setFont(FONT, 'bold').setFontSize(13).setTextColor(20, 20, 20).text(lh.company || '', M, y + 2)
   const addrLines = String(lh.address || '').split('\n')
-  doc.setFont('helvetica', 'normal').setFontSize(8).setTextColor(90, 90, 90)
+  doc.setFont(FONT, 'normal').setFontSize(8).setTextColor(90, 90, 90)
     .text(addrLines, M, y + 7)
 
   // ── DELIVERY NOTE title (right side) ──────────────────────────────────────
-  doc.setFont('helvetica', 'bold').setFontSize(22).setTextColor(r, g, b)
+  doc.setFont(FONT, 'bold').setFontSize(22).setTextColor(r, g, b)
     .text('DELIVERY NOTE', W - M, 20, { align: 'right' })
-  doc.setFont('helvetica', 'normal').setFontSize(10).setTextColor(40, 40, 40)
+  doc.setFont(FONT, 'normal').setFontSize(10).setTextColor(40, 40, 40)
   doc.text(`No.   ${doc_.docNo || ''}`, W - M, 28, { align: 'right' })
   doc.text(`Date  ${prettyDate(doc_.date)}`, W - M, 34, { align: 'right' })
 
@@ -199,8 +205,8 @@ export function generateDispatchPDF(doc_, lh, products, packaging) {
     const bLines = doc.splitTextToSize(compactAddress(text || ''), colW - 10)
     const h = 11 + bLines.length * 3.9
     doc.roundedRect(x, yPos, colW, h, 2, 2, 'S')
-    doc.setFont('helvetica', 'bold').setFontSize(7).setTextColor(r, g, b).text(title.toUpperCase(), x + 5, yPos + 5.5)
-    doc.setFont('helvetica', 'normal').setFontSize(8).setTextColor(25, 25, 25)
+    doc.setFont(FONT, 'bold').setFontSize(7).setTextColor(r, g, b).text(title.toUpperCase(), x + 5, yPos + 5.5)
+    doc.setFont(FONT, 'normal').setFontSize(8).setTextColor(25, 25, 25)
       .text(bLines, x + 5, yPos + 10.5, { lineHeightFactor: 1.25 })
     return h
   }
@@ -216,24 +222,24 @@ export function generateDispatchPDF(doc_, lh, products, packaging) {
   cy += Math.max(bh1, rightH) + 5
 
   // ── Line items table ──────────────────────────────────────────────────────
-  // Product and packaging merged into one column for readability
+  // Quantity gets its own column ahead of the product name
   autoTable(doc, {
     startY: cy,
     // bottom margin keeps table rows clear of the pinned signature block
     margin: { left: M, right: M, bottom: 45 },
-    head: [['Batch', 'Product', 'UN / PG', 'Net (kg)', 'Gross (kg)']],
+    head: [['Batch', 'Qty', 'Product', 'UN / PG', 'Net (kg)', 'Gross (kg)']],
     body: doc_.lines.map((l, i) => {
       const c = computeLine(l, products, packaging)
-      const desc = c.packaging?.name ? `${c.productName} — ${c.qty} x ${c.packaging.name}` : c.productName
-      return [(doc_.batches && doc_.batches[i]) || '', desc, c.hazardShort, fmt(c.net), fmt(c.gross)]
+      return [(doc_.batches && doc_.batches[i]) || '', c.packQty, c.productName, c.hazardShort, fmt(c.net), fmt(c.gross)]
     }),
-    styles: { font: 'helvetica', fontSize: 9, cellPadding: 1.6, lineColor: [210, 220, 215], lineWidth: 0.15 },
+    styles: { font: FONT, fontSize: 9, cellPadding: 1.6, lineColor: [210, 220, 215], lineWidth: 0.15 },
     headStyles: { fillColor: [r, g, b], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 8 },
     columnStyles: {
       0: { cellWidth: 20 },
-      2: { cellWidth: 26 },
-      3: { halign: 'right' },
-      4: { halign: 'right', fontStyle: 'bold' },
+      1: { cellWidth: 18 },
+      3: { cellWidth: 26 },
+      4: { halign: 'right' },
+      5: { halign: 'right', fontStyle: 'bold' },
     },
     alternateRowStyles: { fillColor: [242, 249, 245] },
   })
@@ -252,7 +258,7 @@ export function generateDispatchPDF(doc_, lh, products, packaging) {
   if (pallets > 0) totRows.push({ label: 'Total pallets', val: String(pallets), bold: true })
   if (ty + totRows.length * 6 > 258) { doc.addPage(); ty = 20 }
   totRows.forEach(({ label, val, bold }) => {
-    doc.setFont('helvetica', bold ? 'bold' : 'normal').setFontSize(bold ? 12 : 11).setTextColor(40, 40, 40)
+    doc.setFont(FONT, bold ? 'bold' : 'normal').setFontSize(bold ? 12 : 11).setTextColor(40, 40, 40)
     doc.text(label, tx, ty); doc.text(val, W - M, ty, { align: 'right' }); ty += 6
   })
 
@@ -261,8 +267,8 @@ export function generateDispatchPDF(doc_, lh, products, packaging) {
     ty += 3
     const noteLines = doc.splitTextToSize(doc_.options, W - 2 * M)
     if (ty + 5 + noteLines.length * 4.5 > 258) { doc.addPage(); ty = 20 }
-    doc.setFont('helvetica', 'bold').setFontSize(8.5).setTextColor(r, g, b).text('NOTES', M, ty)
-    doc.setFont('helvetica', 'normal').setFontSize(9.5).setTextColor(40, 40, 40)
+    doc.setFont(FONT, 'bold').setFontSize(8.5).setTextColor(r, g, b).text('NOTES', M, ty)
+    doc.setFont(FONT, 'normal').setFontSize(9.5).setTextColor(40, 40, 40)
       .text(noteLines, M, ty + 5)
     ty += 5 + noteLines.length * 4.5 + 3
   }
@@ -280,7 +286,7 @@ export function generateDispatchPDF(doc_, lh, products, packaging) {
   // ── Signature lines — always pinned directly above the footer ─────────────
   drawSigLines(doc, fy - 22, r, g, b, W, M)
   doc.setDrawColor(210, 220, 215).setLineWidth(0.2).line(M, fy - 5, W - M, fy - 5)
-  doc.setFont('helvetica', 'normal').setFontSize(7.5).setTextColor(130, 130, 130)
+  doc.setFont(FONT, 'normal').setFontSize(7.5).setTextColor(130, 130, 130)
     .text(doc.splitTextToSize(lh.footer || '', W - 2 * M), W / 2, fy, { align: 'center' })
 
   const custName = doc_.customerName || (doc_.customer || '').split('\n')[0]
@@ -300,6 +306,7 @@ export function reprintPDF(d) {
       return [parseInt(m.slice(0, 2), 16), parseInt(m.slice(2, 4), 16), parseInt(m.slice(4, 6), 16)]
     })()
     const doc = new jsPDF({ unit: 'mm', format: 'a4' })
+    FONT = registerFonts(doc)
     const W = 210, M = 16
     const n2 = (n) => (Math.round((n || 0) * 100) / 100).toLocaleString(undefined, { maximumFractionDigits: 2 })
     let y = 16
@@ -318,14 +325,14 @@ export function reprintPDF(d) {
     }
 
     // ── Company ──────────────────────────────────────────────────────────────
-    doc.setFont('helvetica', 'bold').setFontSize(13).setTextColor(20, 20, 20).text(lh.company || '', M, y + 2)
+    doc.setFont(FONT, 'bold').setFontSize(13).setTextColor(20, 20, 20).text(lh.company || '', M, y + 2)
     const addrLines = String(lh.address || '').split('\n')
-    doc.setFont('helvetica', 'normal').setFontSize(8).setTextColor(90, 90, 90).text(addrLines, M, y + 7)
+    doc.setFont(FONT, 'normal').setFontSize(8).setTextColor(90, 90, 90).text(addrLines, M, y + 7)
 
     // ── Title ────────────────────────────────────────────────────────────────
-    doc.setFont('helvetica', 'bold').setFontSize(22).setTextColor(r, g, b)
+    doc.setFont(FONT, 'bold').setFontSize(22).setTextColor(r, g, b)
       .text('DELIVERY NOTE', W - M, 20, { align: 'right' })
-    doc.setFont('helvetica', 'normal').setFontSize(10).setTextColor(40, 40, 40)
+    doc.setFont(FONT, 'normal').setFontSize(10).setTextColor(40, 40, 40)
     doc.text(`No.   ${d.doc_no}`, W - M, 28, { align: 'right' })
     doc.text(`Date  ${d.doc_date || ''}`, W - M, 34, { align: 'right' })
 
@@ -339,8 +346,8 @@ export function reprintPDF(d) {
       const bLines = doc.splitTextToSize(compactAddress(text || ''), colW - 10)
       const h = 11 + bLines.length * 3.9
       doc.roundedRect(x, yPos, colW, h, 2, 2, 'S')
-      doc.setFont('helvetica', 'bold').setFontSize(7).setTextColor(r, g, b).text(title.toUpperCase(), x + 5, yPos + 5.5)
-      doc.setFont('helvetica', 'normal').setFontSize(8).setTextColor(25, 25, 25)
+      doc.setFont(FONT, 'bold').setFontSize(7).setTextColor(r, g, b).text(title.toUpperCase(), x + 5, yPos + 5.5)
+      doc.setFont(FONT, 'normal').setFontSize(8).setTextColor(25, 25, 25)
         .text(bLines, x + 5, yPos + 10.5, { lineHeightFactor: 1.25 })
       return h
     }
@@ -358,19 +365,23 @@ export function reprintPDF(d) {
     // ── Table ────────────────────────────────────────────────────────────────
     autoTable(doc, {
       startY: cy, margin: { left: M, right: M, bottom: 45 },
-      head: [['Batch', 'Product', 'UN / PG', 'Net (kg)', 'Gross (kg)']],
+      head: [['Batch', 'Qty', 'Product', 'UN / PG', 'Net (kg)', 'Gross (kg)']],
       body: (d.lines_snapshot || []).map((s) => {
         const pgNorm = String(s.pg || '').replace(/^PG\s*/i, '').trim()
         const hazardShort = s.un_number ? `${s.un_number}${pgNorm ? ` PG ${pgNorm}` : ''}` : (s.pg || '—')
-        const packInfo = s.packDesc ? s.packDesc.replace('×', 'x') : ''
-        const desc = packInfo ? `${s.productName} — ${packInfo}` : s.productName
-        return [s.batch || '', desc, hazardShort, n2(s.net), n2(s.gross)]
+        // Prefer the stored compact qty; fall back to parsing the old packDesc
+        let packQty = s.packQty
+        if (!packQty && s.packDesc) {
+          const m = s.packDesc.match(/^\s*(\d+(?:\.\d+)?)\s*[×x]\s*(.+)$/)
+          packQty = m ? `${m[1]}x${packSize(m[2]) || m[2].trim()}` : s.packDesc.replace('×', 'x')
+        }
+        return [s.batch || '', packQty || '', s.productName, hazardShort, n2(s.net), n2(s.gross)]
       }),
-      styles: { font: 'helvetica', fontSize: 9, cellPadding: 1.6, lineColor: [210, 220, 215], lineWidth: 0.15 },
+      styles: { font: FONT, fontSize: 9, cellPadding: 1.6, lineColor: [210, 220, 215], lineWidth: 0.15 },
       headStyles: { fillColor: [r, g, b], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 8 },
       columnStyles: {
-        0: { cellWidth: 20 }, 2: { cellWidth: 26 },
-        3: { halign: 'right' }, 4: { halign: 'right', fontStyle: 'bold' },
+        0: { cellWidth: 20 }, 1: { cellWidth: 18 }, 3: { cellWidth: 26 },
+        4: { halign: 'right' }, 5: { halign: 'right', fontStyle: 'bold' },
       },
       alternateRowStyles: { fillColor: [242, 249, 245] },
     })
@@ -390,7 +401,7 @@ export function reprintPDF(d) {
     if (pallets > 0) totRows.push({ label: 'Total pallets', val: String(pallets), bold: true })
     if (ty + totRows.length * 6 > 258) { doc.addPage(); ty = 20 }
     totRows.forEach(({ label, val, bold }) => {
-      doc.setFont('helvetica', bold ? 'bold' : 'normal').setFontSize(bold ? 12 : 11).setTextColor(40, 40, 40)
+      doc.setFont(FONT, bold ? 'bold' : 'normal').setFontSize(bold ? 12 : 11).setTextColor(40, 40, 40)
       doc.text(label, tx, ty); doc.text(val, W - M, ty, { align: 'right' }); ty += 6
     })
 
@@ -399,8 +410,8 @@ export function reprintPDF(d) {
       ty += 3
       const noteLines = doc.splitTextToSize(d.options, W - 2 * M)
       if (ty + 5 + noteLines.length * 4.5 > 258) { doc.addPage(); ty = 20 }
-      doc.setFont('helvetica', 'bold').setFontSize(8.5).setTextColor(r, g, b).text('NOTES', M, ty)
-      doc.setFont('helvetica', 'normal').setFontSize(9.5).setTextColor(40, 40, 40)
+      doc.setFont(FONT, 'bold').setFontSize(8.5).setTextColor(r, g, b).text('NOTES', M, ty)
+      doc.setFont(FONT, 'normal').setFontSize(9.5).setTextColor(40, 40, 40)
         .text(noteLines, M, ty + 5)
       ty += 5 + noteLines.length * 4.5 + 3
     }
@@ -418,7 +429,7 @@ export function reprintPDF(d) {
 
     // ── Footer ───────────────────────────────────────────────────────────────
     doc.setDrawColor(210, 220, 215).setLineWidth(0.2).line(M, fy - 5, W - M, fy - 5)
-    doc.setFont('helvetica', 'normal').setFontSize(7.5).setTextColor(130, 130, 130)
+    doc.setFont(FONT, 'normal').setFontSize(7.5).setTextColor(130, 130, 130)
       .text(doc.splitTextToSize(lh.footer || '', W - 2 * M), W / 2, fy, { align: 'center' })
 
     window.open(URL.createObjectURL(new Blob([doc.output('arraybuffer')], { type: 'application/pdf' })), '_blank')
