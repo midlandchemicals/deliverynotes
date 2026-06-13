@@ -186,8 +186,16 @@ export default function ProductsPage() {
                         </div>
                         <div className="adr-psn-field">
                           <label>Proper shipping name {entry ? <span className="muted" style={{ textTransform: 'none', letterSpacing: 0 }}>— for N.O.S. entries add the technical name, e.g. (contains Hydrofluoric Acid)</span> : null}</label>
-                          <input value={it.adr_psn || ''} onChange={(e) => update(it.id, { adr_psn: e.target.value, adr_verified_by: '', adr_verified_at: null })}
-                            placeholder={entry ? entry.name : 'e.g. CORROSIVE LIQUID, TOXIC, N.O.S. (contains Hydrofluoric Acid)'} />
+                          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                            <input style={{ flex: 1 }} value={it.adr_psn || ''} onChange={(e) => update(it.id, { adr_psn: e.target.value, adr_verified_by: '', adr_verified_at: null })}
+                              placeholder={entry ? entry.name : 'e.g. CORROSIVE LIQUID, TOXIC, N.O.S. (contains Hydrofluoric Acid)'} />
+                            {entry && !it.adr_psn && (
+                              <button className="btn btn-g btn-sm" style={{ whiteSpace: 'nowrap' }}
+                                onClick={() => update(it.id, { adr_psn: entry.name, adr_verified_by: '', adr_verified_at: null })}>
+                                Use suggested
+                              </button>
+                            )}
+                          </div>
                         </div>
 
                         <div className="adr-verify-row">
