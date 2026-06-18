@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import { computeLine, docTotals, fmt, prettyDate, splitContact } from '@/lib/calc'
+import { computeLine, docTotals, fmt, prettyDate, splitContact, labelCount } from '@/lib/calc'
 import { generateDispatchPDF, generateOfficeCopyPDF, reprintPDF } from '@/lib/pdf'
 import { StatusBadge } from '../../page'
 import LineEditor from '../LineEditor'
@@ -24,6 +24,7 @@ export default function OrderDetailPage() {
   // pricing: { [productId]: pricePerLitre }
   const [prices, setPrices] = useState({})
   const [deliveryCharge, setDeliveryCharge] = useState('')
+  const [labelPrice, setLabelPrice] = useState(0)  // £ per label for this customer
 
   // dispatch panel state
   const [lhIndex, setLhIndex] = useState(0)
@@ -62,11 +63,15 @@ export default function OrderDetailPage() {
       setDispatched(existing.data || [])
 
       if (o.data?.customer_id) {
-        const { data: priceData } = await supabase.from('customer_product_prices')
-          .select('product_id, packaging_id, price_per_litre').eq('customer_id', o.data.customer_id)
-        if (priceData?.length) {
-          setPrices(Object.fromEntries(priceData.map((r) => [`${r.product_id}::${r.packaging_id}`, r.price_per_litre])))
+        const [priceData, custData] = await Promise.all([
+          supabase.from('customer_product_prices')
+            .select('product_id, packaging_id, price_per_litre').eq('customer_id', o.data.customer_id),
+          supabase.from('customers').select('label_price').eq('id', o.data.customer_id).single(),
+        ])
+        if (priceData.data?.length) {
+          setPrices(Object.fromEntries(priceData.data.map((r) => [`${r.product_id}::${r.packaging_id}`, r.price_per_litre])))
         }
+        setLabelPrice(custData.data?.label_price || 0)
       }
     })()
   }, [id])
@@ -110,7 +115,7 @@ export default function OrderDetailPage() {
       lines, options: d.options,
       pallets: d.totals?.pallets || 0, batches,
     }
-    generateOfficeCopyPDF(doc_, lh, products, packaging, prices, parseFloat(deliveryCharge) || 0)
+    generateOfficeCopyPDF(doc_, lh, products, packaging, prices, parseFloat(deliveryCharge) || 0, labelTotal)
   }
 
   function printNote() {
@@ -242,6 +247,10 @@ ${items.map((it) => `  <li>${it.name}${it.pack ? ` — ${it.qty} x ${it.pack}` :
     return sum + ppl * (c.vol || 0) * c.qty
   }, 0)
 
+  const labelTotal = labelPrice > 0
+    ? lines.reduce((sum, l) => sum + labelCount(l, products, packaging) * labelPrice, 0)
+    : 0
+
   return (
     <div>
       <div className="card">
@@ -334,8 +343,8 @@ ${items.map((it) => `  <li>${it.name}${it.pack ? ` — ${it.qty} x ${it.pack}` :
           </table>
           {(() => {
             const delivery = parseFloat(deliveryCharge) || 0
-            const vat = Math.round((orderTotal + delivery) * 0.20 * 100) / 100
-            const grandTotal = orderTotal + delivery + vat
+            const vat = Math.round((orderTotal + labelTotal + delivery) * 0.20 * 100) / 100
+            const grandTotal = orderTotal + labelTotal + delivery + vat
             return (
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6, marginTop: 14 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
@@ -352,6 +361,12 @@ ${items.map((it) => `  <li>${it.name}${it.pack ? ` — ${it.qty} x ${it.pack}` :
                     <span className="muted">Subtotal</span>
                     <span className="mono">{orderTotal > 0 ? `£${orderTotal.toFixed(2)}` : '—'}</span>
                   </div>
+                  {labelTotal > 0 && (
+                    <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', fontSize: 13 }}>
+                      <span className="muted">Labels</span>
+                      <span className="mono">£{labelTotal.toFixed(2)}</span>
+                    </div>
+                  )}
                   {delivery > 0 && (
                     <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', fontSize: 13 }}>
                       <span className="muted">Delivery</span>
@@ -370,7 +385,35 @@ ${items.map((it) => `  <li>${it.name}${it.pack ? ` — ${it.qty} x ${it.pack}` :
               </div>
             )
           })()}
-          <p className="hint">Enter £ per litre — unit price and line total are calculated automatically. Prices are saved against this customer for future orders.</p>
+          {labelPrice > 0 && labelTotal > 0 && (
+            <div style={{ marginTop: 12, borderTop: '1px solid var(--border)', paddingTop: 10 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted)', marginBottom: 6 }}>Label charges — £{labelPrice.toFixed(4)}/label</div>
+              <table className="tbl" style={{ marginBottom: 0 }}>
+                <thead><tr>
+                  <th>Product</th>
+                  <th>Packaging</th>
+                  <th style={{ textAlign: 'right', width: '10%' }}>Labels</th>
+                  <th style={{ textAlign: 'right', width: '12%' }}>Label cost</th>
+                </tr></thead>
+                <tbody>
+                  {lines.map((l, i) => {
+                    const c = computeLine(l, products, packaging)
+                    const count = labelCount(l, products, packaging)
+                    if (!count) return null
+                    return (
+                      <tr key={i}>
+                        <td>{c.productName}</td>
+                        <td>{c.packaging?.name || '—'}</td>
+                        <td className="mono" style={{ textAlign: 'right' }}>{count}</td>
+                        <td className="mono" style={{ textAlign: 'right' }}>£{(count * labelPrice).toFixed(2)}</td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+          <p className="hint">Enter £ per litre — unit price and line total are calculated automatically. Prices are saved against this customer for future orders. Products marked with * attract a label charge if a label price is set on the customer.</p>
         </div>
       )}
 

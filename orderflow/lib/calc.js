@@ -133,6 +133,23 @@ export function docTotals(lines, products, packaging) {
   return { packages, volume, net, gross }
 }
 
+// Number of labels required for a line item.
+// Products must have a name ending with '*' to qualify.
+// 5L containers:  1 label/bottle + 1 box label per 4 bottles
+// ≤500L drums:    1 label per container
+// >500L IBCs:     2 labels per IBC
+export function labelCount(line, products, packaging) {
+  const p = products.find((x) => x.id === line.productId)
+  if (!p || !String(p.name).trim().endsWith('*')) return 0
+  const k = packaging.find((x) => x.id === line.packagingId)
+  if (!k) return 0
+  const vol = num(k.volume)
+  const qty = num(line.qty)
+  if (vol <= 5)   return qty + Math.floor(qty / 4)
+  if (vol <= 500) return qty
+  return qty * 2
+}
+
 // "DN-0007" -> "DN-0008"; "DN-1004" -> "DN-1005"
 export function nextNo(s) {
   const r = String(s || '').replace(/(\d+)(?!.*\d)/, (m) => String(+m + 1).padStart(m.length, '0'))

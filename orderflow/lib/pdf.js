@@ -272,7 +272,7 @@ export function generateDispatchPDF(doc_, lh, products, packaging) {
 
 // Office copy — B&W, "FOR OFFICE USE ONLY" banner, pricing columns + VAT + grand total.
 // pricing key format: `${productId}::${packagingId}`
-export function generateOfficeCopyPDF(doc_, lh, products, packaging, pricing = {}, deliveryCharge = 0) {
+export function generateOfficeCopyPDF(doc_, lh, products, packaging, pricing = {}, deliveryCharge = 0, labelTotal = 0) {
   const BK = [20, 20, 20]
   const MU = [90, 90, 90]
   const f2 = (n) => `£${(Math.round(n * 100) / 100).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
@@ -346,8 +346,9 @@ export function generateOfficeCopyPDF(doc_, lh, products, packaging, pricing = {
   })
   const subtotal = lineData.reduce((s, d) => s + d.lineTotal, 0)
   const delivery = parseFloat(deliveryCharge) || 0
-  const vat = Math.round((subtotal + delivery) * 0.20 * 100) / 100
-  const grandTotal = subtotal + delivery + vat
+  const labels = parseFloat(labelTotal) || 0
+  const vat = Math.round((subtotal + labels + delivery) * 0.20 * 100) / 100
+  const grandTotal = subtotal + labels + delivery + vat
 
   autoTable(doc, {
     startY: cy,
@@ -372,10 +373,11 @@ export function generateOfficeCopyPDF(doc_, lh, products, packaging, pricing = {
   let ty = doc.lastAutoTable.finalY + 5
   const tx = W - M - 78
   const totRows = [
-    { label: 'Subtotal',    val: f2(subtotal),   bold: false },
+    { label: 'Subtotal',              val: f2(subtotal),   bold: false },
+    ...(labels > 0   ? [{ label: 'Labels',   val: f2(labels),   bold: false }] : []),
     ...(delivery > 0 ? [{ label: 'Delivery', val: f2(delivery), bold: false }] : []),
-    { label: 'VAT (20%)',   val: f2(vat),        bold: false },
-    { label: 'Grand total', val: f2(grandTotal), bold: true  },
+    { label: 'VAT (20%)',             val: f2(vat),        bold: false },
+    { label: 'Grand total',           val: f2(grandTotal), bold: true  },
   ]
   if (ty + totRows.length * 7 > 270) { doc.addPage(); ty = 20 }
   totRows.forEach(({ label, val, bold }) => {
