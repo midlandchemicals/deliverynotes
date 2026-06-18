@@ -2,21 +2,31 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 
-// Build an editable address list for a customer, falling back to the legacy
-// single text field when no array has been saved yet.
+// Build an editable invoice address list, falling back to the legacy single
+// text field when no array has been saved yet.
 function addrList(arr, legacy) {
   if (Array.isArray(arr) && arr.length) return arr
   return [{ label: '', text: legacy || '' }]
 }
 
-function AddressListEditor({ list, kind, onChange }) {
+// Delivery addresses carry their own contact. Fall back to the legacy single
+// delivery field + customer-level contact for un-migrated records.
+function deliveryAddrList(c) {
+  if (Array.isArray(c.delivery_addresses) && c.delivery_addresses.length) return c.delivery_addresses
+  return [{ label: '', text: c.deliver || '', contact: { name: c.contact_name || '', email: c.email || '', phone: c.phone || '' } }]
+}
+
+function AddressListEditor({ list, kind, withContact, onChange }) {
   function setEntry(i, patch) {
     onChange(list.map((e, idx) => (idx === i ? { ...e, ...patch } : e)))
   }
-  function addEntry() { onChange([...list, { label: '', text: '' }]) }
+  function setContact(i, patch) {
+    onChange(list.map((e, idx) => (idx === i ? { ...e, contact: { ...(e.contact || {}), ...patch } } : e)))
+  }
+  function addEntry() { onChange([...list, withContact ? { label: '', text: '', contact: { name: '', email: '', phone: '' } } : { label: '', text: '' }]) }
   function removeEntry(i) {
     const next = list.filter((_, idx) => idx !== i)
-    onChange(next.length ? next : [{ label: '', text: '' }])
+    onChange(next.length ? next : [withContact ? { label: '', text: '', contact: { name: '', email: '', phone: '' } } : { label: '', text: '' }])
   }
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -29,6 +39,13 @@ function AddressListEditor({ list, kind, onChange }) {
             {list.length > 1 && <button className="btn-dl" onClick={() => removeEntry(i)}>×</button>}
           </div>
           <textarea style={{ minHeight: 64 }} value={e.text || ''} onChange={(ev) => setEntry(i, { text: ev.target.value })} />
+          {withContact && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 5 }}>
+              <input style={{ fontSize: 12 }} placeholder="Contact name" value={e.contact?.name || ''} onChange={(ev) => setContact(i, { name: ev.target.value })} />
+              <input style={{ fontSize: 12 }} placeholder="Email" value={e.contact?.email || ''} onChange={(ev) => setContact(i, { email: ev.target.value })} />
+              <input style={{ fontSize: 12 }} placeholder="Telephone" value={e.contact?.phone || ''} onChange={(ev) => setContact(i, { phone: ev.target.value })} />
+            </div>
+          )}
         </div>
       ))}
       <button className="addrow" style={{ fontSize: 12, padding: '5px 8px' }} onClick={addEntry}>+ Add {kind} address</button>
@@ -65,11 +82,10 @@ export default function CustomersPage() {
       <div className="ttl"><h2>Address Book</h2></div>
       <table className="tbl">
         <thead><tr>
-          <th style={{ width: '13%' }}>Name</th>
-          <th style={{ width: '24%' }}>Invoice addresses</th>
-          <th style={{ width: '24%' }}>Delivery addresses</th>
-          <th style={{ width: '25%' }}>Contact (name / email / phone)</th>
-          <th style={{ width: '6%' }}>£/label</th>
+          <th style={{ width: '15%' }}>Name</th>
+          <th style={{ width: '32%' }}>Invoice addresses</th>
+          <th style={{ width: '40%' }}>Delivery addresses (each with its own contact)</th>
+          <th style={{ width: '8%' }}>£/label</th>
           <th style={{ width: '4%' }}></th>
         </tr></thead>
         <tbody>
@@ -85,15 +101,17 @@ export default function CustomersPage() {
               </td>
               <td>
                 <AddressListEditor
-                  list={addrList(it.delivery_addresses, it.deliver)}
+                  list={deliveryAddrList(it)}
                   kind="delivery"
-                  onChange={(list) => update(it.id, { delivery_addresses: list, deliver: list[0]?.text || '' })}
+                  withContact
+                  onChange={(list) => update(it.id, {
+                    delivery_addresses: list,
+                    deliver: list[0]?.text || '',
+                    contact_name: list[0]?.contact?.name || '',
+                    email: list[0]?.contact?.email || '',
+                    phone: list[0]?.contact?.phone || '',
+                  })}
                 />
-              </td>
-              <td>
-                <input style={{ marginBottom: 5 }} placeholder="Contact name" value={it.contact_name || ''} onChange={(e) => update(it.id, { contact_name: e.target.value })} />
-                <input style={{ marginBottom: 5 }} placeholder="Email" value={it.email || ''} onChange={(e) => update(it.id, { email: e.target.value })} />
-                <input placeholder="Telephone" value={it.phone || ''} onChange={(e) => update(it.id, { phone: e.target.value })} />
               </td>
               <td>
                 <input className="mono" style={{ textAlign: 'right' }}
@@ -106,7 +124,7 @@ export default function CustomersPage() {
         </tbody>
       </table>
       <button className="addrow" onClick={add}>+ Add customer</button>
-      <p className="hint">Add several invoice or delivery addresses per customer, each with a short label. The first address is the default; when raising an order you choose which one to use from a dropdown.</p>
+      <p className="hint">Add several invoice or delivery addresses per customer, each with a short label. Each delivery address carries its own contact (name / email / phone). The first address is the default; when raising an order you choose which one to use from a dropdown and its contact fills in automatically.</p>
     </div>
   )
 }

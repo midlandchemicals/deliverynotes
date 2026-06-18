@@ -62,16 +62,18 @@ export default function NewOrderPage() {
       const invList = (Array.isArray(c.invoice_addresses) && c.invoice_addresses.length)
         ? c.invoice_addresses : [{ label: 'Main', text: inv.address }]
       const delList = (Array.isArray(c.delivery_addresses) && c.delivery_addresses.length)
-        ? c.delivery_addresses : [{ label: 'Main', text: del.address }]
+        ? c.delivery_addresses
+        : [{ label: 'Main', text: del.address, contact: { name: c.contact_name || del.contact.name || '', email: c.email || del.contact.email || '', phone: c.phone || del.contact.phone || '' } }]
       setInvoiceOptions(invList)
       setDeliveryOptions(delList)
       setInvoiceIdx(0)
       setDeliveryIdx(0)
       setCustDetails(splitContact(invList[0]?.text || '').address)
       setCustDeliver(splitContact(delList[0]?.text || '').address)
-      setContactName(c.contact_name || inv.contact.name || del.contact.name || '')
-      setContactEmail(c.email || inv.contact.email || del.contact.email || '')
-      setContactPhone(c.phone || inv.contact.phone || del.contact.phone || '')
+      const ct0 = delList[0]?.contact || {}
+      setContactName(ct0.name || c.contact_name || inv.contact.name || del.contact.name || '')
+      setContactEmail(ct0.email || c.email || inv.contact.email || del.contact.email || '')
+      setContactPhone(ct0.phone || c.phone || del.contact.phone || '')
     }
   }
 
@@ -81,7 +83,12 @@ export default function NewOrderPage() {
   }
   function pickDeliveryAddr(i) {
     setDeliveryIdx(i)
-    setCustDeliver(splitContact(deliveryOptions[i]?.text || '').address)
+    const opt = deliveryOptions[i] || {}
+    setCustDeliver(splitContact(opt.text || '').address)
+    const ct = opt.contact || {}
+    setContactName(ct.name || '')
+    setContactEmail(ct.email || '')
+    setContactPhone(ct.phone || '')
   }
 
   async function saveOrder() {

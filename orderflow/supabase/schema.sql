@@ -12,7 +12,7 @@ create table if not exists customers (
   details text default '',
   deliver text default '',
   invoice_addresses jsonb default '[]',   -- [{label, text}] — multiple invoice addresses
-  delivery_addresses jsonb default '[]',  -- [{label, text}] — multiple delivery addresses
+  delivery_addresses jsonb default '[]',  -- [{label, text, contact:{name,email,phone}}] — multiple delivery addresses
   contact_name text default '',
   email text default '',
   phone text default '',
