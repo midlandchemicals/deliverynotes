@@ -90,19 +90,29 @@ create table if not exists dispatch_notes (
 );
 create index if not exists dispatch_order_idx on dispatch_notes(order_id);
 
+-- ---------- per-customer pricing ----------
+create table if not exists customer_product_prices (
+  customer_id uuid references customers(id) on delete cascade,
+  product_id  uuid references products(id)  on delete cascade,
+  price_per_litre numeric not null default 0,
+  updated_at timestamptz default now(),
+  primary key (customer_id, product_id)
+);
+
 -- ---------- row level security ----------
 -- Internal team app: any signed-in user may read/write everything.
-alter table customers      enable row level security;
-alter table products       enable row level security;
-alter table packaging      enable row level security;
-alter table letterheads    enable row level security;
-alter table orders         enable row level security;
+alter table customers               enable row level security;
+alter table products                enable row level security;
+alter table packaging               enable row level security;
+alter table letterheads             enable row level security;
+alter table orders                  enable row level security;
+alter table customer_product_prices enable row level security;
 alter table dispatch_notes enable row level security;
 
 do $$
 declare t text;
 begin
-  foreach t in array array['customers','products','packaging','letterheads','orders','dispatch_notes']
+  foreach t in array array['customers','products','packaging','letterheads','orders','dispatch_notes','customer_product_prices']
   loop
     execute format('drop policy if exists "auth all" on %I;', t);
     execute format('create policy "auth all" on %I for all to authenticated using (true) with check (true);', t);
@@ -153,3 +163,14 @@ insert into customers (name, details, deliver, contact_name, email, phone) value
 --   alter table products add column if not exists adr_transport_cat text default '';
 --   alter table products add column if not exists adr_verified_by text default '';
 --   alter table products add column if not exists adr_verified_at timestamptz;
+--
+-- Per-customer pricing table (run once on existing databases):
+--   create table if not exists customer_product_prices (
+--     customer_id uuid references customers(id) on delete cascade,
+--     product_id  uuid references products(id)  on delete cascade,
+--     price_per_litre numeric not null default 0,
+--     updated_at timestamptz default now(),
+--     primary key (customer_id, product_id)
+--   );
+--   alter table customer_product_prices enable row level security;
+--   create policy "auth all" on customer_product_prices for all to authenticated using (true) with check (true);
