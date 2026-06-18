@@ -17,7 +17,7 @@ export default function PricesPage() {
   const [customerId, setCustomerId] = useState('')
   const [rows, setRows] = useState([])
   const [adding, setAdding] = useState(false)
-  const [newRow, setNewRow] = useState({ productId: '', packagingId: '', ppl: '', ppp: '' })
+  const [newRow, setNewRow] = useState({ productId: '', packagingId: '', ppl: '', ppp: '', dc: '' })
 
   useEffect(() => {
     ;(async () => {
@@ -39,7 +39,7 @@ export default function PricesPage() {
 
   async function loadPrices(cid) {
     const { data } = await supabase.from('customer_product_prices')
-      .select('id, product_id, packaging_id, price_per_litre')
+      .select('id, product_id, packaging_id, price_per_litre, delivery_charge')
       .eq('customer_id', cid)
     setRows(data || [])
   }
@@ -64,6 +64,12 @@ export default function PricesPage() {
     await supabase.from('customer_product_prices').update({ price_per_litre: ppl, updated_at: new Date().toISOString() }).eq('id', rowId)
   }
 
+  async function handleDeliveryChange(rowId, val) {
+    const dc = parseFloat(val) || 0
+    setRows((r) => r.map((x) => (x.id === rowId ? { ...x, delivery_charge: dc } : x)))
+    await supabase.from('customer_product_prices').update({ delivery_charge: dc, updated_at: new Date().toISOString() }).eq('id', rowId)
+  }
+
   async function deleteRow(rowId) {
     setRows((r) => r.filter((x) => x.id !== rowId))
     await supabase.from('customer_product_prices').delete().eq('id', rowId)
@@ -77,13 +83,14 @@ export default function PricesPage() {
       const vol = pkgVol(newRow.packagingId)
       return vol > 0 ? (parseFloat(newRow.ppp) || 0) / vol : 0
     })()
+    const dc = parseFloat(newRow.dc) || 0
     const { data, error } = await supabase.from('customer_product_prices')
-      .insert({ customer_id: customerId, product_id: newRow.productId, packaging_id: newRow.packagingId, price_per_litre: ppl })
-      .select('id, product_id, packaging_id, price_per_litre').single()
+      .insert({ customer_id: customerId, product_id: newRow.productId, packaging_id: newRow.packagingId, price_per_litre: ppl, delivery_charge: dc })
+      .select('id, product_id, packaging_id, price_per_litre, delivery_charge').single()
     if (error) { toast(error.message); return }
     setRows((r) => [...r, data])
     setAdding(false)
-    setNewRow({ productId: '', packagingId: '', ppl: '', ppp: '' })
+    setNewRow({ productId: '', packagingId: '', ppl: '', ppp: '', dc: '' })
     toast('Price saved')
   }
 
@@ -130,8 +137,9 @@ export default function PricesPage() {
             <thead><tr>
               <th>Product</th>
               <th>Packaging</th>
-              <th style={{ textAlign: 'right', width: '14%' }}>£ / Litre</th>
-              <th style={{ textAlign: 'right', width: '14%' }}>£ / Pack</th>
+              <th style={{ textAlign: 'right', width: '13%' }}>£ / Litre</th>
+              <th style={{ textAlign: 'right', width: '13%' }}>£ / Pack</th>
+              <th style={{ textAlign: 'right', width: '13%' }}>Delivery (£)</th>
               <th style={{ width: '4%' }}></th>
             </tr></thead>
             <tbody>
@@ -168,6 +176,14 @@ export default function PricesPage() {
                         onBlur={(e) => handlePppChange(row.id, row.packaging_id, e.target.value)}
                       />
                     </td>
+                    <td>
+                      <input className="mono" style={{ textAlign: 'right' }}
+                        value={row.delivery_charge > 0 ? row.delivery_charge : ''}
+                        placeholder="0.00"
+                        onChange={(e) => setRows((r) => r.map((x) => (x.id === row.id ? { ...x, delivery_charge: e.target.value } : x)))}
+                        onBlur={(e) => handleDeliveryChange(row.id, e.target.value)}
+                      />
+                    </td>
                     <td><button className="btn-dl" onClick={() => deleteRow(row.id)}>×</button></td>
                   </tr>
                 )
@@ -199,6 +215,12 @@ export default function PricesPage() {
                       onChange={(e) => updateNew({ ppp: e.target.value })}
                     />
                   </td>
+                  <td>
+                    <input className="mono" style={{ textAlign: 'right' }}
+                      value={newRow.dc} placeholder="£ delivery"
+                      onChange={(e) => setNewRow((n) => ({ ...n, dc: e.target.value }))}
+                    />
+                  </td>
                   <td style={{ display: 'flex', gap: 4 }}>
                     <button className="btn btn-a btn-sm" onClick={addRow}>Save</button>
                     <button className="btn btn-g btn-sm" onClick={() => setAdding(false)}>✕</button>
@@ -207,7 +229,7 @@ export default function PricesPage() {
               )}
             </tbody>
           </table>
-          <p className="hint">Enter either £/litre or £/pack — the other calculates automatically. Prices are looked up by customer, product, and pack size when generating the office copy PDF.</p>
+          <p className="hint">Enter either £/litre or £/pack — the other calculates automatically. Set a delivery charge for products that carry a mandatory delivery surcharge for this customer — it will auto-fill on the order page.</p>
         </>
       )}
     </div>
