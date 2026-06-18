@@ -23,7 +23,7 @@ export default function PricesPage() {
     ;(async () => {
       const [c, p, k] = await Promise.all([
         supabase.from('customers').select('id, name').order('name'),
-        supabase.from('products').select('id, name').order('name'),
+        supabase.from('products').select('id, name, category').order('category').order('name'),
         supabase.from('packaging').select('id, name, volume').order('volume'),
       ])
       setCustomers(c.data || [])
@@ -146,7 +146,7 @@ export default function PricesPage() {
                 const pkg = packaging.find((p) => p.id === row.packaging_id)
                 return (
                   <tr key={row.id}>
-                    <td>{prod?.name || <span className="muted">—</span>}</td>
+                    <td>{prod ? (prod.category ? `${prod.name} (${prod.category})` : prod.name) : <span className="muted">—</span>}</td>
                     <td>{pkg?.name || <span className="muted">—</span>}</td>
                     <td>
                       <input className="mono" style={{ textAlign: 'right' }}
@@ -178,7 +178,7 @@ export default function PricesPage() {
                   <td>
                     <select value={newRow.productId} onChange={(e) => updateNew({ productId: e.target.value })}>
                       <option value="">— product —</option>
-                      {products.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                      {products.map((p) => <option key={p.id} value={p.id}>{p.category ? `${p.name} (${p.category})` : p.name}</option>)}
                     </select>
                   </td>
                   <td>
