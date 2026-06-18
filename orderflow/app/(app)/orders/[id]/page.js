@@ -348,6 +348,15 @@ ${items.map((it) => `  <li>${it.name}${it.pack ? ` — ${it.qty} x ${it.pack}` :
             return (
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6, marginTop: 14 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+                  <span className="muted" style={{ fontSize: 12 }}>Label price (£/label)</span>
+                  <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                    <span style={{ position: 'absolute', left: 8, color: 'var(--muted)', fontSize: 13 }}>£</span>
+                    <input className="mono" style={{ textAlign: 'right', paddingLeft: 20, width: 90 }}
+                      value={labelPrice || ''} placeholder="0.0000"
+                      onChange={(e) => setLabelPrice(parseFloat(e.target.value) || 0)} />
+                  </div>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
                   <span className="muted" style={{ fontSize: 12 }}>Delivery charge (optional)</span>
                   <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
                     <span style={{ position: 'absolute', left: 8, color: 'var(--muted)', fontSize: 13 }}>£</span>
@@ -413,7 +422,7 @@ ${items.map((it) => `  <li>${it.name}${it.pack ? ` — ${it.qty} x ${it.pack}` :
               </table>
             </div>
           )}
-          <p className="hint">Enter £ per litre — unit price and line total are calculated automatically. Prices are saved against this customer for future orders. Products marked with * attract a label charge if a label price is set on the customer.</p>
+          <p className="hint">Enter £ per litre — unit price and line total are calculated automatically. Prices are saved against this customer for future orders. Products marked with * attract a label charge — set the £/label rate above (pre-filled from customer settings).</p>
         </div>
       )}
 
