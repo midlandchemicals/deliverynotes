@@ -298,22 +298,31 @@ export function generateDispatchPDF(doc_, lh, products, packaging, pricing = {})
   const custName = doc_.customerName || (doc_.customer || '').split('\n')[0]
   doc.save(dnFilename(doc_.date, doc_.docNo, custName))
   // Generate office copy immediately after
-  generateOfficeCopyPDF(doc_, lh, products, packaging, pricing)
+  generateOfficeCopyPDF(doc_, lh, products, packaging, pricing, doc_.deliveryCharge || 0)
   // Stored gross includes pallet weight so the log and reprints match the PDF
   return { totals: { ...t, gross: grossTotal, pallets, showHazard, invoice_to: doc_.invoiceTo || '' } }
 }
 
 
 // ── Office copy — dark red, watermark, price columns ────────────────────────
-function generateOfficeCopyPDF(doc_, lh, products, packaging, pricing = {}) {
-  const DR = [139, 0, 0]
-  const t = docTotals(doc_.lines, products, packaging)
-  const pallets = Math.max(0, parseInt(doc_.pallets || 0, 10) || 0)
+function generateOfficeCopyPDF(doc_, lh, products, packaging, pricing = {}, deliveryCharge = 0) {
+  const BK = [20, 20, 20]
+  const MU = [90, 90, 90]
+  const f2 = (n) => `£${(Math.round(n * 100) / 100).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
   const doc = new jsPDF({ unit: 'mm', format: 'a4' })
   FONT = registerFonts(doc)
   const W = 210, M = 16
-  let y = 16
 
+  // ── "FOR OFFICE USE ONLY" full-width banner — before everything ───────────
+  const bannerH = 17
+  doc.setFillColor(0, 0, 0)
+  doc.rect(0, 0, W, bannerH, 'F')
+  doc.setFont(FONT, 'bold').setFontSize(19).setTextColor(255, 255, 255)
+  doc.text('FOR OFFICE USE ONLY', W / 2, bannerH - 4, { align: 'center' })
+
+  let y = bannerH + 6
+
+  // ── Logo ──────────────────────────────────────────────────────────────────
   if (lh.logo) {
     try {
       const props = doc.getImageProperties(lh.logo)
@@ -326,28 +335,30 @@ function generateOfficeCopyPDF(doc_, lh, products, packaging, pricing = {}) {
     } catch (e) {}
   }
 
-  doc.setFont(FONT, 'bold').setFontSize(13).setTextColor(...DR).text(lh.company || '', M, y + 2)
+  // ── Company ───────────────────────────────────────────────────────────────
+  doc.setFont(FONT, 'bold').setFontSize(13).setTextColor(...BK).text(lh.company || '', M, y + 2)
   const addrLines = String(lh.address || '').split('\n')
-  doc.setFont(FONT, 'normal').setFontSize(8).setTextColor(...DR).text(addrLines, M, y + 7)
+  doc.setFont(FONT, 'normal').setFontSize(8).setTextColor(...MU).text(addrLines, M, y + 7)
 
-  doc.setFont(FONT, 'bold').setFontSize(22).setTextColor(...DR).text('DELIVERY NOTE', W - M, 20, { align: 'right' })
-  doc.setFont(FONT, 'bold').setFontSize(9).setTextColor(...DR).text('OFFICE COPY', W - M, 27, { align: 'right' })
-  doc.setFont(FONT, 'normal').setFontSize(10).setTextColor(...DR)
-  doc.text(`No.   ${doc_.docNo || ''}`, W - M, 33, { align: 'right' })
-  doc.text(`Date  ${prettyDate(doc_.date)}`, W - M, 39, { align: 'right' })
+  // ── Title (right) ────────────────────────────────────────────────────────
+  const titleY = y + 2
+  doc.setFont(FONT, 'bold').setFontSize(22).setTextColor(...BK).text('DELIVERY NOTE', W - M, titleY, { align: 'right' })
+  doc.setFont(FONT, 'normal').setFontSize(10).setTextColor(...MU)
+  doc.text(`No.   ${doc_.docNo || ''}`, W - M, titleY + 9, { align: 'right' })
+  doc.text(`Date  ${prettyDate(doc_.date)}`, W - M, titleY + 15, { align: 'right' })
 
-  const barY = Math.max(y + addrLines.length * 3.4 + 5, 43)
-  doc.setFillColor(...DR).rect(M, barY, W - 2 * M, 1.2, 'F')
+  const barY = Math.max(y + addrLines.length * 3.4 + 5, titleY + 18)
+  doc.setFillColor(80, 80, 80).rect(M, barY, W - 2 * M, 1.2, 'F')
   let cy = barY + 7
   const colW = (W - 2 * M - 5) / 2
 
   function block(x, title, text, yPos = cy) {
-    doc.setDrawColor(...DR).setLineWidth(0.25)
+    doc.setDrawColor(120, 120, 120).setLineWidth(0.25)
     const bLines = doc.splitTextToSize(compactAddress(text || ''), colW - 10)
     const h = 11 + bLines.length * 3.9
     doc.roundedRect(x, yPos, colW, h, 2, 2, 'S')
-    doc.setFont(FONT, 'bold').setFontSize(7).setTextColor(...DR).text(title.toUpperCase(), x + 5, yPos + 5.5)
-    doc.setFont(FONT, 'normal').setFontSize(8).setTextColor(...DR).text(bLines, x + 5, yPos + 10.5, { lineHeightFactor: 1.25 })
+    doc.setFont(FONT, 'bold').setFontSize(7).setTextColor(...MU).text(title.toUpperCase(), x + 5, yPos + 5.5)
+    doc.setFont(FONT, 'normal').setFontSize(8).setTextColor(...BK).text(bLines, x + 5, yPos + 10.5, { lineHeightFactor: 1.25 })
     return h
   }
   const rightX = M + colW + 5
@@ -361,7 +372,7 @@ function generateOfficeCopyPDF(doc_, lh, products, packaging, pricing = {}) {
   }
   cy += Math.max(bh1, rightH) + 5
 
-  // Compute pricing per line
+  // Compute pricing
   const lineData = doc_.lines.map((l, i) => {
     const c = computeLine(l, products, packaging)
     const ppl = parseFloat(pricing[c.product?.id]) || 0
@@ -369,72 +380,63 @@ function generateOfficeCopyPDF(doc_, lh, products, packaging, pricing = {}) {
     const lineTotal = unitPrice * c.qty
     return { c, unitPrice, lineTotal, batch: doc_.batches?.[i] || '' }
   })
-  const orderTotal = lineData.reduce((s, d) => s + d.lineTotal, 0)
+  const subtotal = lineData.reduce((s, d) => s + d.lineTotal, 0)
+  const delivery = parseFloat(deliveryCharge) || 0
+  const vat = Math.round((subtotal + delivery) * 0.20 * 100) / 100
+  const grandTotal = subtotal + delivery + vat
 
+  // ── Line items table — pricing only, no weight columns ────────────────────
   autoTable(doc, {
     startY: cy,
     margin: { left: M, right: M, bottom: 20 },
-    head: [['Batch', 'Qty', 'Product', 'Net (kg)', 'Gross (kg)', 'Unit (£)', 'Total (£)']],
+    head: [['Batch', 'Qty', 'Product', 'Unit (£)', 'Total (£)']],
     body: lineData.map(({ c, unitPrice, lineTotal, batch }) => [
       batch, c.packQty, c.productName,
-      fmt(c.net), fmt(c.gross),
-      fmtGBP(unitPrice), fmtGBP(lineTotal),
+      unitPrice > 0 ? fmtGBP(unitPrice) : '—',
+      lineTotal > 0 ? fmtGBP(lineTotal) : '—',
     ]),
-    styles: { font: FONT, fontSize: 9, cellPadding: 1.6, lineColor: [200, 120, 120], lineWidth: 0.15, textColor: DR },
-    headStyles: { fillColor: DR, textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 8 },
+    styles: { font: FONT, fontSize: 9, cellPadding: 1.6, lineColor: [180, 180, 180], lineWidth: 0.15, textColor: BK },
+    headStyles: { fillColor: [40, 40, 40], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 8 },
     columnStyles: {
-      0: { cellWidth: 18 },
-      1: { cellWidth: 16 },
+      0: { cellWidth: 20 },
+      1: { cellWidth: 18 },
       3: { halign: 'right' },
-      4: { halign: 'right' },
-      5: { halign: 'right' },
-      6: { halign: 'right', fontStyle: 'bold' },
+      4: { halign: 'right', fontStyle: 'bold' },
     },
-    alternateRowStyles: { fillColor: [255, 245, 245] },
+    alternateRowStyles: { fillColor: [245, 245, 245] },
   })
 
-  const palletKg = pallets * 20
-  const grossTotal = t.gross + palletKg
+  // ── Pricing totals — no weight rows ──────────────────────────────────────
   let ty = doc.lastAutoTable.finalY + 5
   const tx = W - M - 78
   const totRows = [
-    { label: 'Total volume',       val: fmt(t.volume) + ' L',    bold: false },
-    { label: 'Total net weight',   val: fmt(t.net) + ' kg',      bold: false },
-    { label: 'Total gross weight', val: fmt(grossTotal) + ' kg', bold: false },
+    { label: 'Subtotal',    val: f2(subtotal),  bold: false },
+    ...(delivery > 0 ? [{ label: 'Delivery', val: f2(delivery), bold: false }] : []),
+    { label: 'VAT (20%)',   val: f2(vat),       bold: false },
+    { label: 'Grand total', val: f2(grandTotal), bold: true  },
   ]
-  if (pallets > 0) totRows.push({ label: 'Total pallets', val: String(pallets), bold: false })
-  if (orderTotal > 0) totRows.push({ label: 'Order total', val: fmtGBP(orderTotal), bold: true })
-  if (ty + totRows.length * 6 > 270) { doc.addPage(); ty = 20 }
+  if (ty + totRows.length * 7 > 270) { doc.addPage(); ty = 20 }
   totRows.forEach(({ label, val, bold }) => {
-    doc.setFont(FONT, bold ? 'bold' : 'normal').setFontSize(bold ? 13 : 11).setTextColor(...DR)
-    doc.text(label, tx, ty); doc.text(val, W - M, ty, { align: 'right' }); ty += 6
+    doc.setFont(FONT, bold ? 'bold' : 'normal').setFontSize(bold ? 13 : 11).setTextColor(...BK)
+    if (bold) {
+      doc.setDrawColor(180, 180, 180).setLineWidth(0.3).line(tx, ty - 4, W - M, ty - 4)
+    }
+    doc.text(label, tx, ty); doc.text(val, W - M, ty, { align: 'right' })
+    ty += bold ? 7 : 6
   })
 
   if (doc_.options) {
-    ty += 3
+    ty += 4
     const noteLines = doc.splitTextToSize(doc_.options, W - 2 * M)
     if (ty + 5 + noteLines.length * 4.5 > 270) { doc.addPage(); ty = 20 }
-    doc.setFont(FONT, 'bold').setFontSize(8.5).setTextColor(...DR).text('NOTES', M, ty)
-    doc.setFont(FONT, 'normal').setFontSize(9.5).setTextColor(...DR).text(noteLines, M, ty + 5)
+    doc.setFont(FONT, 'bold').setFontSize(8.5).setTextColor(...MU).text('NOTES', M, ty)
+    doc.setFont(FONT, 'normal').setFontSize(9.5).setTextColor(...BK).text(noteLines, M, ty + 5)
   }
-
-  // No hazard summary on the office copy — accounts don't need it
 
   const fy = 287
-  doc.setDrawColor(...DR).setLineWidth(0.2).line(M, fy - 5, W - M, fy - 5)
-  doc.setFont(FONT, 'normal').setFontSize(7.5).setTextColor(...DR)
+  doc.setDrawColor(180, 180, 180).setLineWidth(0.2).line(M, fy - 5, W - M, fy - 5)
+  doc.setFont(FONT, 'normal').setFontSize(7.5).setTextColor(130, 130, 130)
     .text(doc.splitTextToSize(lh.footer || '', W - 2 * M), W / 2, fy, { align: 'center' })
-
-  // Diagonal watermark on every page
-  const pageCount = doc.getNumberOfPages()
-  for (let i = 1; i <= pageCount; i++) {
-    doc.setPage(i)
-    doc.saveGraphicsState()
-    doc.setGState(doc.GState({ opacity: 0.09 }))
-    doc.setFont(FONT, 'bold').setFontSize(58).setTextColor(...DR)
-    doc.text('FOR OFFICE USE', W / 2, 148, { angle: 45, align: 'center' })
-    doc.restoreGraphicsState()
-  }
 
   const custName = doc_.customerName || ''
   doc.save(dnFilename(doc_.date, doc_.docNo, custName).replace('.pdf', '_OFFICE.pdf'))

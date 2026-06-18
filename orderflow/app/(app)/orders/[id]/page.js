@@ -23,6 +23,7 @@ export default function OrderDetailPage() {
 
   // pricing: { [productId]: pricePerLitre }
   const [prices, setPrices] = useState({})
+  const [deliveryCharge, setDeliveryCharge] = useState('')
 
   // dispatch panel state
   const [lhIndex, setLhIndex] = useState(0)
@@ -175,6 +176,7 @@ ${items.map((it) => `  <li>${it.name}${it.pack ? ` — ${it.qty} x ${it.pack}` :
       contact,
       customerName: order.customer_snapshot?.name || '',
       lines, options, pallets: noPallets ? 0 : pallets, showHazard, batches,
+      deliveryCharge: parseFloat(deliveryCharge) || 0,
     }
     const { totals } = generateDispatchPDF(docData, lh, products, packaging, prices)
     const linesSnap = lines.map((l, i) => {
@@ -194,7 +196,7 @@ ${items.map((it) => `  <li>${it.name}${it.pack ? ` — ${it.qty} x ${it.pack}` :
     await supabase.from('dispatch_notes').insert({
       doc_no: docNo, doc_type: 'Delivery Note', doc_date: docDate, order_id: id,
       letterhead_snapshot: lh, customer: invoiceTo, deliver: docData.deliver,
-      lines_snapshot: linesSnap, totals: { ...totals, contact, order_total: orderTotal }, options, created_by: user?.id || null,
+      lines_snapshot: linesSnap, totals: { ...totals, contact, order_total: orderTotal, delivery_charge: parseFloat(deliveryCharge) || 0 }, options, created_by: user?.id || null,
     })
     await supabase.from('orders').update({ status: 'Delivery Note Generated' }).eq('id', id)
     setOrder({ ...order, status: 'Delivery Note Generated' })
@@ -306,10 +308,44 @@ ${items.map((it) => `  <li>${it.name}${it.pack ? ` — ${it.qty} x ${it.pack}` :
               })}
             </tbody>
           </table>
-          <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'baseline', gap: 12, marginTop: 10 }}>
-            <span className="muted" style={{ fontSize: 12 }}>Order total</span>
-            <span style={{ fontSize: 18, fontWeight: 700 }}>{orderTotal > 0 ? `£${orderTotal.toFixed(2)}` : '—'}</span>
-          </div>
+          {(() => {
+            const delivery = parseFloat(deliveryCharge) || 0
+            const vat = Math.round((orderTotal + delivery) * 0.20 * 100) / 100
+            const grandTotal = orderTotal + delivery + vat
+            return (
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6, marginTop: 14 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+                  <span className="muted" style={{ fontSize: 12 }}>Delivery charge (optional)</span>
+                  <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                    <span style={{ position: 'absolute', left: 8, color: 'var(--muted)', fontSize: 13 }}>£</span>
+                    <input className="mono" style={{ textAlign: 'right', paddingLeft: 20, width: 90 }}
+                      value={deliveryCharge} placeholder="0.00"
+                      onChange={(e) => setDeliveryCharge(e.target.value)} />
+                  </div>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 3, borderTop: '1px solid var(--border)', paddingTop: 8, minWidth: 220 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', fontSize: 13 }}>
+                    <span className="muted">Subtotal</span>
+                    <span className="mono">{orderTotal > 0 ? `£${orderTotal.toFixed(2)}` : '—'}</span>
+                  </div>
+                  {delivery > 0 && (
+                    <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', fontSize: 13 }}>
+                      <span className="muted">Delivery</span>
+                      <span className="mono">£{delivery.toFixed(2)}</span>
+                    </div>
+                  )}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', fontSize: 13 }}>
+                    <span className="muted">VAT (20%)</span>
+                    <span className="mono">{orderTotal > 0 || delivery > 0 ? `£${vat.toFixed(2)}` : '—'}</span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', fontSize: 17, fontWeight: 700, borderTop: '1px solid var(--border)', paddingTop: 6 }}>
+                    <span>Grand total</span>
+                    <span className="mono">{grandTotal > 0 ? `£${grandTotal.toFixed(2)}` : '—'}</span>
+                  </div>
+                </div>
+              </div>
+            )
+          })()}
           <p className="hint">Enter £ per litre — unit price and line total are calculated automatically. Prices are saved against this customer for future orders.</p>
         </div>
       )}
