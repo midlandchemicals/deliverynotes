@@ -91,12 +91,13 @@ export default function OrderDetailPage() {
   }
 
   function printOfficeCopy(d) {
-    const hasPrices = lines.some((l) => {
+    const unpriced = lines.filter((l) => {
       const c = computeLine(l, products, packaging)
-      return (parseFloat(prices[`${c.product?.id}::${c.packaging?.id}`]) || 0) > 0
+      return (parseFloat(prices[`${c.product?.id}::${c.packaging?.id}`]) || 0) === 0
     })
-    if (!hasPrices) {
-      toast('No prices set for this order. Add prices in the Pricing section above, or visit the Prices tab in settings.')
+    if (unpriced.length > 0) {
+      const names = unpriced.map((l) => computeLine(l, products, packaging).productName).join(', ')
+      toast(`No price set for: ${names}`)
       return
     }
     const lh = letterheads[lhIndex]
