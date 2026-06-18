@@ -98,6 +98,7 @@ create table if not exists customer_product_prices (
   product_id   uuid references products(id)   on delete cascade,
   packaging_id uuid references packaging(id)  on delete cascade,
   price_per_litre numeric not null default 0,
+  delivery_charge numeric not null default 0,
   updated_at timestamptz default now(),
   unique(customer_id, product_id, packaging_id)
 );
@@ -167,6 +168,9 @@ insert into customers (name, details, deliver, contact_name, email, phone) value
 --   alter table products add column if not exists adr_transport_cat text default '';
 --   alter table products add column if not exists adr_verified_by text default '';
 --   alter table products add column if not exists adr_verified_at timestamptz;
+--
+-- Delivery charge column on customer_product_prices (run once on existing databases):
+--   alter table customer_product_prices add column if not exists delivery_charge numeric default 0;
 --
 -- Per-customer pricing table (run once on existing databases):
 --   drop table if exists customer_product_prices;

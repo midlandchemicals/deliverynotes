@@ -65,11 +65,18 @@ export default function OrderDetailPage() {
       if (o.data?.customer_id) {
         const [priceData, custData] = await Promise.all([
           supabase.from('customer_product_prices')
-            .select('product_id, packaging_id, price_per_litre').eq('customer_id', o.data.customer_id),
+            .select('product_id, packaging_id, price_per_litre, delivery_charge').eq('customer_id', o.data.customer_id),
           supabase.from('customers').select('label_price').eq('id', o.data.customer_id).single(),
         ])
         if (priceData.data?.length) {
           setPrices(Object.fromEntries(priceData.data.map((r) => [`${r.product_id}::${r.packaging_id}`, r.price_per_litre])))
+          // Auto-fill delivery charge from products in this order
+          const orderLines = o.data?.lines || []
+          const autoDelivery = priceData.data.reduce((sum, r) => {
+            const inOrder = orderLines.some((l) => l.productId === r.product_id && l.packagingId === r.packaging_id)
+            return sum + (inOrder ? (r.delivery_charge || 0) : 0)
+          }, 0)
+          if (autoDelivery > 0) setDeliveryCharge(autoDelivery.toFixed(2))
         }
         setLabelPrice(custData.data?.label_price || 0)
       }
@@ -91,7 +98,7 @@ export default function OrderDetailPage() {
     if (!order?.customer_id) return
     await supabase.from('customer_product_prices').upsert(
       { customer_id: order.customer_id, product_id: productId, packaging_id: packagingId, price_per_litre: price, updated_at: new Date().toISOString() },
-      { onConflict: 'customer_id,product_id,packaging_id' }
+      { onConflict: 'customer_id,product_id,packaging_id', ignoreDuplicates: false }
     )
   }
 
