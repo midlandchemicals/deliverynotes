@@ -4,7 +4,7 @@ import { useParams, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { computeLine, docTotals, fmt, prettyDate, splitContact, labelCount } from '@/lib/calc'
 import { generateDispatchPDF, generateOfficeCopyPDF, reprintPDF } from '@/lib/pdf'
-import { StatusBadge } from '../../page'
+import { StatusBadge } from '../page'
 import LineEditor from '../LineEditor'
 
 const STATUS_FLOW = ['New', 'In progress', 'Delivery Note Generated']
@@ -24,7 +24,8 @@ export default function OrderDetailPage() {
   // pricing: { [productId]: pricePerLitre }
   const [prices, setPrices] = useState({})
   const [deliveryCharge, setDeliveryCharge] = useState('')
-  const [labelPrice, setLabelPrice] = useState(0)  // £ per label for this customer
+  const [labelPriceRaw, setLabelPriceRaw] = useState('')  // raw string while editing
+  const labelPrice = parseFloat(labelPriceRaw) || 0
 
   // dispatch panel state
   const [lhIndex, setLhIndex] = useState(0)
@@ -78,7 +79,7 @@ export default function OrderDetailPage() {
           }, 0)
           if (autoDelivery > 0) setDeliveryCharge(autoDelivery.toFixed(2))
         }
-        setLabelPrice(custData.data?.label_price || 0)
+        setLabelPriceRaw(String(custData.data?.label_price || ''))
       }
     })()
   }, [id])
@@ -265,7 +266,7 @@ ${items.map((it) => `  <li>${it.name}${it.pack ? ` — ${it.qty} x ${it.pack}` :
           <h2>{order.order_no} <StatusBadge status={order.status} /></h2>
           <div style={{ display: 'flex', gap: 8 }}>
             <button className="btn btn-g btn-sm" onClick={printNote}>🖨 Print note</button>
-            <button className="btn btn-g btn-sm" onClick={() => router.push('/')}>← Back to log</button>
+            <button className="btn btn-g btn-sm" onClick={() => router.push('/orders')}>← Back to log</button>
           </div>
         </div>
         <div className="row c3">
@@ -359,8 +360,8 @@ ${items.map((it) => `  <li>${it.name}${it.pack ? ` — ${it.qty} x ${it.pack}` :
                   <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
                     <span style={{ position: 'absolute', left: 8, color: 'var(--muted)', fontSize: 13 }}>£</span>
                     <input className="mono" style={{ textAlign: 'right', paddingLeft: 20, width: 90 }}
-                      value={labelPrice || ''} placeholder="0.0000"
-                      onChange={(e) => setLabelPrice(parseFloat(e.target.value) || 0)} />
+                      value={labelPriceRaw} placeholder="0.0000"
+                      onChange={(e) => setLabelPriceRaw(e.target.value)} />
                   </div>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
