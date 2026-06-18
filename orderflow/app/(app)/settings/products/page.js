@@ -74,7 +74,7 @@ export default function ProductsPage() {
       .insert({ name: 'New product', sg: 1.0, pg: '', un_number: '', category: '',
                 adr_class: '', adr_subsidiary: '', adr_tunnel: '', adr_psn: '', adr_transport_cat: '', adr_verified_by: '', adr_verified_at: null })
       .select('*').single()
-    setRows((r) => [...r, data])
+    setRows((r) => [data, ...r])
   }
   async function remove(id) {
     setRows((r) => r.filter((x) => x.id !== id))
