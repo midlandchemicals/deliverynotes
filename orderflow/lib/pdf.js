@@ -418,6 +418,8 @@ function generateOfficeCopyPDF(doc_, lh, products, packaging, pricing = {}) {
     doc.setFont(FONT, 'normal').setFontSize(9.5).setTextColor(...DR).text(noteLines, M, ty + 5)
   }
 
+  // No hazard summary on the office copy — accounts don't need it
+
   const fy = 287
   doc.setDrawColor(...DR).setLineWidth(0.2).line(M, fy - 5, W - M, fy - 5)
   doc.setFont(FONT, 'normal').setFontSize(7.5).setTextColor(...DR)
