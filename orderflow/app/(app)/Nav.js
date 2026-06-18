@@ -3,9 +3,12 @@ import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 
-const LINKS = [
-  ['/', 'Orders'],
-  ['/orders/new', 'New order'],
+const ORDER_LINKS = [
+  ['/orders', 'Order Log'],
+  ['/orders/new', '+ New Order'],
+]
+
+const CAT_LINKS = [
   ['/settings/products', 'Products'],
   ['/settings/packaging', 'Packaging'],
   ['/settings/customers', 'Customers'],
@@ -24,9 +27,12 @@ export default function Nav({ email }) {
     router.refresh()
   }
 
+  const inCatalogue = path.startsWith('/settings')
+  const inOrders = path.startsWith('/orders')
+
   const isActive = (href) =>
-    href === '/' ? path === '/' || path.startsWith('/orders/') && path !== '/orders/new'
-                 : path === href || path.startsWith(href)
+    href === '/orders' ? (path === '/orders' || (path.startsWith('/orders/') && path !== '/orders/new'))
+                       : path === href || path.startsWith(href)
 
   return (
     <div className="topbar">
@@ -36,9 +42,20 @@ export default function Nav({ email }) {
         <span>Order<b>Flow</b></span>
       </Link>
       <nav className="nav">
-        {LINKS.map(([href, label]) => (
-          <Link key={href} href={href} className={isActive(href) ? 'on' : ''}>{label}</Link>
-        ))}
+        {inCatalogue ? (
+          <>
+            <span className="nav-section">Catalogue</span>
+            {CAT_LINKS.map(([href, label]) => (
+              <Link key={href} href={href} className={isActive(href) ? 'on' : ''}>{label}</Link>
+            ))}
+          </>
+        ) : inOrders ? (
+          <>
+            {ORDER_LINKS.map(([href, label]) => (
+              <Link key={href} href={href} className={isActive(href) ? 'on' : ''}>{label}</Link>
+            ))}
+          </>
+        ) : null}
       </nav>
       <div className="who">
         {email}

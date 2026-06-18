@@ -42,9 +42,11 @@ export default function PackagingPage() {
             <tr key={it.id}>
               <td><input value={it.name} onChange={(e) => update(it.id, { name: e.target.value })} /></td>
               <td><input className="mono" style={{ textAlign: 'right' }} value={it.volume}
-                onChange={(e) => update(it.id, { volume: num(e.target.value) })} /></td>
+                onChange={(e) => setRows((r) => r.map((x) => (x.id === it.id ? { ...x, volume: e.target.value } : x)))}
+                onBlur={(e) => update(it.id, { volume: num(e.target.value) })} /></td>
               <td><input className="mono" style={{ textAlign: 'right' }} value={it.tare}
-                onChange={(e) => update(it.id, { tare: num(e.target.value) })} /></td>
+                onChange={(e) => setRows((r) => r.map((x) => (x.id === it.id ? { ...x, tare: e.target.value } : x)))}
+                onBlur={(e) => update(it.id, { tare: num(e.target.value) })} /></td>
               <td><button className="btn-dl" onClick={() => remove(it.id)}>×</button></td>
             </tr>
           ))}

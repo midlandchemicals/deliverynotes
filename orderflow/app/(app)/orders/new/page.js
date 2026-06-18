@@ -15,7 +15,9 @@ export default function NewOrderPage() {
   const [customers, setCustomers] = useState([])
   const [ready, setReady] = useState(false)
   const [busy, setBusy] = useState(false)
+  const [step, setStep] = useState(1)
 
+  // Step 1 fields
   const [orderNo, setOrderNo] = useState('DN-1001')
   const [customerId, setCustomerId] = useState('')
   const [custDetails, setCustDetails] = useState('')
@@ -30,8 +32,10 @@ export default function NewOrderPage() {
   const [poRef, setPoRef] = useState('')
   const [orderDate, setOrderDate] = useState(new Date().toISOString().slice(0, 10))
   const [requestedDate, setRequestedDate] = useState('')
-  const [notes, setNotes] = useState('')
+
+  // Step 2 fields
   const [lines, setLines] = useState([])
+  const [notes, setNotes] = useState('')
 
   useEffect(() => {
     (async () => {
@@ -53,12 +57,8 @@ export default function NewOrderPage() {
     setCustomerId(id)
     const c = customers.find((x) => x.id === id)
     if (c) {
-      // Contact details live embedded in the address text on older records —
-      // extract them so the Invoice To box stays clean and the contact
-      // fields populate either way.
       const inv = splitContact(c.details || '')
       const del = splitContact(c.deliver || '')
-      // Saved address lists fall back to the legacy single field
       const invList = (Array.isArray(c.invoice_addresses) && c.invoice_addresses.length)
         ? c.invoice_addresses : [{ label: 'Main', text: inv.address }]
       const delList = (Array.isArray(c.delivery_addresses) && c.delivery_addresses.length)
@@ -81,6 +81,7 @@ export default function NewOrderPage() {
     setInvoiceIdx(i)
     setCustDetails(splitContact(invoiceOptions[i]?.text || '').address)
   }
+
   function pickDeliveryAddr(i) {
     setDeliveryIdx(i)
     const opt = deliveryOptions[i] || {}
@@ -91,8 +92,13 @@ export default function NewOrderPage() {
     setContactPhone(ct.phone || '')
   }
 
+  function goToStep2() {
+    if (!custDetails.trim()) { alert('Please fill in the invoice address'); return }
+    setStep(2)
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
   async function saveOrder() {
-    if (!custDetails.trim()) { alert('Add customer details first'); return }
     setBusy(true)
     const { data: { user } } = await supabase.auth.getUser()
     const name = customers.find((c) => c.id === customerId)?.name || custDetails.split('\n')[0]
@@ -123,67 +129,110 @@ export default function NewOrderPage() {
 
   return (
     <div>
-      <div className="card">
-        <div className="ttl"><h2>New Delivery Note</h2></div>
-        <div className="row c3">
-          <div className="field"><label>Delivery Note Number</label>
-            <input className="mono" value={orderNo} onChange={(e) => setOrderNo(e.target.value)} /></div>
-          <div className="field"><label>Customer Order Number</label>
-            <input value={poRef} onChange={(e) => setPoRef(e.target.value)} placeholder="optional" /></div>
-          <div className="field"><label>Order date</label>
-            <input className="mono" type="date" value={orderDate} onChange={(e) => setOrderDate(e.target.value)} /></div>
-        </div>
-        <div className="row c2">
-          <div className="field"><label>Requested delivery date</label>
-            <input className="mono" type="date" value={requestedDate} onChange={(e) => setRequestedDate(e.target.value)} /></div>
-          <div className="field"><label>Pick saved customer</label>
-            <Combobox
-              options={customerOptions}
-              value={customerId}
-              onSelect={pickCustomer}
-              placeholder="Type customer name to search…"
-            />
-          </div>
-        </div>
-        <div className="row c2">
-          <div className="field"><label>Invoice to</label>
-            {invoiceOptions.length > 1 && (
-              <select style={{ marginBottom: 6 }} value={invoiceIdx} onChange={(e) => pickInvoiceAddr(+e.target.value)}>
-                {invoiceOptions.map((a, i) => <option key={i} value={i}>{a.label || `Address ${i + 1}`}</option>)}
-              </select>
-            )}
-            <textarea value={custDetails} onChange={(e) => setCustDetails(e.target.value)} placeholder="Company / invoice address (no contact details)" /></div>
-          <div className="field"><label>Delivery address</label>
-            {deliveryOptions.length > 1 && (
-              <select style={{ marginBottom: 6 }} value={deliveryIdx} onChange={(e) => pickDeliveryAddr(+e.target.value)}>
-                {deliveryOptions.map((a, i) => <option key={i} value={i}>{a.label || `Address ${i + 1}`}</option>)}
-              </select>
-            )}
-            <textarea value={custDeliver} onChange={(e) => setCustDeliver(e.target.value)} /></div>
-        </div>
-        <div className="field" style={{ marginTop: 4 }}>
-          <label>Delivery contact</label>
-          <div className="row c3" style={{ marginBottom: 0 }}>
-            <input placeholder="Contact name" value={contactName} onChange={(e) => setContactName(e.target.value)} />
-            <input placeholder="Email" value={contactEmail} onChange={(e) => setContactEmail(e.target.value)} />
-            <input placeholder="Telephone" value={contactPhone} onChange={(e) => setContactPhone(e.target.value)} />
-          </div>
-        </div>
+      {/* Step indicator */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 0, marginBottom: 24, maxWidth: 480, margin: '0 auto 28px' }}>
+        <StepBubble n={1} active={step === 1} done={step > 1} label="Customer & Dates" />
+        <div style={{ flex: 1, height: 2, background: step > 1 ? 'var(--accent)' : 'var(--border)', transition: 'background 0.2s' }} />
+        <StepBubble n={2} active={step === 2} done={false} label="Products" />
       </div>
 
-      <div className="card">
-        <div className="ttl"><h2>Products</h2></div>
-        <LineEditor lines={lines} setLines={setLines} products={products} packaging={packaging} />
-      </div>
+      {step === 1 && (
+        <>
+          <div className="card">
+            <div className="ttl"><h2>Order Details</h2></div>
+            <div className="row c3">
+              <div className="field"><label>Delivery Note Number</label>
+                <input className="mono" value={orderNo} onChange={(e) => setOrderNo(e.target.value)} /></div>
+              <div className="field"><label>Customer Order Number</label>
+                <input value={poRef} onChange={(e) => setPoRef(e.target.value)} placeholder="optional" /></div>
+              <div className="field"><label>Order date</label>
+                <input className="mono" type="date" value={orderDate} onChange={(e) => setOrderDate(e.target.value)} /></div>
+            </div>
+            <div className="row c2">
+              <div className="field"><label>Requested delivery date</label>
+                <input className="mono" type="date" value={requestedDate} onChange={(e) => setRequestedDate(e.target.value)} /></div>
+              <div className="field"><label>Customer</label>
+                <Combobox
+                  options={customerOptions}
+                  value={customerId}
+                  onSelect={pickCustomer}
+                  placeholder="Type customer name to search…"
+                />
+              </div>
+            </div>
+          </div>
 
-      <div className="card">
-        <div className="ttl"><h2>Notes</h2></div>
-        <textarea value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Anything from the email — special instructions, carrier, etc." />
-        <div style={{ marginTop: 14, display: 'flex', gap: 10 }}>
-          <button className="btn btn-a" onClick={saveOrder} disabled={busy}>{busy ? 'Saving…' : 'Save to log'}</button>
-          <button className="btn btn-g" onClick={() => router.push('/')}>Cancel</button>
-        </div>
-      </div>
+          <div className="card">
+            <div className="ttl"><h2>Addresses</h2></div>
+            <div className="row c2">
+              <div className="field"><label>Invoice to</label>
+                {invoiceOptions.length > 1 && (
+                  <select style={{ marginBottom: 6 }} value={invoiceIdx} onChange={(e) => pickInvoiceAddr(+e.target.value)}>
+                    {invoiceOptions.map((a, i) => <option key={i} value={i}>{a.label || `Address ${i + 1}`}</option>)}
+                  </select>
+                )}
+                <textarea value={custDetails} onChange={(e) => setCustDetails(e.target.value)} placeholder="Company / invoice address" style={{ minHeight: 88 }} />
+              </div>
+              <div className="field"><label>Delivery address</label>
+                {deliveryOptions.length > 1 && (
+                  <select style={{ marginBottom: 6 }} value={deliveryIdx} onChange={(e) => pickDeliveryAddr(+e.target.value)}>
+                    {deliveryOptions.map((a, i) => <option key={i} value={i}>{a.label || `Address ${i + 1}`}</option>)}
+                  </select>
+                )}
+                <textarea value={custDeliver} onChange={(e) => setCustDeliver(e.target.value)} style={{ minHeight: 88 }} />
+              </div>
+            </div>
+            <div className="field" style={{ marginTop: 4 }}>
+              <label>Delivery contact</label>
+              <div className="row c3" style={{ marginBottom: 0 }}>
+                <input placeholder="Contact name" value={contactName} onChange={(e) => setContactName(e.target.value)} />
+                <input placeholder="Email" value={contactEmail} onChange={(e) => setContactEmail(e.target.value)} />
+                <input placeholder="Telephone" value={contactPhone} onChange={(e) => setContactPhone(e.target.value)} />
+              </div>
+            </div>
+            <div style={{ marginTop: 20, display: 'flex', gap: 10 }}>
+              <button className="btn btn-a" onClick={goToStep2}>Next — Add products →</button>
+              <button className="btn btn-g" onClick={() => router.push('/orders')}>Cancel</button>
+            </div>
+          </div>
+        </>
+      )}
+
+      {step === 2 && (
+        <>
+          <div className="card">
+            <div className="ttl">
+              <h2>Products</h2>
+              <button className="btn btn-g btn-sm" onClick={() => setStep(1)}>← Back</button>
+            </div>
+            <LineEditor lines={lines} setLines={setLines} products={products} packaging={packaging} />
+          </div>
+
+          <div className="card">
+            <div className="ttl"><h2>Notes</h2></div>
+            <textarea value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Special instructions, carrier details, etc." />
+            <div style={{ marginTop: 14, display: 'flex', gap: 10 }}>
+              <button className="btn btn-a" onClick={saveOrder} disabled={busy}>{busy ? 'Saving…' : 'Save to log'}</button>
+              <button className="btn btn-g" onClick={() => setStep(1)}>← Back</button>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
+function StepBubble({ n, active, done, label }) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
+      <div style={{
+        width: 36, height: 36, borderRadius: '50%',
+        background: active ? 'var(--accent)' : done ? 'var(--accent)' : 'var(--border)',
+        color: active || done ? '#fff' : 'var(--muted)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        fontWeight: 700, fontSize: 15, transition: 'background 0.2s',
+      }}>{done ? '✓' : n}</div>
+      <span style={{ fontSize: 11, color: active ? 'var(--accent)' : 'var(--muted)', fontWeight: active ? 600 : 400, whiteSpace: 'nowrap' }}>{label}</span>
     </div>
   )
 }

@@ -122,7 +122,8 @@ export default function ProductsPage() {
                   <td><input value={it.category || ''} onChange={(e) => update(it.id, { category: e.target.value })} /></td>
                   <td><input value={it.name} onChange={(e) => update(it.id, { name: e.target.value })} /></td>
                   <td><input className="mono" style={{ textAlign: 'right' }} value={it.sg ?? ''}
-                    onChange={(e) => update(it.id, { sg: num(e.target.value) })} /></td>
+                    onChange={(e) => setRows((r) => r.map((x) => (x.id === it.id ? { ...x, sg: e.target.value } : x)))}
+                    onBlur={(e) => update(it.id, { sg: num(e.target.value) })} /></td>
                   <td>
                     <input className="mono" value={it.un_number || ''}
                       onChange={(e) => handleUNChange(it.id, e.target.value)}

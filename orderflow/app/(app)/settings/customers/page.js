@@ -115,8 +115,9 @@ export default function CustomersPage() {
               </td>
               <td>
                 <input className="mono" style={{ textAlign: 'right' }}
-                  value={it.label_price || ''} placeholder="0.00"
-                  onChange={(e) => update(it.id, { label_price: parseFloat(e.target.value) || 0 })} />
+                  value={it.label_price ?? ''} placeholder="0.00"
+                  onChange={(e) => setRows((r) => r.map((x) => (x.id === it.id ? { ...x, label_price: e.target.value } : x)))}
+                  onBlur={(e) => update(it.id, { label_price: parseFloat(e.target.value) || 0 })} />
               </td>
               <td><button className="btn-dl" onClick={() => remove(it.id)}>×</button></td>
             </tr>
