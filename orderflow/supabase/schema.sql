@@ -92,11 +92,13 @@ create index if not exists dispatch_order_idx on dispatch_notes(order_id);
 
 -- ---------- per-customer pricing ----------
 create table if not exists customer_product_prices (
-  customer_id uuid references customers(id) on delete cascade,
-  product_id  uuid references products(id)  on delete cascade,
+  id uuid primary key default gen_random_uuid(),
+  customer_id  uuid references customers(id)  on delete cascade,
+  product_id   uuid references products(id)   on delete cascade,
+  packaging_id uuid references packaging(id)  on delete cascade,
   price_per_litre numeric not null default 0,
   updated_at timestamptz default now(),
-  primary key (customer_id, product_id)
+  unique(customer_id, product_id, packaging_id)
 );
 
 -- ---------- row level security ----------
@@ -165,12 +167,15 @@ insert into customers (name, details, deliver, contact_name, email, phone) value
 --   alter table products add column if not exists adr_verified_at timestamptz;
 --
 -- Per-customer pricing table (run once on existing databases):
---   create table if not exists customer_product_prices (
---     customer_id uuid references customers(id) on delete cascade,
---     product_id  uuid references products(id)  on delete cascade,
+--   drop table if exists customer_product_prices;
+--   create table customer_product_prices (
+--     id uuid primary key default gen_random_uuid(),
+--     customer_id  uuid references customers(id)  on delete cascade,
+--     product_id   uuid references products(id)   on delete cascade,
+--     packaging_id uuid references packaging(id)  on delete cascade,
 --     price_per_litre numeric not null default 0,
 --     updated_at timestamptz default now(),
---     primary key (customer_id, product_id)
+--     unique(customer_id, product_id, packaging_id)
 --   );
 --   alter table customer_product_prices enable row level security;
 --   create policy "auth all" on customer_product_prices for all to authenticated using (true) with check (true);

@@ -9,6 +9,7 @@ const LINKS = [
   ['/settings/products', 'Products'],
   ['/settings/packaging', 'Packaging'],
   ['/settings/customers', 'Customers'],
+  ['/settings/prices', 'Prices'],
   ['/settings/letterheads', 'Letterheads'],
 ]
 
