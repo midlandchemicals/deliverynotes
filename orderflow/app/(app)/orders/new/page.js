@@ -20,6 +20,10 @@ export default function NewOrderPage() {
   const [customerId, setCustomerId] = useState('')
   const [custDetails, setCustDetails] = useState('')
   const [custDeliver, setCustDeliver] = useState('')
+  const [invoiceOptions, setInvoiceOptions] = useState([])
+  const [deliveryOptions, setDeliveryOptions] = useState([])
+  const [invoiceIdx, setInvoiceIdx] = useState(0)
+  const [deliveryIdx, setDeliveryIdx] = useState(0)
   const [contactName, setContactName] = useState('')
   const [contactEmail, setContactEmail] = useState('')
   const [contactPhone, setContactPhone] = useState('')
@@ -54,12 +58,30 @@ export default function NewOrderPage() {
       // fields populate either way.
       const inv = splitContact(c.details || '')
       const del = splitContact(c.deliver || '')
-      setCustDetails(inv.address)
-      setCustDeliver(del.address)
+      // Saved address lists fall back to the legacy single field
+      const invList = (Array.isArray(c.invoice_addresses) && c.invoice_addresses.length)
+        ? c.invoice_addresses : [{ label: 'Main', text: inv.address }]
+      const delList = (Array.isArray(c.delivery_addresses) && c.delivery_addresses.length)
+        ? c.delivery_addresses : [{ label: 'Main', text: del.address }]
+      setInvoiceOptions(invList)
+      setDeliveryOptions(delList)
+      setInvoiceIdx(0)
+      setDeliveryIdx(0)
+      setCustDetails(splitContact(invList[0]?.text || '').address)
+      setCustDeliver(splitContact(delList[0]?.text || '').address)
       setContactName(c.contact_name || inv.contact.name || del.contact.name || '')
       setContactEmail(c.email || inv.contact.email || del.contact.email || '')
       setContactPhone(c.phone || inv.contact.phone || del.contact.phone || '')
     }
+  }
+
+  function pickInvoiceAddr(i) {
+    setInvoiceIdx(i)
+    setCustDetails(splitContact(invoiceOptions[i]?.text || '').address)
+  }
+  function pickDeliveryAddr(i) {
+    setDeliveryIdx(i)
+    setCustDeliver(splitContact(deliveryOptions[i]?.text || '').address)
   }
 
   async function saveOrder() {
@@ -118,8 +140,18 @@ export default function NewOrderPage() {
         </div>
         <div className="row c2">
           <div className="field"><label>Invoice to</label>
+            {invoiceOptions.length > 1 && (
+              <select style={{ marginBottom: 6 }} value={invoiceIdx} onChange={(e) => pickInvoiceAddr(+e.target.value)}>
+                {invoiceOptions.map((a, i) => <option key={i} value={i}>{a.label || `Address ${i + 1}`}</option>)}
+              </select>
+            )}
             <textarea value={custDetails} onChange={(e) => setCustDetails(e.target.value)} placeholder="Company / invoice address (no contact details)" /></div>
           <div className="field"><label>Delivery address</label>
+            {deliveryOptions.length > 1 && (
+              <select style={{ marginBottom: 6 }} value={deliveryIdx} onChange={(e) => pickDeliveryAddr(+e.target.value)}>
+                {deliveryOptions.map((a, i) => <option key={i} value={i}>{a.label || `Address ${i + 1}`}</option>)}
+              </select>
+            )}
             <textarea value={custDeliver} onChange={(e) => setCustDeliver(e.target.value)} /></div>
         </div>
         <div className="field" style={{ marginTop: 4 }}>
