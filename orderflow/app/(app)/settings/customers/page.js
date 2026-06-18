@@ -31,10 +31,11 @@ export default function CustomersPage() {
       <div className="ttl"><h2>Address Book</h2></div>
       <table className="tbl">
         <thead><tr>
-          <th style={{ width: '16%' }}>Name</th>
-          <th style={{ width: '24%' }}>Invoice to</th>
-          <th style={{ width: '24%' }}>Delivery address</th>
-          <th style={{ width: '32%' }}>Contact (name / email / phone)</th>
+          <th style={{ width: '14%' }}>Name</th>
+          <th style={{ width: '22%' }}>Invoice to</th>
+          <th style={{ width: '22%' }}>Delivery address</th>
+          <th style={{ width: '28%' }}>Contact (name / email / phone)</th>
+          <th style={{ width: '6%' }}>£/label</th>
           <th style={{ width: '4%' }}></th>
         </tr></thead>
         <tbody>
@@ -47,6 +48,11 @@ export default function CustomersPage() {
                 <input style={{ marginBottom: 5 }} placeholder="Contact name" value={it.contact_name || ''} onChange={(e) => update(it.id, { contact_name: e.target.value })} />
                 <input style={{ marginBottom: 5 }} placeholder="Email" value={it.email || ''} onChange={(e) => update(it.id, { email: e.target.value })} />
                 <input placeholder="Telephone" value={it.phone || ''} onChange={(e) => update(it.id, { phone: e.target.value })} />
+              </td>
+              <td>
+                <input className="mono" style={{ textAlign: 'right' }}
+                  value={it.label_price || ''} placeholder="0.00"
+                  onChange={(e) => update(it.id, { label_price: parseFloat(e.target.value) || 0 })} />
               </td>
               <td><button className="btn-dl" onClick={() => remove(it.id)}>×</button></td>
             </tr>
