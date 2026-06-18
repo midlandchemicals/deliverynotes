@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { computeLine, docTotals, fmt, prettyDate, splitContact } from '@/lib/calc'
-import { generateDispatchPDF, reprintPDF } from '@/lib/pdf'
+import { generateDispatchPDF, generateOfficeCopyPDF, reprintPDF } from '@/lib/pdf'
 import { StatusBadge } from '../../page'
 import LineEditor from '../LineEditor'
 
@@ -63,9 +63,9 @@ export default function OrderDetailPage() {
 
       if (o.data?.customer_id) {
         const { data: priceData } = await supabase.from('customer_product_prices')
-          .select('product_id, price_per_litre').eq('customer_id', o.data.customer_id)
+          .select('product_id, packaging_id, price_per_litre').eq('customer_id', o.data.customer_id)
         if (priceData?.length) {
-          setPrices(Object.fromEntries(priceData.map((r) => [r.product_id, r.price_per_litre])))
+          setPrices(Object.fromEntries(priceData.map((r) => [`${r.product_id}::${r.packaging_id}`, r.price_per_litre])))
         }
       }
     })()
@@ -82,12 +82,34 @@ export default function OrderDetailPage() {
     toast('Products saved')
   }
 
-  async function savePrice(productId, price) {
+  async function savePrice(productId, packagingId, price) {
     if (!order?.customer_id) return
     await supabase.from('customer_product_prices').upsert(
-      { customer_id: order.customer_id, product_id: productId, price_per_litre: price, updated_at: new Date().toISOString() },
-      { onConflict: 'customer_id,product_id' }
+      { customer_id: order.customer_id, product_id: productId, packaging_id: packagingId, price_per_litre: price, updated_at: new Date().toISOString() },
+      { onConflict: 'customer_id,product_id,packaging_id' }
     )
+  }
+
+  function printOfficeCopy(d) {
+    const hasPrices = lines.some((l) => {
+      const c = computeLine(l, products, packaging)
+      return (parseFloat(prices[`${c.product?.id}::${c.packaging?.id}`]) || 0) > 0
+    })
+    if (!hasPrices) {
+      toast('No prices set for this order. Add prices in the Pricing section above, or visit the Prices tab in settings.')
+      return
+    }
+    const lh = letterheads[lhIndex]
+    const batches = (d.lines_snapshot || []).map((s) => s.batch || '')
+    const doc_ = {
+      docNo: d.doc_no, date: d.doc_date,
+      invoiceTo: d.customer, deliver: d.deliver,
+      contact: d.totals?.contact,
+      customerName: order.customer_snapshot?.name || '',
+      lines, options: d.options,
+      pallets: d.totals?.pallets || 0, batches,
+    }
+    generateOfficeCopyPDF(doc_, lh, products, packaging, prices, parseFloat(deliveryCharge) || 0)
   }
 
   function printNote() {
@@ -181,7 +203,7 @@ ${items.map((it) => `  <li>${it.name}${it.pack ? ` — ${it.qty} x ${it.pack}` :
     const { totals } = generateDispatchPDF(docData, lh, products, packaging, prices)
     const linesSnap = lines.map((l, i) => {
       const c = computeLine(l, products, packaging)
-      const ppl = parseFloat(prices[c.product?.id]) || 0
+      const ppl = parseFloat(prices[`${c.product?.id}::${c.packaging?.id}`]) || 0
       const unitPrice = ppl * (c.vol || 0)
       return {
         productName: c.productName, pg: c.pg, un_number: c.un_number,
@@ -215,7 +237,7 @@ ${items.map((it) => `  <li>${it.name}${it.pack ? ` — ${it.qty} x ${it.pack}` :
 
   const orderTotal = lines.reduce((sum, l) => {
     const c = computeLine(l, products, packaging)
-    const ppl = parseFloat(prices[c.product?.id]) || 0
+    const ppl = parseFloat(prices[`${c.product?.id}::${c.packaging?.id}`]) || 0
     return sum + ppl * (c.vol || 0) * c.qty
   }, 0)
 
@@ -281,7 +303,8 @@ ${items.map((it) => `  <li>${it.name}${it.pack ? ` — ${it.qty} x ${it.pack}` :
               {lines.map((l, i) => {
                 const c = computeLine(l, products, packaging)
                 if (!c.product) return null
-                const ppl = parseFloat(prices[c.product.id]) || 0
+                const priceKey = `${c.product.id}::${c.packaging?.id}`
+                const ppl = parseFloat(prices[priceKey]) || 0
                 const unitPrice = ppl * (c.vol || 0)
                 const lineTotal = unitPrice * c.qty
                 return (
@@ -290,13 +313,13 @@ ${items.map((it) => `  <li>${it.name}${it.pack ? ` — ${it.qty} x ${it.pack}` :
                     <td>{c.packaging?.name || '—'}</td>
                     <td>
                       <input className="mono" style={{ textAlign: 'right' }}
-                        value={prices[c.product.id] ?? ''}
+                        value={prices[priceKey] ?? ''}
                         placeholder="0.0000"
-                        onChange={(e) => setPrices((p) => ({ ...p, [c.product.id]: e.target.value }))}
+                        onChange={(e) => setPrices((p) => ({ ...p, [priceKey]: e.target.value }))}
                         onBlur={(e) => {
                           const v = parseFloat(e.target.value) || 0
-                          setPrices((p) => ({ ...p, [c.product.id]: v }))
-                          savePrice(c.product.id, v)
+                          setPrices((p) => ({ ...p, [priceKey]: v }))
+                          savePrice(c.product.id, c.packaging?.id, v)
                         }}
                       />
                     </td>
@@ -402,7 +425,10 @@ ${items.map((it) => `  <li>${it.name}${it.pack ? ` — ${it.qty} x ${it.pack}` :
                   {` · ${d.letterhead_snapshot?.name}`}
                 </div>
               </div>
-              <button className="btn btn-g btn-sm" onClick={() => reprintPDF(d)}>Re-download PDF</button>
+              <div style={{ display: 'flex', gap: 6 }}>
+                <button className="btn btn-g btn-sm" onClick={() => reprintPDF(d)}>Re-download PDF</button>
+                <button className="btn btn-g btn-sm" onClick={() => printOfficeCopy(d)}>Print office copy</button>
+              </div>
             </div>
           ))}
         </div>
