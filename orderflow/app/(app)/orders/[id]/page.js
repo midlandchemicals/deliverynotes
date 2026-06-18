@@ -21,6 +21,9 @@ export default function OrderDetailPage() {
   const [lines, setLines] = useState([])
   const [dispatched, setDispatched] = useState([])
 
+  // pricing: { [productId]: pricePerLitre }
+  const [prices, setPrices] = useState({})
+
   // dispatch panel state
   const [lhIndex, setLhIndex] = useState(0)
   const [docDate, setDocDate] = useState(new Date().toISOString().slice(0, 10))
@@ -56,6 +59,14 @@ export default function OrderDetailPage() {
 
       const existing = await supabase.from('dispatch_notes').select('*').eq('order_id', id).order('created_at', { ascending: false })
       setDispatched(existing.data || [])
+
+      if (o.data?.customer_id) {
+        const { data: priceData } = await supabase.from('customer_product_prices')
+          .select('product_id, price_per_litre').eq('customer_id', o.data.customer_id)
+        if (priceData?.length) {
+          setPrices(Object.fromEntries(priceData.map((r) => [r.product_id, r.price_per_litre])))
+        }
+      }
     })()
   }, [id])
 
@@ -68,6 +79,14 @@ export default function OrderDetailPage() {
     await supabase.from('orders').update({ lines }).eq('id', id)
     setOrder({ ...order, lines })
     toast('Products saved')
+  }
+
+  async function savePrice(productId, price) {
+    if (!order?.customer_id) return
+    await supabase.from('customer_product_prices').upsert(
+      { customer_id: order.customer_id, product_id: productId, price_per_litre: price, updated_at: new Date().toISOString() },
+      { onConflict: 'customer_id,product_id' }
+    )
   }
 
   function printNote() {
@@ -157,21 +176,25 @@ ${items.map((it) => `  <li>${it.name}${it.pack ? ` — ${it.qty} x ${it.pack}` :
       customerName: order.customer_snapshot?.name || '',
       lines, options, pallets: noPallets ? 0 : pallets, showHazard, batches,
     }
-    const { totals } = generateDispatchPDF(docData, lh, products, packaging)
+    const { totals } = generateDispatchPDF(docData, lh, products, packaging, prices)
     const linesSnap = lines.map((l, i) => {
       const c = computeLine(l, products, packaging)
+      const ppl = parseFloat(prices[c.product?.id]) || 0
+      const unitPrice = ppl * (c.vol || 0)
       return {
         productName: c.productName, pg: c.pg, un_number: c.un_number,
         hazard: c.hazard, psn: c.psn, packDesc: c.packDesc, packQty: c.packQty,
         adr_transport_cat: c.product?.adr_transport_cat || '', batch: batches[i],
         vol: c.totalVol, net: c.net, gross: c.gross,
+        price_per_litre: ppl, unit_price: unitPrice, line_total: unitPrice * c.qty,
       }
     })
+    const orderTotal = linesSnap.reduce((s, l) => s + (l.line_total || 0), 0)
     const { data: { user } } = await supabase.auth.getUser()
     await supabase.from('dispatch_notes').insert({
       doc_no: docNo, doc_type: 'Delivery Note', doc_date: docDate, order_id: id,
       letterhead_snapshot: lh, customer: invoiceTo, deliver: docData.deliver,
-      lines_snapshot: linesSnap, totals: { ...totals, contact }, options, created_by: user?.id || null,
+      lines_snapshot: linesSnap, totals: { ...totals, contact, order_total: orderTotal }, options, created_by: user?.id || null,
     })
     await supabase.from('orders').update({ status: 'Delivery Note Generated' }).eq('id', id)
     setOrder({ ...order, status: 'Delivery Note Generated' })
@@ -187,6 +210,12 @@ ${items.map((it) => `  <li>${it.name}${it.pack ? ` — ${it.qty} x ${it.pack}` :
   if (!order) return <div className="card"><div className="empty">Loading…</div></div>
 
   const totals = docTotals(lines, products, packaging)
+
+  const orderTotal = lines.reduce((sum, l) => {
+    const c = computeLine(l, products, packaging)
+    const ppl = parseFloat(prices[c.product?.id]) || 0
+    return sum + ppl * (c.vol || 0) * c.qty
+  }, 0)
 
   return (
     <div>
@@ -233,6 +262,57 @@ ${items.map((it) => `  <li>${it.name}${it.pack ? ` — ${it.qty} x ${it.pack}` :
         <LineEditor lines={lines} setLines={setLines} products={products} packaging={packaging} />
         <p className="hint">Totals: {fmt(totals.volume)} L · net {fmt(totals.net)} kg · gross {fmt(totals.gross)} kg</p>
       </div>
+
+      {order.customer_id && (
+        <div className="card">
+          <div className="ttl"><h2>Pricing</h2></div>
+          <table className="tbl">
+            <thead><tr>
+              <th>Product</th>
+              <th>Packaging</th>
+              <th style={{ textAlign: 'right', width: '12%' }}>£ / Litre</th>
+              <th style={{ textAlign: 'right', width: '12%' }}>Unit price</th>
+              <th style={{ textAlign: 'right', width: '6%' }}>Qty</th>
+              <th style={{ textAlign: 'right', width: '12%' }}>Line total</th>
+            </tr></thead>
+            <tbody>
+              {lines.map((l, i) => {
+                const c = computeLine(l, products, packaging)
+                if (!c.product) return null
+                const ppl = parseFloat(prices[c.product.id]) || 0
+                const unitPrice = ppl * (c.vol || 0)
+                const lineTotal = unitPrice * c.qty
+                return (
+                  <tr key={i}>
+                    <td>{c.productName}</td>
+                    <td>{c.packaging?.name || '—'}</td>
+                    <td>
+                      <input className="mono" style={{ textAlign: 'right' }}
+                        value={prices[c.product.id] ?? ''}
+                        placeholder="0.0000"
+                        onChange={(e) => setPrices((p) => ({ ...p, [c.product.id]: e.target.value }))}
+                        onBlur={(e) => {
+                          const v = parseFloat(e.target.value) || 0
+                          setPrices((p) => ({ ...p, [c.product.id]: v }))
+                          savePrice(c.product.id, v)
+                        }}
+                      />
+                    </td>
+                    <td className="mono" style={{ textAlign: 'right' }}>{unitPrice > 0 ? `£${unitPrice.toFixed(2)}` : '—'}</td>
+                    <td className="mono" style={{ textAlign: 'right' }}>{c.qty}</td>
+                    <td className="mono" style={{ textAlign: 'right', fontWeight: lineTotal > 0 ? 700 : 400 }}>{lineTotal > 0 ? `£${lineTotal.toFixed(2)}` : '—'}</td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'baseline', gap: 12, marginTop: 10 }}>
+            <span className="muted" style={{ fontSize: 12 }}>Order total</span>
+            <span style={{ fontSize: 18, fontWeight: 700 }}>{orderTotal > 0 ? `£${orderTotal.toFixed(2)}` : '—'}</span>
+          </div>
+          <p className="hint">Enter £ per litre — unit price and line total are calculated automatically. Prices are saved against this customer for future orders.</p>
+        </div>
+      )}
 
       <div className="card">
         <div className="ttl"><h2>Create delivery note</h2></div>
