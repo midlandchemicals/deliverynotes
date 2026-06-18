@@ -266,7 +266,7 @@ export function generateDispatchPDF(doc_, lh, products, packaging) {
   doc.addPage()
   renderDeliveryNote(doc, doc_, lh, products, packaging)
   const custName = doc_.customerName || (doc_.customer || '').split('\n')[0]
-  doc.save(dnFilename(doc_.date, doc_.docNo, custName))
+  window.open(URL.createObjectURL(new Blob([doc.output('arraybuffer')], { type: 'application/pdf' })), '_blank')
   return { totals }
 }
 
@@ -399,7 +399,7 @@ export function generateOfficeCopyPDF(doc_, lh, products, packaging, pricing = {
     .text(doc.splitTextToSize(lh.footer || '', W - 2 * M), W / 2, fy, { align: 'center' })
 
   const custName = doc_.customerName || ''
-  doc.save(dnFilename(doc_.date, doc_.docNo, custName).replace('.pdf', '_OFFICE.pdf'))
+  window.open(URL.createObjectURL(new Blob([doc.output('arraybuffer')], { type: 'application/pdf' })), '_blank')
 }
 
 // Reprint from stored snapshot — two copies in one PDF.
@@ -518,6 +518,6 @@ export function reprintPDF(d) {
     draw()
     doc.addPage()
     draw()
-    doc.save(dnFilename(d.doc_date, d.doc_no, (d.customer || '').split('\n')[0]))
+    window.open(URL.createObjectURL(new Blob([doc.output('arraybuffer')], { type: 'application/pdf' })), '_blank')
   }))
 }
