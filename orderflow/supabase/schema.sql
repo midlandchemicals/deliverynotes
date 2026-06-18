@@ -11,6 +11,8 @@ create table if not exists customers (
   name text not null,
   details text default '',
   deliver text default '',
+  invoice_addresses jsonb default '[]',   -- [{label, text}] — multiple invoice addresses
+  delivery_addresses jsonb default '[]',  -- [{label, text, contact:{name,email,phone}}] — multiple delivery addresses
   contact_name text default '',
   email text default '',
   phone text default '',
@@ -159,6 +161,8 @@ insert into customers (name, details, deliver, contact_name, email, phone) value
 --   alter table customers add column if not exists email text default '';
 --   alter table customers add column if not exists phone text default '';
 --   alter table customers add column if not exists label_price numeric default 0;
+--   alter table customers add column if not exists invoice_addresses jsonb default '[]';
+--   alter table customers add column if not exists delivery_addresses jsonb default '[]';
 --
 -- ADR hazard classification columns for products (run once on existing databases):
 --   alter table products add column if not exists adr_class text default '';
