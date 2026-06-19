@@ -22,11 +22,18 @@ export default function ProductsPage() {
 
   async function update(id, patch) {
     setRows((r) => r.map((x) => (x.id === id ? { ...x, ...patch } : x)))
-    await supabase.from('products').update(patch).eq('id', id)
+    const { error } = await supabase.from('products').update(patch).eq('id', id)
+    if (error) toast('Save failed: ' + error.message)
   }
 
-  async function handleUNChange(id, un) {
+  // Called on blur — only runs the lookup and saves when the UN number actually changed.
+  async function handleUNBlur(id, un) {
     const product = rows.find((r) => r.id === id)
+    if (un === (product?._unDraft ?? product?.un_number)) {
+      // Value hasn't changed from what's in the DB — just clear the draft flag
+      setRows((r) => r.map((x) => (x.id === id ? { ...x, _unDraft: undefined } : x)))
+      return
+    }
     const entry = lookupADR(un)
     const patch = {
       un_number: un,
@@ -42,14 +49,14 @@ export default function ProductsPage() {
       patch.adr_class = entry.class
       patch.adr_subsidiary = entry.subsidiary
       patch.adr_psn = entry.name
-      // Keep existing PG if it's valid for this UN, else default to first option
       const currentPGNorm = normPG(product?.pg || '').toUpperCase()
       const pg = entry.pgOptions.includes(currentPGNorm) ? currentPGNorm : (entry.pgOptions[0] || '')
       if (pg !== currentPGNorm) patch.pg = pg
       patch.adr_tunnel = adrTunnelForPG(un, pg)
     }
-    setRows((r) => r.map((x) => (x.id === id ? { ...x, ...patch } : x)))
-    await supabase.from('products').update(patch).eq('id', id)
+    setRows((r) => r.map((x) => (x.id === id ? { ...x, ...patch, _unDraft: undefined } : x)))
+    const { error } = await supabase.from('products').update(patch).eq('id', id)
+    if (error) toast('Save failed: ' + error.message)
   }
 
   async function handlePGChange(id, pg) {
@@ -59,7 +66,8 @@ export default function ProductsPage() {
       patch.adr_tunnel = adrTunnelForPG(product.un_number, pg)
     }
     setRows((r) => r.map((x) => (x.id === id ? { ...x, ...patch } : x)))
-    await supabase.from('products').update(patch).eq('id', id)
+    const { error } = await supabase.from('products').update(patch).eq('id', id)
+    if (error) toast('Save failed: ' + error.message)
   }
 
   async function verifyProduct(id) {
@@ -125,8 +133,10 @@ export default function ProductsPage() {
                     onChange={(e) => setRows((r) => r.map((x) => (x.id === it.id ? { ...x, sg: e.target.value } : x)))}
                     onBlur={(e) => update(it.id, { sg: num(e.target.value) })} /></td>
                   <td>
-                    <input className="mono" value={it.un_number || ''}
-                      onChange={(e) => handleUNChange(it.id, e.target.value)}
+                    <input className="mono"
+                      value={it._unDraft !== undefined ? it._unDraft : (it.un_number || '')}
+                      onChange={(e) => setRows((r) => r.map((x) => (x.id === it.id ? { ...x, _unDraft: e.target.value } : x)))}
+                      onBlur={(e) => handleUNBlur(it.id, e.target.value)}
                       placeholder="—"
                     />
                   </td>
@@ -250,4 +260,11 @@ export default function ProductsPage() {
       <p className="hint">Net weight = container volume × specific gravity. A blank UN number means non-hazardous. ADR details are auto-filled from ADR 2023 Table A where the UN number is recognised — verify each hazmat product against its SDS.</p>
     </div>
   )
+}
+
+function toast(msg) {
+  let t = document.getElementById('toast')
+  if (!t) { t = document.createElement('div'); t.id = 'toast'; t.className = 'toast'; document.body.appendChild(t) }
+  t.textContent = msg; t.classList.add('show')
+  clearTimeout(t._t); t._t = setTimeout(() => t.classList.remove('show'), 2500)
 }
