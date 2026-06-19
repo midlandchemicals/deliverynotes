@@ -574,7 +574,9 @@ ${items.map((it) => `  <li>${it.name}${it.pack ? ` — ${it.qty} x ${it.pack}` :
               <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 8 }}>Product not in price list</div>
               <p className="hint" style={{ marginBottom: 14 }}>
                 <strong>{item.productName}</strong> ({item.packagingName}) has no price set for <strong>{custName}</strong>.
-                You can copy a price from another customer, or enter a custom price.
+                {item.otherPrices.length > 0
+                  ? ' Copy a price from another customer below, or enter a custom price.'
+                  : ' No other customers have a price for this product yet — enter one below to save it to this customer\'s list.'}
               </p>
               {item.otherPrices.length > 0 && (
                 <div style={{ marginBottom: 14 }}>
