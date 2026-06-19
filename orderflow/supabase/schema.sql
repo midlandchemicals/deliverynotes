@@ -105,6 +105,14 @@ create table if not exists customer_product_prices (
   unique(customer_id, product_id, packaging_id)
 );
 
+-- ---------- app settings (key/value store) ----------
+create table if not exists app_settings (
+  key   text primary key,
+  value text default ''
+);
+-- Seed with empty pricing password (no protection until one is set)
+insert into app_settings (key, value) values ('pricing_password', '') on conflict do nothing;
+
 -- ---------- row level security ----------
 -- Internal team app: any signed-in user may read/write everything.
 alter table customers               enable row level security;
@@ -114,11 +122,12 @@ alter table letterheads             enable row level security;
 alter table orders                  enable row level security;
 alter table customer_product_prices enable row level security;
 alter table dispatch_notes enable row level security;
+alter table app_settings enable row level security;
 
 do $$
 declare t text;
 begin
-  foreach t in array array['customers','products','packaging','letterheads','orders','dispatch_notes','customer_product_prices']
+  foreach t in array array['customers','products','packaging','letterheads','orders','dispatch_notes','customer_product_prices','app_settings']
   loop
     execute format('drop policy if exists "auth all" on %I;', t);
     execute format('create policy "auth all" on %I for all to authenticated using (true) with check (true);', t);

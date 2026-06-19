@@ -1,6 +1,7 @@
 'use client'
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import PricingGuard from '@/app/(app)/PricingGuard'
 
 function toast(msg) {
   let t = document.getElementById('toast')
@@ -118,6 +119,7 @@ export default function PricesPage() {
   const selectedCustomer = customers.find((c) => c.id === customerId)
 
   return (
+    <PricingGuard>
     <div className="card">
       <div className="ttl">
         <h2>Customer Prices</h2>
@@ -232,6 +234,44 @@ export default function PricesPage() {
           <p className="hint">Enter either £/litre or £/pack — the other calculates automatically. Set a delivery charge for products that carry a mandatory delivery surcharge for this customer — it will auto-fill on the order page.</p>
         </>
       )}
+      <ChangePassword />
+    </div>
+    </PricingGuard>
+  )
+}
+
+function ChangePassword() {
+  const supabase = createClient()
+  const [newPw, setNewPw] = useState('')
+  const [confirm, setConfirm] = useState('')
+  const [msg, setMsg] = useState(null)
+
+  async function save() {
+    if (!newPw) { setMsg({ err: true, text: 'Please enter a password' }); return }
+    if (newPw !== confirm) { setMsg({ err: true, text: 'Passwords do not match' }); return }
+    await supabase.from('app_settings').upsert({ key: 'pricing_password', value: newPw })
+    setNewPw(''); setConfirm('')
+    setMsg({ err: false, text: 'Password updated' })
+    // Clear session so next visit requires re-entry
+    if (typeof window !== 'undefined') sessionStorage.removeItem('pz_unlocked')
+  }
+
+  return (
+    <div style={{ marginTop: 32, borderTop: '1px solid var(--border)', paddingTop: 20 }}>
+      <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.06em', color: 'var(--muted)', marginBottom: 14 }}>Change pricing password</div>
+      <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end', flexWrap: 'wrap', maxWidth: 460 }}>
+        <div className="field" style={{ flex: 1, minWidth: 160, marginBottom: 0 }}>
+          <label>New password</label>
+          <input type="password" value={newPw} onChange={(e) => { setNewPw(e.target.value); setMsg(null) }} />
+        </div>
+        <div className="field" style={{ flex: 1, minWidth: 160, marginBottom: 0 }}>
+          <label>Confirm password</label>
+          <input type="password" value={confirm} onChange={(e) => { setConfirm(e.target.value); setMsg(null) }} />
+        </div>
+        <button className="btn btn-g btn-sm" style={{ marginBottom: 1 }} onClick={save}>Save password</button>
+      </div>
+      {msg && <p style={{ fontSize: 12, marginTop: 8, color: msg.err ? 'var(--bad)' : 'var(--accent)' }}>{msg.text}</p>}
+      <p className="hint">Changing the password will require all users to re-enter it on their next visit to pricing.</p>
     </div>
   )
 }
