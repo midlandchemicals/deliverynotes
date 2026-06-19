@@ -4,6 +4,7 @@ import { useParams, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { computeLine, docTotals, fmt, prettyDate, splitContact, labelCount } from '@/lib/calc'
 import { generateDispatchPDF, generateOfficeCopyPDF, reprintPDF } from '@/lib/pdf'
+import PricingGuard, { usePricingCheck } from '@/app/(app)/PricingGuard'
 import { StatusBadge } from '../page'
 import LineEditor from '../LineEditor'
 
@@ -247,6 +248,8 @@ ${items.map((it) => `  <li>${it.name}${it.pack ? ` — ${it.qty} x ${it.pack}` :
     toast('Delivery note generated')
   }
 
+  const { guard: pricingGuard, ModalUI: PricingModal } = usePricingCheck()
+
   if (!order) return <div className="card"><div className="empty">Loading…</div></div>
 
   const totals = docTotals(lines, products, packaging)
@@ -308,6 +311,7 @@ ${items.map((it) => `  <li>${it.name}${it.pack ? ` — ${it.qty} x ${it.pack}` :
       </div>
 
       {order.customer_id && (
+        <PricingGuard>
         <div className="card">
           <div className="ttl"><h2>Pricing</h2></div>
           <table className="tbl">
@@ -434,6 +438,7 @@ ${items.map((it) => `  <li>${it.name}${it.pack ? ` — ${it.qty} x ${it.pack}` :
           )}
           <p className="hint">Enter £ per litre — unit price and line total are calculated automatically. Prices are saved against this customer for future orders. Products marked with * attract a label charge — set the £/label rate above (pre-filled from customer settings).</p>
         </div>
+        </PricingGuard>
       )}
 
       <div className="card">
@@ -490,12 +495,14 @@ ${items.map((it) => `  <li>${it.name}${it.pack ? ` — ${it.qty} x ${it.pack}` :
               </div>
               <div style={{ display: 'flex', gap: 6 }}>
                 <button className="btn btn-g btn-sm" onClick={() => reprintPDF(d)}>Re-download PDF</button>
-                <button className="btn btn-g btn-sm" onClick={() => printOfficeCopy(d)}>Print office copy</button>
+                <button className="btn btn-g btn-sm" onClick={() => pricingGuard(() => printOfficeCopy(d))}>Print office copy</button>
               </div>
             </div>
           ))}
         </div>
       )}
+
+      {PricingModal}
 
       {batchModal && (
         <div className="modal-bg" onClick={() => !busy && setBatchModal(null)}>
