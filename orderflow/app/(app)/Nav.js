@@ -3,17 +3,10 @@ import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 
-const ORDER_LINKS = [
-  ['/orders', 'Order Log'],
-  ['/orders/new', '+ New Order'],
-]
-
-const CAT_LINKS = [
-  ['/settings/products', 'Products'],
-  ['/settings/packaging', 'Packaging'],
-  ['/settings/customers', 'Customers'],
-  ['/settings/prices', 'Prices'],
-  ['/settings/letterheads', 'Letterheads'],
+const MAIN_LINKS = [
+  ['/orders/new', 'New Order'],
+  ['/orders', 'Order Book'],
+  ['/settings/products', 'Admin'],
 ]
 
 export default function Nav({ email }) {
@@ -27,12 +20,12 @@ export default function Nav({ email }) {
     router.refresh()
   }
 
-  const inCatalogue = path.startsWith('/settings')
-  const inOrders = path.startsWith('/orders')
-
-  const isActive = (href) =>
-    href === '/orders' ? (path === '/orders' || (path.startsWith('/orders/') && path !== '/orders/new'))
-                       : path === href || path.startsWith(href)
+  const isActive = (href) => {
+    if (href === '/orders/new') return path === '/orders/new'
+    if (href === '/orders') return path === '/orders' || (path.startsWith('/orders/') && path !== '/orders/new')
+    if (href === '/settings/products') return path.startsWith('/settings')
+    return false
+  }
 
   return (
     <div className="topbar">
@@ -42,20 +35,9 @@ export default function Nav({ email }) {
         <span>Order<b>Flow</b></span>
       </Link>
       <nav className="nav">
-        {inCatalogue ? (
-          <>
-            <span className="nav-section">Catalogue</span>
-            {CAT_LINKS.map(([href, label]) => (
-              <Link key={href} href={href} className={isActive(href) ? 'on' : ''}>{label}</Link>
-            ))}
-          </>
-        ) : inOrders ? (
-          <>
-            {ORDER_LINKS.map(([href, label]) => (
-              <Link key={href} href={href} className={isActive(href) ? 'on' : ''}>{label}</Link>
-            ))}
-          </>
-        ) : null}
+        {MAIN_LINKS.map(([href, label]) => (
+          <Link key={href} href={href} className={isActive(href) ? 'on' : ''}>{label}</Link>
+        ))}
       </nav>
       <div className="who">
         {email}

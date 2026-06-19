@@ -117,6 +117,7 @@ export default function OrderDetailPage() {
     const batches = (d.lines_snapshot || []).map((s) => s.batch || '')
     const doc_ = {
       docNo: d.doc_no, date: d.doc_date,
+      orderDate: order.order_date || null,
       invoiceTo: d.customer, deliver: d.deliver,
       contact: d.totals?.contact,
       customerName: order.customer_snapshot?.name || '',
@@ -207,6 +208,7 @@ ${items.map((it) => `  <li>${it.name}${it.pack ? ` — ${it.qty} x ${it.pack}` :
     const batches = batchModal.map((r) => (r.na ? 'N/A' : r.batch.trim()))
     const docData = {
       type: 'Delivery Note', docNo, date: docDate,
+      orderDate: order.order_date || null,
       invoiceTo,
       deliver: splitContact(order.customer_snapshot?.deliver || '').address,
       contact,
