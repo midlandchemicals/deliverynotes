@@ -46,7 +46,7 @@ export default function PricingGuard({ children }) {
           <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 6, color: 'var(--ink)' }}>Pricing is locked</div>
           <p className="hint" style={{ marginBottom: 16 }}>Enter the pricing password to view.</p>
           <input
-            type="password" autoFocus value={pw} placeholder="Password"
+            type="password" value={pw} placeholder="Password"
             onChange={(e) => { setPw(e.target.value); setErr('') }}
             onKeyDown={(e) => e.key === 'Enter' && attempt()}
             style={{ marginBottom: 8 }}
