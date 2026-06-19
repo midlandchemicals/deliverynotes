@@ -7,6 +7,22 @@ import { prettyDate } from '@/lib/calc'
 
 const STATUSES = ['All', 'New', 'In progress', 'Delivery Note Generated']
 
+function nameFromEmail(email) {
+  if (!email) return null
+  const local = email.split('@')[0]
+  const first = local.split(/[._-]/)[0]
+  return first.charAt(0).toUpperCase() + first.slice(1).toLowerCase()
+}
+
+function enteredBy(o) {
+  const name = nameFromEmail(o.added_by)
+  if (!name && !o.created_at) return null
+  const dt = new Date(o.created_at)
+  const time = dt.toLocaleTimeString('en-GB', { hour: 'numeric', minute: '2-digit', hour12: true })
+  const date = dt.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
+  return `Entered${name ? ` by ${name}` : ''} at ${time} on ${date}`
+}
+
 export default function OrdersPage() {
   const supabase = createClient()
   const router = useRouter()
@@ -56,7 +72,7 @@ export default function OrdersPage() {
     <div>
       <div className="card">
         <div className="ttl">
-          <h2>Delivery Note Log</h2>
+          <h2>Order Book</h2>
           <Link href="/orders/new" className="btn btn-a btn-sm">＋ New order</Link>
         </div>
 
@@ -80,6 +96,7 @@ export default function OrdersPage() {
                 <div className="list-date">
                   {prettyDate(o.order_date)}
                   {o.requested_date ? ` · required ${prettyDate(o.requested_date)}` : ''}
+                  {enteredBy(o) ? <span style={{ color: 'var(--muted)', fontSize: 11, marginLeft: 8 }}>· {enteredBy(o)}</span> : null}
                 </div>
                 {(o.lines || []).length > 0 && (
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 7 }}>

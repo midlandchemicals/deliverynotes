@@ -17,7 +17,6 @@ export default function NewOrderPage() {
   const [busy, setBusy] = useState(false)
   const [step, setStep] = useState(1)
 
-  // Step 1 fields
   const [orderNo, setOrderNo] = useState('DN-1001')
   const [customerId, setCustomerId] = useState('')
   const [custDetails, setCustDetails] = useState('')
@@ -32,8 +31,6 @@ export default function NewOrderPage() {
   const [poRef, setPoRef] = useState('')
   const [orderDate, setOrderDate] = useState(new Date().toISOString().slice(0, 10))
   const [requestedDate, setRequestedDate] = useState('')
-
-  // Step 2 fields
   const [lines, setLines] = useState([])
   const [notes, setNotes] = useState('')
 
@@ -56,25 +53,22 @@ export default function NewOrderPage() {
   function pickCustomer(id) {
     setCustomerId(id)
     const c = customers.find((x) => x.id === id)
-    if (c) {
-      const inv = splitContact(c.details || '')
-      const del = splitContact(c.deliver || '')
-      const invList = (Array.isArray(c.invoice_addresses) && c.invoice_addresses.length)
-        ? c.invoice_addresses : [{ label: 'Main', text: inv.address }]
-      const delList = (Array.isArray(c.delivery_addresses) && c.delivery_addresses.length)
-        ? c.delivery_addresses
-        : [{ label: 'Main', text: del.address, contact: { name: c.contact_name || del.contact.name || '', email: c.email || del.contact.email || '', phone: c.phone || del.contact.phone || '' } }]
-      setInvoiceOptions(invList)
-      setDeliveryOptions(delList)
-      setInvoiceIdx(0)
-      setDeliveryIdx(0)
-      setCustDetails(splitContact(invList[0]?.text || '').address)
-      setCustDeliver(splitContact(delList[0]?.text || '').address)
-      const ct0 = delList[0]?.contact || {}
-      setContactName(ct0.name || c.contact_name || inv.contact.name || del.contact.name || '')
-      setContactEmail(ct0.email || c.email || inv.contact.email || del.contact.email || '')
-      setContactPhone(ct0.phone || c.phone || del.contact.phone || '')
-    }
+    if (!c) return
+    const inv = splitContact(c.details || '')
+    const del = splitContact(c.deliver || '')
+    const invList = (Array.isArray(c.invoice_addresses) && c.invoice_addresses.length)
+      ? c.invoice_addresses : [{ label: 'Main', text: inv.address }]
+    const delList = (Array.isArray(c.delivery_addresses) && c.delivery_addresses.length)
+      ? c.delivery_addresses
+      : [{ label: 'Main', text: del.address, contact: { name: c.contact_name || del.contact.name || '', email: c.email || del.contact.email || '', phone: c.phone || del.contact.phone || '' } }]
+    setInvoiceOptions(invList); setDeliveryOptions(delList)
+    setInvoiceIdx(0); setDeliveryIdx(0)
+    setCustDetails(splitContact(invList[0]?.text || '').address)
+    setCustDeliver(splitContact(delList[0]?.text || '').address)
+    const ct0 = delList[0]?.contact || {}
+    setContactName(ct0.name || c.contact_name || inv.contact.name || '')
+    setContactEmail(ct0.email || c.email || inv.contact.email || '')
+    setContactPhone(ct0.phone || c.phone || del.contact.phone || '')
   }
 
   function pickInvoiceAddr(i) {
@@ -87,9 +81,7 @@ export default function NewOrderPage() {
     const opt = deliveryOptions[i] || {}
     setCustDeliver(splitContact(opt.text || '').address)
     const ct = opt.contact || {}
-    setContactName(ct.name || '')
-    setContactEmail(ct.email || '')
-    setContactPhone(ct.phone || '')
+    setContactName(ct.name || ''); setContactEmail(ct.email || ''); setContactPhone(ct.phone || '')
   }
 
   function goToStep2() {
@@ -105,10 +97,7 @@ export default function NewOrderPage() {
     const { data, error } = await supabase.from('orders').insert({
       order_no: orderNo,
       customer_id: customerId || null,
-      customer_snapshot: {
-        name, details: custDetails, deliver: custDeliver,
-        contact: { name: contactName, email: contactEmail, phone: contactPhone },
-      },
+      customer_snapshot: { name, details: custDetails, deliver: custDeliver, contact: { name: contactName, email: contactEmail, phone: contactPhone } },
       po_ref: poRef,
       order_date: orderDate || null,
       requested_date: requestedDate || null,
@@ -128,74 +117,75 @@ export default function NewOrderPage() {
   const customerOptions = customers.map((c) => ({ id: c.id, label: c.name }))
 
   return (
-    <div>
+    <div style={{ maxWidth: 640, margin: '0 auto' }}>
       {/* Step indicator */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 0, marginBottom: 24, maxWidth: 480, margin: '0 auto 28px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', marginBottom: 28 }}>
         <StepBubble n={1} active={step === 1} done={step > 1} label="Customer & Dates" />
-        <div style={{ flex: 1, height: 2, background: step > 1 ? 'var(--accent)' : 'var(--border)', transition: 'background 0.2s' }} />
+        <div style={{ flex: 1, height: 2, background: step > 1 ? 'var(--accent)' : 'var(--border)', margin: '0 4px', transition: 'background 0.2s' }} />
         <StepBubble n={2} active={step === 2} done={false} label="Products" />
       </div>
 
       {step === 1 && (
-        <>
-          <div className="card">
-            <div className="ttl"><h2>Order Details</h2></div>
-            <div className="row c3">
-              <div className="field"><label>Delivery Note Number</label>
-                <input className="mono" value={orderNo} onChange={(e) => setOrderNo(e.target.value)} /></div>
-              <div className="field"><label>Customer Order Number</label>
-                <input value={poRef} onChange={(e) => setPoRef(e.target.value)} placeholder="optional" /></div>
-              <div className="field"><label>Order date</label>
-                <input className="mono" type="date" value={orderDate} onChange={(e) => setOrderDate(e.target.value)} /></div>
-            </div>
-            <div className="row c2">
-              <div className="field"><label>Requested delivery date</label>
-                <input className="mono" type="date" value={requestedDate} onChange={(e) => setRequestedDate(e.target.value)} /></div>
-              <div className="field"><label>Customer</label>
-                <Combobox
-                  options={customerOptions}
-                  value={customerId}
-                  onSelect={pickCustomer}
-                  placeholder="Type customer name to search…"
-                />
-              </div>
-            </div>
+        <div className="card">
+          <div className="ttl"><h2>New Order</h2></div>
+
+          <Field label="Customer">
+            <Combobox options={customerOptions} value={customerId} onSelect={pickCustomer} placeholder="Type customer name to search…" />
+          </Field>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 14 }}>
+            <Field label="Delivery Note Number">
+              <input className="mono" value={orderNo} onChange={(e) => setOrderNo(e.target.value)} />
+            </Field>
+            <Field label="Customer Order Number">
+              <input value={poRef} onChange={(e) => setPoRef(e.target.value)} placeholder="optional" />
+            </Field>
           </div>
 
-          <div className="card">
-            <div className="ttl"><h2>Addresses</h2></div>
-            <div className="row c2">
-              <div className="field"><label>Invoice to</label>
-                {invoiceOptions.length > 1 && (
-                  <select style={{ marginBottom: 6 }} value={invoiceIdx} onChange={(e) => pickInvoiceAddr(+e.target.value)}>
-                    {invoiceOptions.map((a, i) => <option key={i} value={i}>{a.label || `Address ${i + 1}`}</option>)}
-                  </select>
-                )}
-                <textarea value={custDetails} onChange={(e) => setCustDetails(e.target.value)} placeholder="Company / invoice address" style={{ minHeight: 88 }} />
-              </div>
-              <div className="field"><label>Delivery address</label>
-                {deliveryOptions.length > 1 && (
-                  <select style={{ marginBottom: 6 }} value={deliveryIdx} onChange={(e) => pickDeliveryAddr(+e.target.value)}>
-                    {deliveryOptions.map((a, i) => <option key={i} value={i}>{a.label || `Address ${i + 1}`}</option>)}
-                  </select>
-                )}
-                <textarea value={custDeliver} onChange={(e) => setCustDeliver(e.target.value)} style={{ minHeight: 88 }} />
-              </div>
-            </div>
-            <div className="field" style={{ marginTop: 4 }}>
-              <label>Delivery contact</label>
-              <div className="row c3" style={{ marginBottom: 0 }}>
-                <input placeholder="Contact name" value={contactName} onChange={(e) => setContactName(e.target.value)} />
-                <input placeholder="Email" value={contactEmail} onChange={(e) => setContactEmail(e.target.value)} />
-                <input placeholder="Telephone" value={contactPhone} onChange={(e) => setContactPhone(e.target.value)} />
-              </div>
-            </div>
-            <div style={{ marginTop: 20, display: 'flex', gap: 10 }}>
-              <button className="btn btn-a" onClick={goToStep2}>Next — Add products →</button>
-              <button className="btn btn-g" onClick={() => router.push('/orders')}>Cancel</button>
-            </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 14 }}>
+            <Field label="Order date">
+              <input className="mono" type="date" value={orderDate} onChange={(e) => setOrderDate(e.target.value)} />
+            </Field>
+            <Field label="Requested delivery date">
+              <input className="mono" type="date" value={requestedDate} onChange={(e) => setRequestedDate(e.target.value)} />
+            </Field>
           </div>
-        </>
+
+          <hr style={{ border: 'none', borderTop: '1px solid var(--border)', margin: '18px 0' }} />
+
+          <Field label="Invoice to">
+            {invoiceOptions.length > 1 && (
+              <select style={{ marginBottom: 6 }} value={invoiceIdx} onChange={(e) => pickInvoiceAddr(+e.target.value)}>
+                {invoiceOptions.map((a, i) => <option key={i} value={i}>{a.label || `Address ${i + 1}`}</option>)}
+              </select>
+            )}
+            <textarea value={custDetails} onChange={(e) => setCustDetails(e.target.value)} placeholder="Company / invoice address" style={{ minHeight: 90 }} />
+          </Field>
+
+          <Field label="Delivery address">
+            {deliveryOptions.length > 1 && (
+              <select style={{ marginBottom: 6 }} value={deliveryIdx} onChange={(e) => pickDeliveryAddr(+e.target.value)}>
+                {deliveryOptions.map((a, i) => <option key={i} value={i}>{a.label || `Address ${i + 1}`}</option>)}
+              </select>
+            )}
+            <textarea value={custDeliver} onChange={(e) => setCustDeliver(e.target.value)} style={{ minHeight: 90 }} />
+          </Field>
+
+          <Field label="Contact name">
+            <input placeholder="Contact name" value={contactName} onChange={(e) => setContactName(e.target.value)} />
+          </Field>
+          <Field label="Contact email">
+            <input placeholder="Email" value={contactEmail} onChange={(e) => setContactEmail(e.target.value)} />
+          </Field>
+          <Field label="Contact telephone">
+            <input placeholder="Telephone" value={contactPhone} onChange={(e) => setContactPhone(e.target.value)} />
+          </Field>
+
+          <div style={{ marginTop: 24, display: 'flex', gap: 10 }}>
+            <button className="btn btn-a" onClick={goToStep2}>Next — Add products →</button>
+            <button className="btn btn-g" onClick={() => router.push('/orders')}>Cancel</button>
+          </div>
+        </div>
       )}
 
       {step === 2 && (
@@ -207,7 +197,6 @@ export default function NewOrderPage() {
             </div>
             <LineEditor lines={lines} setLines={setLines} products={products} packaging={packaging} />
           </div>
-
           <div className="card">
             <div className="ttl"><h2>Notes</h2></div>
             <textarea value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Special instructions, carrier details, etc." />
@@ -222,15 +211,24 @@ export default function NewOrderPage() {
   )
 }
 
+function Field({ label, children }) {
+  return (
+    <div className="field" style={{ marginBottom: 14 }}>
+      <label>{label}</label>
+      {children}
+    </div>
+  )
+}
+
 function StepBubble({ n, active, done, label }) {
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 5 }}>
       <div style={{
         width: 36, height: 36, borderRadius: '50%',
-        background: active ? 'var(--accent)' : done ? 'var(--accent)' : 'var(--border)',
+        background: active || done ? 'var(--accent)' : 'var(--border)',
         color: active || done ? '#fff' : 'var(--muted)',
         display: 'flex', alignItems: 'center', justifyContent: 'center',
-        fontWeight: 700, fontSize: 15, transition: 'background 0.2s',
+        fontWeight: 700, fontSize: 15,
       }}>{done ? '✓' : n}</div>
       <span style={{ fontSize: 11, color: active ? 'var(--accent)' : 'var(--muted)', fontWeight: active ? 600 : 400, whiteSpace: 'nowrap' }}>{label}</span>
     </div>

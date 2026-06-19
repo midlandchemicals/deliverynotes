@@ -168,10 +168,16 @@ function renderDeliveryNote(doc, doc_, lh, products, packaging) {
   doc.setFont(FONT, 'bold').setFontSize(22).setTextColor(r, g, b)
     .text('DELIVERY NOTE', W - M, 20, { align: 'right' })
   doc.setFont(FONT, 'normal').setFontSize(10).setTextColor(40, 40, 40)
-  doc.text(`No.   ${doc_.docNo || ''}`, W - M, 28, { align: 'right' })
-  doc.text(`Date  ${prettyDate(doc_.date)}`, W - M, 34, { align: 'right' })
+  doc.text(`No.           ${doc_.docNo || ''}`, W - M, 28, { align: 'right' })
+  if (doc_.orderDate) {
+    doc.text(`Date ordered  ${prettyDate(doc_.orderDate)}`, W - M, 34, { align: 'right' })
+    doc.text(`Note date     ${prettyDate(doc_.date)}`, W - M, 40, { align: 'right' })
+  } else {
+    doc.text(`Date  ${prettyDate(doc_.date)}`, W - M, 34, { align: 'right' })
+  }
 
-  const barY = Math.max(y + addrLines.length * 3.4 + 5, 38)
+  const headerBottom = doc_.orderDate ? 44 : 38
+  const barY = Math.max(y + addrLines.length * 3.4 + 5, headerBottom)
   doc.setFillColor(r, g, b).rect(M, barY, W - 2 * M, 1.2, 'F')
   let cy = barY + 7
   const colW = (W - 2 * M - 5) / 2
@@ -308,10 +314,15 @@ export function generateOfficeCopyPDF(doc_, lh, products, packaging, pricing = {
   const titleY = y + 2
   doc.setFont(FONT, 'bold').setFontSize(22).setTextColor(...BK).text('DELIVERY NOTE', W - M, titleY, { align: 'right' })
   doc.setFont(FONT, 'normal').setFontSize(10).setTextColor(...MU)
-  doc.text(`No.   ${doc_.docNo || ''}`, W - M, titleY + 9, { align: 'right' })
-  doc.text(`Date  ${prettyDate(doc_.date)}`, W - M, titleY + 15, { align: 'right' })
+  doc.text(`No.           ${doc_.docNo || ''}`, W - M, titleY + 9, { align: 'right' })
+  if (doc_.orderDate) {
+    doc.text(`Date ordered  ${prettyDate(doc_.orderDate)}`, W - M, titleY + 15, { align: 'right' })
+    doc.text(`Note date     ${prettyDate(doc_.date)}`, W - M, titleY + 21, { align: 'right' })
+  } else {
+    doc.text(`Date  ${prettyDate(doc_.date)}`, W - M, titleY + 15, { align: 'right' })
+  }
 
-  const barY = Math.max(y + addrLines.length * 3.4 + 5, titleY + 18)
+  const barY = Math.max(y + addrLines.length * 3.4 + 5, doc_.orderDate ? titleY + 25 : titleY + 18)
   doc.setFillColor(80, 80, 80).rect(M, barY, W - 2 * M, 1.2, 'F')
   let cy = barY + 7
   const colW = (W - 2 * M - 5) / 2
