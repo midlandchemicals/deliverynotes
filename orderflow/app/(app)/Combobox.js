@@ -61,7 +61,7 @@ export default function Combobox({ options, value, onSelect, placeholder }) {
         onChange={handleChange}
         onFocus={handleFocus}
         placeholder={placeholder || 'Type to search…'}
-        autoComplete="off"
+        autoComplete="new-password"
       />
       {dropdown}
     </div>
