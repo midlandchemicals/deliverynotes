@@ -29,11 +29,9 @@ export default function ProductsPage() {
   // Called on blur — only runs the lookup and saves when the UN number actually changed.
   async function handleUNBlur(id, un) {
     const product = rows.find((r) => r.id === id)
-    if (un === (product?._unDraft ?? product?.un_number)) {
-      // Value hasn't changed from what's in the DB — just clear the draft flag
-      setRows((r) => r.map((x) => (x.id === id ? { ...x, _unDraft: undefined } : x)))
-      return
-    }
+    // Always clear the draft flag
+    setRows((r) => r.map((x) => (x.id === id ? { ...x, _unDraft: undefined } : x)))
+    if (un === product?.un_number) return  // nothing changed, don't wipe ADR fields
     const entry = lookupADR(un)
     const patch = {
       un_number: un,
