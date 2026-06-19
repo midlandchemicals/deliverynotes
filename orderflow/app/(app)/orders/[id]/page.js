@@ -40,6 +40,10 @@ export default function OrderDetailPage() {
   const [batchModal, setBatchModal] = useState(null) // null | [{ name, batch, na }]
   const [busy, setBusy] = useState(false)
 
+  const [unpricedItems, setUnpricedItems] = useState([]) // lines missing a price for this customer
+  const [unpricedModal, setUnpricedModal] = useState(null) // currently open item
+  const [unpricedPackPrice, setUnpricedPackPrice] = useState('')
+
   useEffect(() => {
     (async () => {
       const [o, p, k, lh] = await Promise.all([
@@ -70,17 +74,52 @@ export default function OrderDetailPage() {
             .select('product_id, packaging_id, price_per_litre, delivery_charge').eq('customer_id', o.data.customer_id),
           supabase.from('customers').select('label_price').eq('id', o.data.customer_id).single(),
         ])
-        if (priceData.data?.length) {
-          setPrices(Object.fromEntries(priceData.data.map((r) => [`${r.product_id}::${r.packaging_id}`, r.price_per_litre])))
+        const priceRows = priceData.data || []
+        const orderLines = o.data?.lines || []
+        if (priceRows.length) {
+          setPrices(Object.fromEntries(priceRows.map((r) => [`${r.product_id}::${r.packaging_id}`, r.price_per_litre])))
           // Auto-fill delivery charge from products in this order
-          const orderLines = o.data?.lines || []
-          const autoDelivery = priceData.data.reduce((sum, r) => {
+          const autoDelivery = priceRows.reduce((sum, r) => {
             const inOrder = orderLines.some((l) => l.productId === r.product_id && l.packagingId === r.packaging_id)
             return sum + (inOrder ? (r.delivery_charge || 0) : 0)
           }, 0)
           if (autoDelivery > 0) setDeliveryCharge(autoDelivery.toFixed(2))
         }
         setLabelPriceRaw(String(custData.data?.label_price || ''))
+        // Detect order lines with no price for this customer
+        const seenKeys = new Set()
+        const unpricedList = []
+        for (const l of orderLines) {
+          const c = computeLine(l, p.data || [], k.data || [])
+          if (!c.product || !c.packaging) continue
+          const key = `${c.product.id}::${c.packaging.id}`
+          if (seenKeys.has(key)) continue
+          seenKeys.add(key)
+          const hasPrice = priceRows.some(
+            (r) => r.product_id === c.product.id && r.packaging_id === c.packaging.id && r.price_per_litre > 0
+          )
+          if (!hasPrice) {
+            unpricedList.push({
+              productId: c.product.id, packagingId: c.packaging.id,
+              productName: c.productName, packagingName: c.packaging.name, vol: c.vol || 0,
+            })
+          }
+        }
+        if (unpricedList.length > 0) {
+          const productIds = [...new Set(unpricedList.map((u) => u.productId))]
+          const { data: othersData } = await supabase
+            .from('customer_product_prices')
+            .select('product_id, packaging_id, price_per_litre, customers(name)')
+            .in('product_id', productIds)
+            .neq('customer_id', o.data.customer_id)
+            .gt('price_per_litre', 0)
+          setUnpricedItems(unpricedList.map((u) => ({
+            ...u,
+            otherPrices: (othersData || [])
+              .filter((r) => r.product_id === u.productId && r.packaging_id === u.packagingId)
+              .map((r) => ({ customerName: r.customers?.name || 'Other customer', price_per_litre: r.price_per_litre })),
+          })))
+        }
       }
     })()
   }, [id])
@@ -94,6 +133,20 @@ export default function OrderDetailPage() {
     await supabase.from('orders').update({ lines }).eq('id', id)
     setOrder({ ...order, lines })
     toast('Products saved')
+  }
+
+  async function saveUnpricedPrice(ppl) {
+    const item = unpricedModal
+    if (!item || !order?.customer_id || ppl <= 0) return
+    await supabase.from('customer_product_prices').upsert(
+      { customer_id: order.customer_id, product_id: item.productId, packaging_id: item.packagingId, price_per_litre: ppl, delivery_charge: 0, updated_at: new Date().toISOString() },
+      { onConflict: 'customer_id,product_id,packaging_id', ignoreDuplicates: false }
+    )
+    setPrices((prev) => ({ ...prev, [`${item.productId}::${item.packagingId}`]: ppl }))
+    setUnpricedItems((prev) => prev.filter((u) => !(u.productId === item.productId && u.packagingId === item.packagingId)))
+    setUnpricedModal(null)
+    setUnpricedPackPrice('')
+    toast(`Price saved for ${item.productName}`)
   }
 
   async function savePrice(productId, packagingId, price) {
@@ -333,7 +386,16 @@ ${items.map((it) => `  <li>${it.name}${it.pack ? ` — ${it.qty} x ${it.pack}` :
                 const lineTotal = unitPrice * c.qty
                 return (
                   <tr key={i}>
-                    <td>{c.productName}</td>
+                    <td>
+                      <span>{c.productName}</span>
+                      {ppl === 0 && unpricedItems.some((u) => u.productId === c.product.id && u.packagingId === c.packaging?.id) && (
+                        <button
+                          style={{ marginLeft: 8, fontSize: 11, padding: '2px 7px', background: '#fff8e1', border: '1px solid #ffc107', borderRadius: 4, color: '#5a4200', cursor: 'pointer' }}
+                          onClick={() => { setUnpricedModal(unpricedItems.find((u) => u.productId === c.product.id && u.packagingId === c.packaging?.id)); setUnpricedPackPrice('') }}>
+                          Set price →
+                        </button>
+                      )}
+                    </td>
                     <td>{c.packaging?.name || '—'}</td>
                     <td>
                       <input className="mono" style={{ textAlign: 'right' }}
@@ -501,6 +563,61 @@ ${items.map((it) => `  <li>${it.name}${it.pack ? ` — ${it.qty} x ${it.pack}` :
           ))}
         </div>
       )}
+
+      {unpricedModal && (() => {
+        const item = unpricedModal
+        const customPPL = item.vol > 0 ? (parseFloat(unpricedPackPrice) || 0) / item.vol : 0
+        const custName = order?.customer_snapshot?.name || 'this customer'
+        return (
+          <div className="modal-bg" onClick={() => setUnpricedModal(null)}>
+            <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 420, textAlign: 'left' }}>
+              <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 8 }}>Product not in price list</div>
+              <p className="hint" style={{ marginBottom: 14 }}>
+                <strong>{item.productName}</strong> ({item.packagingName}) has no price set for <strong>{custName}</strong>.
+                You can copy a price from another customer, or enter a custom price.
+              </p>
+              {item.otherPrices.length > 0 && (
+                <div style={{ marginBottom: 14 }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted)', marginBottom: 8 }}>Copy price from another customer</div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    {item.otherPrices.map((op, i) => (
+                      <button key={i} className="btn btn-g"
+                        style={{ textAlign: 'left', fontFamily: 'monospace', fontSize: 13 }}
+                        onClick={() => saveUnpricedPrice(op.price_per_litre)}>
+                        {op.customerName}: £{op.price_per_litre.toFixed(4)}/L{item.vol > 0 ? ` · £${(op.price_per_litre * item.vol).toFixed(2)} per pack` : ''}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+              <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted)', marginBottom: 8 }}>
+                {item.otherPrices.length > 0 ? 'Or enter a custom price' : 'Enter a price'}
+              </div>
+              <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                <div style={{ position: 'relative', flex: 1 }}>
+                  <span style={{ position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)', color: 'var(--muted)', fontSize: 13 }}>£</span>
+                  <input className="mono" type="number" min="0" step="0.01" autoFocus
+                    value={unpricedPackPrice} placeholder={`Pack price (${item.packagingName})`}
+                    style={{ paddingLeft: 20 }}
+                    onChange={(e) => setUnpricedPackPrice(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && customPPL > 0 && saveUnpricedPrice(customPPL)} />
+                </div>
+                {item.vol > 0 && customPPL > 0 && (
+                  <span style={{ color: 'var(--muted)', fontSize: 12, whiteSpace: 'nowrap' }}>= £{customPPL.toFixed(4)}/L</span>
+                )}
+              </div>
+              <div style={{ display: 'flex', gap: 8, marginTop: 16, justifyContent: 'flex-end' }}>
+                <button className="btn btn-g" onClick={() => setUnpricedModal(null)}>Skip</button>
+                <button className="btn btn-a"
+                  disabled={!unpricedPackPrice || parseFloat(unpricedPackPrice) <= 0}
+                  onClick={() => saveUnpricedPrice(customPPL)}>
+                  Save to {custName}&apos;s list
+                </button>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
 
       {PricingModal}
 
