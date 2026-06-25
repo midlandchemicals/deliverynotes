@@ -33,6 +33,7 @@ export default function PricesPage() {
   const [rows, setRows] = useState([])
   const [adding, setAdding] = useState(false)
   const [newRow, setNewRow] = useState({ productId: '', packagingId: '', ppl: '', ppp: '', dc: '' })
+  const [drafts, setDrafts] = useState([]) // bulk-fill rows awaiting prices
 
   useEffect(() => {
     ;(async () => {
@@ -49,6 +50,7 @@ export default function PricesPage() {
   }, [])
 
   useEffect(() => {
+    setDrafts([])
     if (customerId) loadPrices(customerId)
   }, [customerId])
 
@@ -109,6 +111,61 @@ export default function PricesPage() {
     toast('Price saved')
   }
 
+  // Bulk-fill: drop in a draft row for every product in this customer's range
+  // that doesn't already have a price. The user then just types the prices.
+  function fillProducts() {
+    if (!customerId) return
+    const existing = new Set(rows.map((r) => r.product_id))
+    const defaultPkg = packaging[0]?.id || ''
+    const matches = products
+      .filter((p) => matchesCustomer(p.category, selectedCustomer?.name) && !existing.has(p.id))
+      .sort((a, b) => (a.category || '').localeCompare(b.category || '') || a.name.localeCompare(b.name))
+    setDrafts((prev) => {
+      const have = new Set([...prev.map((d) => d.productId), ...existing])
+      const added = matches
+        .filter((p) => !have.has(p.id))
+        .map((p) => ({ key: p.id, productId: p.id, packagingId: defaultPkg, ppl: '', ppp: '', dc: '' }))
+      if (!added.length) { toast(prev.length ? 'No more products to add' : 'No unpriced products found for this customer'); return prev }
+      toast(`Added ${added.length} product${added.length !== 1 ? 's' : ''} — enter prices and save`)
+      return [...prev, ...added]
+    })
+  }
+
+  function updateDraft(key, patch) {
+    setDrafts((ds) => ds.map((d) => {
+      if (d.key !== key) return d
+      const next = { ...d, ...patch }
+      const vol = pkgVol(next.packagingId)
+      if ('ppl' in patch) next.ppp = vol > 0 ? ((parseFloat(next.ppl) || 0) * vol).toFixed(4) : ''
+      if ('ppp' in patch) next.ppl = vol > 0 ? ((parseFloat(next.ppp) || 0) / vol).toFixed(6) : ''
+      if ('packagingId' in patch) {
+        if (next.ppl) next.ppp = vol > 0 ? ((parseFloat(next.ppl) || 0) * vol).toFixed(4) : ''
+        else if (next.ppp) next.ppl = vol > 0 ? ((parseFloat(next.ppp) || 0) / vol).toFixed(6) : ''
+      }
+      return next
+    }))
+  }
+
+  function removeDraft(key) {
+    setDrafts((ds) => ds.filter((d) => d.key !== key))
+  }
+
+  async function saveDrafts() {
+    const toSave = drafts.filter((d) => d.packagingId && ((parseFloat(d.ppl) || 0) > 0 || (parseFloat(d.ppp) || 0) > 0))
+    if (!toSave.length) { toast('Enter at least one price first'); return }
+    const payload = toSave.map((d) => {
+      const vol = pkgVol(d.packagingId)
+      const ppl = d.ppl ? (parseFloat(d.ppl) || 0) : (vol > 0 ? (parseFloat(d.ppp) || 0) / vol : 0)
+      return { customer_id: customerId, product_id: d.productId, packaging_id: d.packagingId, price_per_litre: ppl, delivery_charge: parseFloat(d.dc) || 0 }
+    })
+    const { error } = await supabase.from('customer_product_prices').insert(payload)
+    if (error) { toast(error.message); return }
+    const savedKeys = new Set(toSave.map((d) => d.key))
+    setDrafts((ds) => ds.filter((d) => !savedKeys.has(d.key)))
+    await loadPrices(customerId)
+    toast(`${toSave.length} price${toSave.length !== 1 ? 's' : ''} saved`)
+  }
+
   function updateNew(patch) {
     setNewRow((n) => {
       const next = { ...n, ...patch }
@@ -148,7 +205,12 @@ export default function PricesPage() {
     <div className="card">
       <div className="ttl">
         <h2>Customer Prices</h2>
-        {customerId && <button className="btn btn-a btn-sm" onClick={() => { setAdding(true); setNewRow({ productId: '', packagingId: '', ppl: '', ppp: '' }) }}>＋ Add price</button>}
+        {customerId && (
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button className="btn btn-g btn-sm" onClick={fillProducts} title="Add all of this customer's range products">⤓ Fill products</button>
+            <button className="btn btn-a btn-sm" onClick={() => { setAdding(true); setNewRow({ productId: '', packagingId: '', ppl: '', ppp: '', dc: '' }) }}>＋ Add price</button>
+          </div>
+        )}
       </div>
 
       <div className="filters" style={{ marginBottom: 16 }}>
@@ -216,6 +278,37 @@ export default function PricesPage() {
                 )
               })}
 
+              {drafts.map((d) => {
+                const prod = products.find((p) => p.id === d.productId)
+                return (
+                  <tr key={'draft-' + d.key} style={{ background: '#fffaf0' }}>
+                    <td>{prod ? (prod.category ? `${prod.name} (${prod.category})` : prod.name) : <span className="muted">—</span>}</td>
+                    <td>
+                      <select value={d.packagingId} onChange={(e) => updateDraft(d.key, { packagingId: e.target.value })}>
+                        <option value="">— packaging —</option>
+                        {packaging.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                      </select>
+                    </td>
+                    <td>
+                      <input className="mono" style={{ textAlign: 'right' }}
+                        value={d.ppl} placeholder="£/L"
+                        onChange={(e) => updateDraft(d.key, { ppl: e.target.value })} />
+                    </td>
+                    <td>
+                      <input className="mono" style={{ textAlign: 'right' }}
+                        value={d.ppp} placeholder="£/pack"
+                        onChange={(e) => updateDraft(d.key, { ppp: e.target.value })} />
+                    </td>
+                    <td>
+                      <input className="mono" style={{ textAlign: 'right' }}
+                        value={d.dc} placeholder="£ delivery"
+                        onChange={(e) => updateDraft(d.key, { dc: e.target.value })} />
+                    </td>
+                    <td><button className="btn-dl" onClick={() => removeDraft(d.key)}>×</button></td>
+                  </tr>
+                )
+              })}
+
               {adding && (
                 <tr style={{ background: 'var(--panel-2)' }}>
                   <td>
@@ -258,7 +351,14 @@ export default function PricesPage() {
               )}
             </tbody>
           </table>
-          <p className="hint">Type in the product box to search by product name or range — no need to scroll. Products marked ★ belong to this customer's own range and appear at the top. Enter either £/litre or £/pack — the other calculates automatically. Set a delivery charge for products that carry a mandatory delivery surcharge for this customer — it will auto-fill on the order page.</p>
+          {drafts.length > 0 && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, margin: '4px 0 14px' }}>
+              <button className="btn btn-a" onClick={saveDrafts}>Save filled prices</button>
+              <button className="btn btn-g btn-sm" onClick={() => setDrafts([])}>Clear unfilled</button>
+              <span className="muted" style={{ fontSize: 12 }}>{drafts.length} product{drafts.length !== 1 ? 's' : ''} added — rows with no price are ignored on save.</span>
+            </div>
+          )}
+          <p className="hint">Use <b>⤓ Fill products</b> to load every product in this customer's range that has no price yet — then just type the prices and click <b>Save filled prices</b>. Type in the product box to search by product name or range — no need to scroll. Products marked ★ belong to this customer's own range and appear at the top. Enter either £/litre or £/pack — the other calculates automatically. Set a delivery charge for products that carry a mandatory delivery surcharge for this customer — it will auto-fill on the order page.</p>
         </>
       )}
       <ChangePassword />
