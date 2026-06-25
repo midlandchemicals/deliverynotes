@@ -1,7 +1,21 @@
 'use client'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useMemo } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import PricingGuard from '@/app/(app)/PricingGuard'
+import Combobox from '@/app/(app)/Combobox'
+
+// Loose match between a product's range/category and a customer name, so a
+// customer called "CIS Industrial Services" matches products whose range is
+// just "CIS". Matches on substring either way, or on shared word tokens.
+function matchesCustomer(category, customerName) {
+  const cat = String(category || '').toLowerCase().trim()
+  const cust = String(customerName || '').toLowerCase().trim()
+  if (!cat || !cust) return false
+  if (cust.includes(cat) || cat.includes(cust)) return true
+  const custTokens = cust.split(/[^a-z0-9]+/).filter((t) => t.length >= 2)
+  const catTokens = cat.split(/[^a-z0-9]+/).filter((t) => t.length >= 2)
+  return catTokens.some((ct) => custTokens.includes(ct))
+}
 
 function toast(msg) {
   let t = document.getElementById('toast')
@@ -118,6 +132,17 @@ export default function PricesPage() {
 
   const selectedCustomer = customers.find((c) => c.id === customerId)
 
+  // Searchable product options, with this customer's own range floated to the top.
+  const productOptions = useMemo(() => {
+    const opts = products.map((p) => ({
+      id: p.id,
+      base: p.category ? `${p.name} (${p.category})` : p.name,
+      match: matchesCustomer(p.category, selectedCustomer?.name),
+    }))
+    opts.sort((a, b) => (b.match - a.match) || a.base.localeCompare(b.base))
+    return opts.map((o) => ({ id: o.id, label: o.match ? `★ ${o.base}` : o.base }))
+  }, [products, selectedCustomer])
+
   return (
     <PricingGuard>
     <div className="card">
@@ -194,10 +219,12 @@ export default function PricesPage() {
               {adding && (
                 <tr style={{ background: 'var(--panel-2)' }}>
                   <td>
-                    <select value={newRow.productId} onChange={(e) => updateNew({ productId: e.target.value })}>
-                      <option value="">— product —</option>
-                      {products.map((p) => <option key={p.id} value={p.id}>{p.category ? `${p.name} (${p.category})` : p.name}</option>)}
-                    </select>
+                    <Combobox
+                      options={productOptions}
+                      value={newRow.productId}
+                      onSelect={(id) => updateNew({ productId: id })}
+                      placeholder="Search product or range…"
+                    />
                   </td>
                   <td>
                     <select value={newRow.packagingId} onChange={(e) => updateNew({ packagingId: e.target.value })}>
@@ -231,7 +258,7 @@ export default function PricesPage() {
               )}
             </tbody>
           </table>
-          <p className="hint">Enter either £/litre or £/pack — the other calculates automatically. Set a delivery charge for products that carry a mandatory delivery surcharge for this customer — it will auto-fill on the order page.</p>
+          <p className="hint">Type in the product box to search by product name or range — no need to scroll. Products marked ★ belong to this customer's own range and appear at the top. Enter either £/litre or £/pack — the other calculates automatically. Set a delivery charge for products that carry a mandatory delivery surcharge for this customer — it will auto-fill on the order page.</p>
         </>
       )}
       <ChangePassword />
