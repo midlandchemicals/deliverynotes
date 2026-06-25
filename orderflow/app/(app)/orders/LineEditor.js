@@ -60,10 +60,26 @@ function InlineCombo({ options, value, onChange }) {
   )
 }
 
-export default function LineEditor({ lines, setLines, products, packaging }) {
+export default function LineEditor({ lines, setLines, products, packaging, availableByProduct }) {
   function update(i, k, v) {
     const next = lines.map((l, idx) => (idx === i ? { ...l, [k]: v } : l))
     setLines(next)
+  }
+
+  // When a product is chosen, auto-fill the packaging with the sizes that
+  // already exist for this product (from the customer's price list). If only
+  // one size exists, use it; if several, default to the smallest volume.
+  function pickProduct(i, productId) {
+    const avail = availableByProduct?.[productId] || []
+    const patch = { productId }
+    if (avail.length) {
+      const lowest = avail
+        .map((pid) => packaging.find((k) => k.id === pid))
+        .filter(Boolean)
+        .sort((a, b) => (a.volume || 0) - (b.volume || 0))[0]
+      if (lowest) patch.packagingId = lowest.id
+    }
+    setLines(lines.map((l, idx) => (idx === i ? { ...l, ...patch } : l)))
   }
   function add() {
     setLines([...lines, { productId: products[0]?.id || null, packagingId: packaging[0]?.id || null, qty: '1' }])
@@ -101,7 +117,7 @@ export default function LineEditor({ lines, setLines, products, packaging }) {
                   <InlineCombo
                     options={productOptions}
                     value={l.productId || ''}
-                    onChange={(v) => update(i, 'productId', v)}
+                    onChange={(v) => pickProduct(i, v)}
                   />
                 </td>
                 <td><span className="pgtag">{c.hazard}</span></td>
