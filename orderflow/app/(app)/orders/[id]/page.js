@@ -72,7 +72,7 @@ export default function OrderDetailPage() {
         const [priceData, custData] = await Promise.all([
           supabase.from('customer_product_prices')
             .select('product_id, packaging_id, price_per_litre, delivery_charge').eq('customer_id', o.data.customer_id),
-          supabase.from('customers').select('label_price').eq('id', o.data.customer_id).single(),
+          supabase.from('customers').select('label_price, default_delivery_charge').eq('id', o.data.customer_id).single(),
         ])
         const priceRows = priceData.data || []
         const orderLines = o.data?.lines || []
@@ -84,6 +84,10 @@ export default function OrderDetailPage() {
             return sum + (inOrder ? (r.delivery_charge || 0) : 0)
           }, 0)
           if (autoDelivery > 0) setDeliveryCharge(autoDelivery.toFixed(2))
+          else if ((custData.data?.default_delivery_charge || 0) > 0)
+            setDeliveryCharge(Number(custData.data.default_delivery_charge).toFixed(2))
+        } else if ((custData.data?.default_delivery_charge || 0) > 0) {
+          setDeliveryCharge(Number(custData.data.default_delivery_charge).toFixed(2))
         }
         setLabelPriceRaw(String(custData.data?.label_price || ''))
         // Detect order lines with no price for this customer
