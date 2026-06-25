@@ -17,6 +17,7 @@ create table if not exists customers (
   email text default '',
   phone text default '',
   label_price numeric default 0,
+  default_delivery_charge numeric default 0,
   created_at timestamptz default now()
 );
 
@@ -170,6 +171,7 @@ insert into customers (name, details, deliver, contact_name, email, phone) value
 --   alter table customers add column if not exists email text default '';
 --   alter table customers add column if not exists phone text default '';
 --   alter table customers add column if not exists label_price numeric default 0;
+--   alter table customers add column if not exists default_delivery_charge numeric default 0;
 --   alter table customers add column if not exists invoice_addresses jsonb default '[]';
 --   alter table customers add column if not exists delivery_addresses jsonb default '[]';
 --

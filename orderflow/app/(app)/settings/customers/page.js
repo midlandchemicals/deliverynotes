@@ -67,7 +67,7 @@ export default function CustomersPage() {
     await supabase.from('customers').update(patch).eq('id', id)
   }
   async function add() {
-    const { data } = await supabase.from('customers').insert({ name: 'New customer', details: '', deliver: '', contact_name: '', email: '', phone: '', invoice_addresses: [], delivery_addresses: [] }).select('*').single()
+    const { data } = await supabase.from('customers').insert({ name: 'New customer', details: '', deliver: '', contact_name: '', email: '', phone: '', invoice_addresses: [], delivery_addresses: [], default_delivery_charge: 0 }).select('*').single()
     setRows((r) => [...r, data])
   }
   async function remove(id) {
@@ -86,6 +86,7 @@ export default function CustomersPage() {
           <th style={{ width: '32%' }}>Invoice addresses</th>
           <th style={{ width: '40%' }}>Delivery addresses (each with its own contact)</th>
           <th style={{ width: '8%' }}>£/label</th>
+          <th style={{ width: '10%' }}>Delivery £</th>
           <th style={{ width: '4%' }}></th>
         </tr></thead>
         <tbody>
@@ -118,6 +119,12 @@ export default function CustomersPage() {
                   value={it.label_price ?? ''} placeholder="0.00"
                   onChange={(e) => setRows((r) => r.map((x) => (x.id === it.id ? { ...x, label_price: e.target.value } : x)))}
                   onBlur={(e) => update(it.id, { label_price: parseFloat(e.target.value) || 0 })} />
+              </td>
+              <td>
+                <input className="mono" style={{ textAlign: 'right' }}
+                  value={it.default_delivery_charge ?? ''} placeholder="0.00"
+                  onChange={(e) => setRows((r) => r.map((x) => (x.id === it.id ? { ...x, default_delivery_charge: e.target.value } : x)))}
+                  onBlur={(e) => update(it.id, { default_delivery_charge: parseFloat(e.target.value) || 0 })} />
               </td>
               <td><button className="btn-dl" onClick={() => remove(it.id)}>×</button></td>
             </tr>
