@@ -33,6 +33,7 @@ export default function NewOrderPage() {
   const [requestedDate, setRequestedDate] = useState('')
   const [lines, setLines] = useState([])
   const [notes, setNotes] = useState('')
+  const [availableByProduct, setAvailableByProduct] = useState({})
 
   useEffect(() => {
     (async () => {
@@ -50,8 +51,20 @@ export default function NewOrderPage() {
     })()
   }, [])
 
+  async function loadAvailablePackaging(cid) {
+    const { data } = await supabase.from('customer_product_prices')
+      .select('product_id, packaging_id').eq('customer_id', cid)
+    const map = {}
+    for (const r of data || []) {
+      if (!map[r.product_id]) map[r.product_id] = []
+      if (!map[r.product_id].includes(r.packaging_id)) map[r.product_id].push(r.packaging_id)
+    }
+    setAvailableByProduct(map)
+  }
+
   function pickCustomer(id) {
     setCustomerId(id)
+    loadAvailablePackaging(id)
     const c = customers.find((x) => x.id === id)
     if (!c) return
     const inv = splitContact(c.details || '')
@@ -195,7 +208,7 @@ export default function NewOrderPage() {
               <h2>Products</h2>
               <button className="btn btn-g btn-sm" onClick={() => setStep(1)}>← Back</button>
             </div>
-            <LineEditor lines={lines} setLines={setLines} products={products} packaging={packaging} />
+            <LineEditor lines={lines} setLines={setLines} products={products} packaging={packaging} availableByProduct={availableByProduct} />
           </div>
           <div className="card">
             <div className="ttl"><h2>Notes</h2></div>

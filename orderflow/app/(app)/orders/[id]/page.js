@@ -40,6 +40,7 @@ export default function OrderDetailPage() {
   const [batchModal, setBatchModal] = useState(null) // null | [{ name, batch, na }]
   const [busy, setBusy] = useState(false)
 
+  const [availableByProduct, setAvailableByProduct] = useState({}) // productId -> [packagingId] from price list
   const [unpricedItems, setUnpricedItems] = useState([]) // lines missing a price for this customer
   const [unpricedModal, setUnpricedModal] = useState(null) // currently open item
   const [unpricedPackPrice, setUnpricedPackPrice] = useState('')
@@ -76,6 +77,13 @@ export default function OrderDetailPage() {
         ])
         const priceRows = priceData.data || []
         const orderLines = o.data?.lines || []
+        // Map of which packaging sizes exist per product for this customer
+        const availMap = {}
+        for (const r of priceRows) {
+          if (!availMap[r.product_id]) availMap[r.product_id] = []
+          if (!availMap[r.product_id].includes(r.packaging_id)) availMap[r.product_id].push(r.packaging_id)
+        }
+        setAvailableByProduct(availMap)
         if (priceRows.length) {
           setPrices(Object.fromEntries(priceRows.map((r) => [`${r.product_id}::${r.packaging_id}`, r.price_per_litre])))
           // Auto-fill delivery charge from products in this order
@@ -363,7 +371,7 @@ ${items.map((it) => `  <li>${it.name}${it.pack ? ` — ${it.qty} x ${it.pack}` :
           <h2>Products</h2>
           <button className="btn btn-g btn-sm" onClick={saveLines}>Save products</button>
         </div>
-        <LineEditor lines={lines} setLines={setLines} products={products} packaging={packaging} />
+        <LineEditor lines={lines} setLines={setLines} products={products} packaging={packaging} availableByProduct={availableByProduct} />
         <p className="hint">Totals: {fmt(totals.volume)} L · net {fmt(totals.net)} kg · gross {fmt(totals.gross)} kg</p>
       </div>
 
