@@ -13,6 +13,7 @@ export default function ProductsPage() {
   const [rows, setRows] = useState(null)
   const [q, setQ] = useState('')
   const [expandedId, setExpandedId] = useState(null)
+  const [lastCategory, setLastCategory] = useState('')
 
   useEffect(() => { load() }, [])
   async function load() {
@@ -76,11 +77,13 @@ export default function ProductsPage() {
   }
 
   async function add() {
+    const category = lastCategory
     const { data } = await supabase.from('products')
-      .insert({ name: 'New product', sg: 1.0, pg: '', un_number: '', category: '',
+      .insert({ name: 'New product', sg: 1.2, pg: '', un_number: '', category,
                 adr_class: '', adr_subsidiary: '', adr_tunnel: '', adr_psn: '', adr_transport_cat: '', adr_verified_by: '', adr_verified_at: null })
       .select('*').single()
     setRows((r) => [data, ...r])
+    setExpandedId(null)
   }
   async function remove(id) {
     setRows((r) => r.filter((x) => x.id !== id))
@@ -125,7 +128,7 @@ export default function ProductsPage() {
             return (
               <React.Fragment key={it.id}>
                 <tr>
-                  <td><input value={it.category || ''} onChange={(e) => update(it.id, { category: e.target.value })} /></td>
+                  <td><input value={it.category || ''} onChange={(e) => { update(it.id, { category: e.target.value }); if (e.target.value) setLastCategory(e.target.value) }} /></td>
                   <td><input value={it.name} onChange={(e) => update(it.id, { name: e.target.value })} /></td>
                   <td><input className="mono" style={{ textAlign: 'right' }} value={it.sg ?? ''}
                     onChange={(e) => setRows((r) => r.map((x) => (x.id === it.id ? { ...x, sg: e.target.value } : x)))}
