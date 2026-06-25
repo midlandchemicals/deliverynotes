@@ -6,7 +6,8 @@ const SUB_LINKS = [
   ['/settings/products', 'Products'],
   ['/settings/packaging', 'Packaging'],
   ['/settings/customers', 'Customers'],
-  ['/settings/prices', 'Prices'],
+  ['/settings/prices', 'Price Entry'],
+  ['/settings/pricelist', 'Price List'],
   ['/settings/letterheads', 'Letterheads'],
 ]
 
