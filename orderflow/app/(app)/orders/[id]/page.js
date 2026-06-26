@@ -238,26 +238,31 @@ ${items.map((it) => `  <li>${it.name}${it.pack ? ` — ${it.qty} x ${it.pack}` :
   }
 
   // Step 1 — validate, then open the batch-number modal
-  // Auto-calculate delivery when pallet count changes, using customer's delivery rules.
-  // Priority: free-delivery threshold (if subtotal >= X → £0) > pallet tiers > flat default.
+  // Re-evaluate delivery charge whenever anything that affects it changes.
+  // Priority: free-delivery threshold (subtotal >= X → £0) > pallet tiers > leave as-is.
   useEffect(() => {
-    if (noPallets || !custDeliveryTiers.length) return
-    const p = parseInt(pallets) || 0
-    if (!p) return
+    if (!custFreeAbove && !custDeliveryTiers.length) return
     const subtotal = lines.reduce((sum, l) => {
       const c = computeLine(l, products, packaging)
       const ppl = parseFloat(prices[`${c.product?.id}::${c.packaging?.id}`]) || 0
       return sum + ppl * (c.vol || 0) * c.qty
     }, 0)
+    // Free-delivery threshold takes highest priority
     if (custFreeAbove > 0 && subtotal >= custFreeAbove) {
       setDeliveryCharge('0.00')
       return
     }
-    const tier = custDeliveryTiers
-      .sort((a, b) => a.pallets_from - b.pallets_from)
-      .find((t) => p >= t.pallets_from && (t.pallets_to == null || p <= t.pallets_to))
-    if (tier != null) setDeliveryCharge(Number(tier.charge).toFixed(2))
-  }, [pallets, noPallets])
+    // Pallet tier — only if a pallet count has been entered
+    if (!noPallets && custDeliveryTiers.length > 0) {
+      const p = parseInt(pallets) || 0
+      if (p > 0) {
+        const tier = [...custDeliveryTiers]
+          .sort((a, b) => a.pallets_from - b.pallets_from)
+          .find((t) => p >= t.pallets_from && (t.pallets_to == null || p <= t.pallets_to))
+        if (tier != null) setDeliveryCharge(Number(tier.charge).toFixed(2))
+      }
+    }
+  }, [custFreeAbove, custDeliveryTiers, pallets, noPallets, lines, prices])
 
   function startDispatch() {
     const lh = letterheads[lhIndex]
