@@ -6,11 +6,6 @@ import { nextNo, splitContact } from '@/lib/calc'
 import LineEditor from '../LineEditor'
 import Combobox from '../../Combobox'
 
-const qtyBtn = {
-  padding: '4px 9px', fontSize: 14, fontWeight: 700, cursor: 'pointer', lineHeight: 1,
-  border: 'none', background: 'transparent', color: 'var(--accent)',
-}
-
 export default function NewOrderPage() {
   const supabase = createClient()
   const router = useRouter()
@@ -40,6 +35,7 @@ export default function NewOrderPage() {
   const [notes, setNotes] = useState('')
   const [availableByProduct, setAvailableByProduct] = useState({})
   const [customerCatalog, setCustomerCatalog] = useState([]) // [{product, options:[{packaging}]}]
+  const [pending, setPending] = useState({}) // key 'productId::packagingId' → qty string while entering
 
   useEffect(() => {
     (async () => {
@@ -85,33 +81,35 @@ export default function NewOrderPage() {
     setCustomerCatalog(catalog)
   }
 
-  function toggleLine(productId, packagingId) {
-    const idx = lines.findIndex((l) => l.productId === productId && l.packagingId === packagingId)
-    if (idx >= 0) {
-      setLines(lines.filter((_, i) => i !== idx))
-    } else {
-      setLines([...lines, { productId, packagingId, qty: '1' }])
-    }
+  function chipKey(productId, packagingId) { return `${productId}::${packagingId}` }
+
+  // Idle chip clicked → enter qty mode
+  function startChip(productId, packagingId) {
+    setPending((p) => ({ ...p, [chipKey(productId, packagingId)]: '1' }))
   }
 
-  function setLineQty(productId, packagingId, qty) {
-    setLines((ls) => ls.map((l) =>
-      l.productId === productId && l.packagingId === packagingId ? { ...l, qty } : l
-    ))
+  // ✕ cancel qty input
+  function cancelChip(productId, packagingId) {
+    setPending((p) => { const n = { ...p }; delete n[chipKey(productId, packagingId)]; return n })
   }
 
-  function bumpLineQty(productId, packagingId, delta) {
-    setLines((ls) => ls.map((l) => {
-      if (l.productId !== productId || l.packagingId !== packagingId) return l
-      const next = Math.max(1, (parseInt(l.qty) || 0) + delta)
-      return { ...l, qty: String(next) }
-    }))
+  // ✓ confirm → add line and clear pending
+  function confirmChip(productId, packagingId) {
+    const qty = pending[chipKey(productId, packagingId)] || '1'
+    setLines((ls) => [...ls, { productId, packagingId, qty: String(parseInt(qty) || 1) }])
+    cancelChip(productId, packagingId)
+  }
+
+  // Click an "added" chip → remove the line
+  function removeChip(productId, packagingId) {
+    setLines((ls) => ls.filter((l) => !(l.productId === productId && l.packagingId === packagingId)))
   }
 
   function pickCustomer(id) {
     setCustomerId(id)
     setCustomerCatalog([])
     setLines([])
+    setPending({})
     loadAvailablePackaging(id)
     const c = customers.find((x) => x.id === id)
     if (!c) return
@@ -253,81 +251,111 @@ export default function NewOrderPage() {
         <>
           {customerCatalog.length > 0 && (
             <div className="card" style={{ marginBottom: 12 }}>
-              <div className="ttl" style={{ marginBottom: 12 }}>
+              <div className="ttl" style={{ marginBottom: 14 }}>
                 <h2 style={{ margin: 0 }}>Quick add</h2>
-                <span className="muted" style={{ fontSize: 12 }}>Tap a size to add it to the order — tap again to remove</span>
+                <span className="muted" style={{ fontSize: 12 }}>Click a size → enter qty → ✓ to add. Click a green chip to remove.</span>
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 12 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 14 }}>
                 {customerCatalog.map(({ product, options }) => {
                   const anyAdded = options.some((pkg) => lines.some((l) => l.productId === product.id && l.packagingId === pkg.id))
                   return (
                     <div key={product.id} style={{
-                      border: `1px solid ${anyAdded ? 'var(--accent)' : 'var(--border)'}`,
-                      borderRadius: 12, padding: '12px 14px',
+                      borderRadius: 12,
+                      border: `2px solid ${anyAdded ? 'var(--accent)' : 'var(--border)'}`,
                       background: 'var(--panel)',
-                      boxShadow: anyAdded ? '0 0 0 1px var(--accent) inset' : 'none',
-                      transition: 'border-color 0.15s, box-shadow 0.15s',
+                      padding: '14px 16px',
+                      transition: 'border-color 0.15s',
                     }}>
-                      <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 8, lineHeight: 1.3 }}>
+                      <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 4, lineHeight: 1.3, color: 'var(--fg)' }}>
                         {product.name}
                       </div>
                       {product.category && (
-                        <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 8 }}>{product.category}</div>
+                        <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 10, textTransform: 'uppercase', letterSpacing: '.04em' }}>{product.category}</div>
                       )}
-                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: product.category ? 0 : 10 }}>
                         {options.map((pkg) => {
+                          const key = chipKey(product.id, pkg.id)
                           const line = lines.find((l) => l.productId === product.id && l.packagingId === pkg.id)
                           const added = !!line
-                          if (added) {
-                            return (
-                              <div key={pkg.id} style={{
-                                display: 'inline-flex', alignItems: 'center', gap: 0,
-                                borderRadius: 8, overflow: 'hidden',
-                                border: '1.5px solid var(--accent)',
-                                background: 'color-mix(in srgb, var(--accent) 12%, var(--panel))',
-                              }}>
-                                <button
-                                  title="Remove"
-                                  onClick={() => toggleLine(product.id, pkg.id)}
-                                  style={{
-                                    padding: '5px 9px', fontSize: 12, fontWeight: 700, cursor: 'pointer',
-                                    border: 'none', background: 'transparent', color: 'var(--accent)',
-                                    borderRight: '1px solid color-mix(in srgb, var(--accent) 35%, transparent)',
-                                  }}
-                                >✓ {pkg.name}</button>
-                                <button
-                                  onClick={() => bumpLineQty(product.id, pkg.id, -1)}
-                                  style={qtyBtn}
-                                >−</button>
-                                <input
-                                  className="mono"
-                                  value={line.qty}
-                                  onChange={(e) => setLineQty(product.id, pkg.id, e.target.value.replace(/[^0-9]/g, ''))}
-                                  onBlur={(e) => { if (!parseInt(e.target.value)) setLineQty(product.id, pkg.id, '1') }}
-                                  style={{
-                                    width: 34, textAlign: 'center', padding: '4px 0', fontSize: 12, fontWeight: 700,
-                                    border: 'none', borderLeft: '1px solid color-mix(in srgb, var(--accent) 25%, transparent)',
-                                    borderRight: '1px solid color-mix(in srgb, var(--accent) 25%, transparent)',
-                                    background: 'var(--bg)', color: 'var(--fg)',
-                                  }}
-                                />
-                                <button
-                                  onClick={() => bumpLineQty(product.id, pkg.id, 1)}
-                                  style={qtyBtn}
-                                >+</button>
-                              </div>
-                            )
-                          }
+                          const isPending = key in pending
+
+                          // STATE 3: already in order — solid green chip, click to remove
+                          if (added) return (
+                            <button
+                              key={pkg.id}
+                              title="Click to remove from order"
+                              onClick={() => removeChip(product.id, pkg.id)}
+                              style={{
+                                display: 'inline-flex', alignItems: 'center', gap: 6,
+                                padding: '7px 13px', borderRadius: 8, fontSize: 12, fontWeight: 700,
+                                cursor: 'pointer', border: '2px solid var(--accent)',
+                                background: 'var(--accent)', color: '#fff',
+                                transition: 'opacity 0.1s',
+                              }}
+                            >
+                              ✓ {pkg.name} <span style={{ opacity: 0.85, fontWeight: 400 }}>× {line.qty}</span>
+                            </button>
+                          )
+
+                          // STATE 2: qty entry — label + number input + confirm + cancel
+                          if (isPending) return (
+                            <div key={pkg.id} style={{
+                              display: 'inline-flex', alignItems: 'center',
+                              border: '2px solid var(--accent)', borderRadius: 8, overflow: 'hidden',
+                              background: 'var(--bg)',
+                            }}>
+                              <span style={{
+                                padding: '6px 10px', fontSize: 12, fontWeight: 700,
+                                borderRight: '1px solid var(--border)', color: 'var(--fg)',
+                                whiteSpace: 'nowrap',
+                              }}>{pkg.name}</span>
+                              <input
+                                autoFocus
+                                type="number" min="1"
+                                value={pending[key]}
+                                onChange={(e) => setPending((p) => ({ ...p, [key]: e.target.value }))}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') confirmChip(product.id, pkg.id)
+                                  if (e.key === 'Escape') cancelChip(product.id, pkg.id)
+                                }}
+                                style={{
+                                  width: 46, textAlign: 'center', fontSize: 13, fontWeight: 700,
+                                  border: 'none', borderRight: '1px solid var(--border)',
+                                  background: 'transparent', color: 'var(--fg)', padding: '6px 4px',
+                                }}
+                              />
+                              <button
+                                onClick={() => confirmChip(product.id, pkg.id)}
+                                title="Add to order"
+                                style={{
+                                  padding: '6px 10px', background: 'var(--accent)', color: '#fff',
+                                  border: 'none', cursor: 'pointer', fontSize: 15, fontWeight: 900,
+                                  borderRight: '1px solid rgba(0,0,0,0.1)',
+                                }}
+                              >✓</button>
+                              <button
+                                onClick={() => cancelChip(product.id, pkg.id)}
+                                style={{
+                                  padding: '6px 9px', background: 'transparent', border: 'none',
+                                  cursor: 'pointer', fontSize: 13, color: 'var(--muted)', fontWeight: 700,
+                                }}
+                              >✕</button>
+                            </div>
+                          )
+
+                          // STATE 1: idle — solid contrasting chip, click to enter qty
                           return (
                             <button
                               key={pkg.id}
-                              onClick={() => toggleLine(product.id, pkg.id)}
+                              onClick={() => startChip(product.id, pkg.id)}
                               style={{
-                                padding: '5px 12px', borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: 'pointer',
-                                border: '1.5px solid var(--border)',
-                                background: 'var(--bg)',
+                                padding: '7px 14px', borderRadius: 8, fontSize: 12, fontWeight: 700,
+                                cursor: 'pointer',
+                                border: '2px solid var(--border)',
+                                background: 'var(--panel-2)',
                                 color: 'var(--fg)',
-                                transition: 'all 0.12s',
+                                boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
+                                transition: 'border-color 0.1s, box-shadow 0.1s',
                               }}
                             >
                               {pkg.name}
