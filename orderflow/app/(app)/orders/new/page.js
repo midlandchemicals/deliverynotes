@@ -34,6 +34,7 @@ export default function NewOrderPage() {
   const [lines, setLines] = useState([])
   const [notes, setNotes] = useState('')
   const [availableByProduct, setAvailableByProduct] = useState({})
+  const [customerCatalog, setCustomerCatalog] = useState([]) // [{product, options:[{packaging}]}]
 
   useEffect(() => {
     (async () => {
@@ -54,16 +55,44 @@ export default function NewOrderPage() {
   async function loadAvailablePackaging(cid) {
     const { data } = await supabase.from('customer_product_prices')
       .select('product_id, packaging_id').eq('customer_id', cid)
+    const rows = data || []
     const map = {}
-    for (const r of data || []) {
+    for (const r of rows) {
       if (!map[r.product_id]) map[r.product_id] = []
       if (!map[r.product_id].includes(r.packaging_id)) map[r.product_id].push(r.packaging_id)
     }
     setAvailableByProduct(map)
+    // Build catalog for quick-add grid
+    const catalog = []
+    for (const [productId, packagingIds] of Object.entries(map)) {
+      const product = products.find((p) => p.id === productId)
+      if (!product) continue
+      const options = packagingIds
+        .map((pid) => packaging.find((k) => k.id === pid))
+        .filter(Boolean)
+        .sort((a, b) => (a.volume || 0) - (b.volume || 0))
+      if (options.length) catalog.push({ product, options })
+    }
+    catalog.sort((a, b) => {
+      const cc = (a.product.category || '').localeCompare(b.product.category || '')
+      return cc !== 0 ? cc : a.product.name.localeCompare(b.product.name)
+    })
+    setCustomerCatalog(catalog)
+  }
+
+  function toggleLine(productId, packagingId) {
+    const idx = lines.findIndex((l) => l.productId === productId && l.packagingId === packagingId)
+    if (idx >= 0) {
+      setLines(lines.filter((_, i) => i !== idx))
+    } else {
+      setLines([...lines, { productId, packagingId, qty: '1' }])
+    }
   }
 
   function pickCustomer(id) {
     setCustomerId(id)
+    setCustomerCatalog([])
+    setLines([])
     loadAvailablePackaging(id)
     const c = customers.find((x) => x.id === id)
     if (!c) return
@@ -203,6 +232,54 @@ export default function NewOrderPage() {
 
       {step === 2 && (
         <>
+          {customerCatalog.length > 0 && (
+            <div className="card" style={{ marginBottom: 12 }}>
+              <div className="ttl" style={{ marginBottom: 12 }}>
+                <h2 style={{ margin: 0 }}>Quick add</h2>
+                <span className="muted" style={{ fontSize: 12 }}>Tap a size to add it to the order — tap again to remove</span>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 10 }}>
+                {customerCatalog.map(({ product, options }) => {
+                  const anyAdded = options.some((pkg) => lines.some((l) => l.productId === product.id && l.packagingId === pkg.id))
+                  return (
+                    <div key={product.id} style={{
+                      border: `2px solid ${anyAdded ? 'var(--accent)' : 'var(--border)'}`,
+                      borderRadius: 12, padding: '12px 14px',
+                      background: anyAdded ? 'color-mix(in srgb, var(--accent) 6%, var(--panel))' : 'var(--panel)',
+                      transition: 'border-color 0.15s, background 0.15s',
+                    }}>
+                      <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 8, lineHeight: 1.3 }}>
+                        {product.name}
+                      </div>
+                      {product.category && (
+                        <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 8 }}>{product.category}</div>
+                      )}
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                        {options.map((pkg) => {
+                          const added = lines.some((l) => l.productId === product.id && l.packagingId === pkg.id)
+                          return (
+                            <button
+                              key={pkg.id}
+                              onClick={() => toggleLine(product.id, pkg.id)}
+                              style={{
+                                padding: '5px 11px', borderRadius: 20, fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                                border: `1.5px solid ${added ? 'var(--accent)' : 'var(--border)'}`,
+                                background: added ? 'var(--accent)' : 'var(--bg)',
+                                color: added ? '#fff' : 'var(--fg)',
+                                transition: 'all 0.12s',
+                              }}
+                            >
+                              {added ? '✓ ' : ''}{pkg.name}
+                            </button>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
           <div className="card">
             <div className="ttl">
               <h2>Products</h2>
