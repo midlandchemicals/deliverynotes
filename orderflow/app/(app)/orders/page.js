@@ -28,16 +28,27 @@ export default function OrdersPage() {
   const router = useRouter()
   const [orders, setOrders] = useState(null)
   const [products, setProducts] = useState([])
+  const [letterheads, setLetterheads] = useState([])
+  const [custLhMap, setCustLhMap] = useState({})   // { customerId: letterheadId }
   const [filter, setFilter] = useState('All')
   const [q, setQ] = useState('')
+  const [lhTab, setLhTab] = useState(undefined)    // undefined = not yet chosen; null = default company
 
   useEffect(() => {
     (async () => {
-      const [o, p] = await Promise.all([
+      const [o, p, c, lh] = await Promise.all([
         supabase.from('orders').select('*').order('created_at', { ascending: false }),
         supabase.from('products').select('id,name'),
+        supabase.from('customers').select('id, default_letterhead_id'),
+        supabase.from('letterheads').select('id, name, company, color').order('name'),
       ])
       setProducts(p.data || [])
+      setLetterheads(lh.data || [])
+      const map = {}
+      for (const cust of (c.data || [])) {
+        if (cust.default_letterhead_id) map[cust.id] = cust.default_letterhead_id
+      }
+      setCustLhMap(map)
       setOrders(o.data || [])
     })()
   }, [])
@@ -59,7 +70,31 @@ export default function OrdersPage() {
     return `${names.slice(0, 2).join(', ')} +${names.length - 2} more`
   }
 
-  const filtered = orders.filter((o) => {
+  // Which letterhead does this order's customer default to? null = Midland/default
+  function orderLhId(o) {
+    return (o.customer_id && custLhMap[o.customer_id]) || null
+  }
+
+  // The "main" letterhead (Midland or first in list)
+  const defaultLh = letterheads.find((l) =>
+    l.name.toLowerCase().includes('midland') || l.company.toLowerCase().includes('midland')
+  ) || letterheads[0]
+
+  // Letterheads that have at least one order AND are not the default
+  const extraLhs = letterheads.filter((lh) =>
+    lh.id !== defaultLh?.id && orders.some((o) => orderLhId(o) === lh.id)
+  )
+  const showTabs = extraLhs.length > 0
+
+  // Resolve active tab (null = default company)
+  const activeTab = lhTab === undefined ? null : lhTab
+
+  // Orders for the current tab
+  const tabOrders = showTabs
+    ? orders.filter((o) => orderLhId(o) === activeTab)
+    : orders
+
+  const filtered = tabOrders.filter((o) => {
     if (filter !== 'All' && o.status !== filter) return false
     if (q) {
       const hay = `${o.order_no} ${o.po_ref} ${o.customer_snapshot?.name || ''} ${productSummary(o)}`.toLowerCase()
@@ -68,6 +103,9 @@ export default function OrdersPage() {
     return true
   })
 
+  // Colour for the active tab's accent
+  const activeTabLh = letterheads.find((l) => l.id === activeTab) || defaultLh
+
   return (
     <div>
       <div className="card">
@@ -75,6 +113,44 @@ export default function OrdersPage() {
           <h2>Order Book</h2>
           <Link href="/orders/new" className="btn btn-a btn-sm">＋ New order</Link>
         </div>
+
+        {/* Company tabs — only rendered when there are multiple companies */}
+        {showTabs && (
+          <div style={{ display: 'flex', gap: 8, marginBottom: 18, flexWrap: 'wrap' }}>
+            {/* Default / Midland tab */}
+            {(() => {
+              const color = defaultLh?.color || 'var(--accent)'
+              const isActive = activeTab === null
+              return (
+                <button key="default" onClick={() => setLhTab(null)} style={{
+                  padding: '8px 22px', borderRadius: 50, fontSize: 13, fontWeight: 700,
+                  cursor: 'pointer', border: `2px solid ${color}`,
+                  background: isActive ? color : 'transparent',
+                  color: isActive ? '#fff' : color,
+                  transition: 'all 0.15s',
+                }}>
+                  {defaultLh?.company || 'Midland Chemicals'}
+                </button>
+              )
+            })()}
+            {/* Extra letterhead tabs */}
+            {extraLhs.map((lh) => {
+              const isActive = activeTab === lh.id
+              const color = lh.color || '#555'
+              return (
+                <button key={lh.id} onClick={() => setLhTab(lh.id)} style={{
+                  padding: '8px 22px', borderRadius: 50, fontSize: 13, fontWeight: 700,
+                  cursor: 'pointer', border: `2px solid ${color}`,
+                  background: isActive ? color : 'transparent',
+                  color: isActive ? '#fff' : color,
+                  transition: 'all 0.15s',
+                }}>
+                  {lh.company || lh.name}
+                </button>
+              )
+            })}
+          </div>
+        )}
 
         <div className="filters">
           <input placeholder="Search DN no., customer order no., customer or product…" value={q} onChange={(e) => setQ(e.target.value)} />
