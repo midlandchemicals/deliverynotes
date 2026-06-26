@@ -75,7 +75,7 @@ export default function OrderDetailPage() {
         const [priceData, custData, tiersData] = await Promise.all([
           supabase.from('customer_product_prices')
             .select('product_id, packaging_id, price_per_litre, delivery_charge').eq('customer_id', o.data.customer_id),
-          supabase.from('customers').select('label_price, default_delivery_charge, free_delivery_above').eq('id', o.data.customer_id).single(),
+          supabase.from('customers').select('label_price, default_delivery_charge, free_delivery_above, default_letterhead_id').eq('id', o.data.customer_id).single(),
           supabase.from('customer_delivery_tiers').select('*').eq('customer_id', o.data.customer_id).order('pallets_from'),
         ])
         const priceRows = priceData.data || []
@@ -103,6 +103,12 @@ export default function OrderDetailPage() {
         setLabelPriceRaw(String(custData.data?.label_price || ''))
         setCustFreeAbove(custData.data?.free_delivery_above || 0)
         setCustDeliveryTiers(tiersData.data || [])
+        // Override letterhead if customer has a default set
+        const custLhId = custData.data?.default_letterhead_id
+        if (custLhId) {
+          const custLhIdx = lhData.findIndex((l) => l.id === custLhId)
+          if (custLhIdx >= 0) setLhIndex(custLhIdx)
+        }
         // Detect order lines with no price for this customer
         const seenKeys = new Set()
         const unpricedList = []
