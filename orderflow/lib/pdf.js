@@ -416,9 +416,10 @@ export function generateOfficeCopyPDF(doc_, lh, products, packaging, pricing = {
 }
 
 // Price list export — one or more customers, each a branded section with
-// a gridded product/price table. `entries` = [{ customer:{name}, rows:[{prod, pkg, vol, ppl, ppp}] }]
-export function generatePriceListPDF(entries, lh = {}) {
-  const [r, g, b] = hexToRgb(lh.color || '#197B55')
+// a gridded product/price table.
+// entries = [{ customer:{name}, rows:[{prod,pkg,vol,ppl,ppp}], lh:{letterhead} }]
+// fallbackLh is used when an entry has no lh of its own.
+export function generatePriceListPDF(entries, fallbackLh = {}) {
   const doc = new jsPDF({ unit: 'mm', format: 'a4' })
   FONT = registerFonts(doc)
   const W = 210, M = 16
@@ -426,6 +427,8 @@ export function generatePriceListPDF(entries, lh = {}) {
 
   entries.forEach((e, idx) => {
     if (idx > 0) doc.addPage()
+    const lh = e.lh || fallbackLh
+    const [r, g, b] = hexToRgb(lh.color || '#197B55')
     let y = 16
 
     if (lh.logo) {

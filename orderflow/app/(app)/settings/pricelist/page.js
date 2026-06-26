@@ -21,11 +21,12 @@ export default function PriceListPage() {
   const [editingId, setEditingId] = useState(null) // customer_product_prices.id being edited
   const [editVal, setEditVal] = useState('')        // draft pack-price string
   const [selected, setSelected] = useState({})       // { [customerId]: true } for export
-  const [letterhead, setLetterhead] = useState({})
+  const [letterheadsMap, setLetterheadsMap] = useState({}) // { [lhId]: letterhead }
+  const [defaultLh, setDefaultLh] = useState({})
 
   async function load() {
     const [custRes, prodRes, pkgRes, priceRes, lhRes] = await Promise.all([
-      supabase.from('customers').select('id, name').order('name'),
+      supabase.from('customers').select('id, name, default_letterhead_id').order('name'),
       supabase.from('products').select('id, name, category').order('category').order('name'),
       supabase.from('packaging').select('id, name, volume').order('volume'),
       supabase.from('customer_product_prices')
@@ -37,8 +38,9 @@ export default function PriceListPage() {
     const lhs = lhRes.data || []
     const midland = lhs.find((l) =>
       (l.name || '').toLowerCase().includes('midland') || (l.company || '').toLowerCase().includes('midland')
-    )
-    setLetterhead(midland || lhs[0] || {})
+    ) || lhs[0] || {}
+    setDefaultLh(midland)
+    setLetterheadsMap(Object.fromEntries(lhs.map((l) => [l.id, l])))
 
     const customers = custRes.data || []
     const products  = prodRes.data || []
@@ -70,6 +72,15 @@ export default function PriceListPage() {
       .filter((e) => e.rows.length > 0)
 
     setEntries(byCustomer)
+    // Note: letterheadsMap may not be set yet when load() runs —
+    // we resolve the lh per-entry at export time using the map we built above.
+    // Store lhs locally so exportSelected closure can use it:
+    // (we expose it via state so the closure stays reactive)
+  }
+
+  // Resolve letterhead for a customer entry at export time
+  function entryLh(e) {
+    return letterheadsMap[e.customer.default_letterhead_id] || defaultLh
   }
 
   useEffect(() => { load() }, [])
@@ -118,7 +129,8 @@ export default function PriceListPage() {
   function exportSelected() {
     const chosen = (entries || []).filter((e) => selected[e.customer.id])
     if (!chosen.length) { toast('Select at least one customer to export'); return }
-    generatePriceListPDF(chosen, letterhead)
+    // Attach the correct letterhead to each entry so each page uses its own branding
+    generatePriceListPDF(chosen.map((e) => ({ ...e, lh: entryLh(e) })), defaultLh)
   }
 
   const selectedCount = Object.keys(selected).length
