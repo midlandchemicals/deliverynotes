@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useState, useMemo } from 'react'
+import { useEffect, useState, useMemo, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import PricingGuard from '@/app/(app)/PricingGuard'
 import Combobox from '@/app/(app)/Combobox'
@@ -34,6 +34,7 @@ export default function PricesPage() {
   const [adding, setAdding] = useState(false)
   const [newRow, setNewRow] = useState({ productId: '', packagingId: '', ppl: '', ppp: '', dc: '' })
   const [drafts, setDrafts] = useState([]) // bulk-fill rows awaiting prices
+  const dupSeq = useRef(0)                  // counter for unique duplicate-draft keys
 
   useEffect(() => {
     ;(async () => {
@@ -148,6 +149,23 @@ export default function PricesPage() {
 
   function removeDraft(key) {
     setDrafts((ds) => ds.filter((d) => d.key !== key))
+  }
+
+  // Add another blank draft row for the same product, so a second packaging
+  // size / price can be entered without re-picking the product. Used both from
+  // a draft row and from an already-saved row.
+  function duplicateProduct(productId, afterKey) {
+    dupSeq.current += 1
+    const fresh = { key: `dup-${productId}-${dupSeq.current}`, productId, packagingId: '', ppl: '', ppp: '', dc: '' }
+    setDrafts((ds) => {
+      if (afterKey == null) return [...ds, fresh]
+      const idx = ds.findIndex((d) => d.key === afterKey)
+      if (idx < 0) return [...ds, fresh]
+      const next = [...ds]
+      next.splice(idx + 1, 0, fresh)
+      return next
+    })
+    toast('Added another size — pick packaging and enter the price')
   }
 
   async function saveDrafts() {
@@ -273,7 +291,12 @@ export default function PricesPage() {
                         onBlur={(e) => handleDeliveryChange(row.id, e.target.value)}
                       />
                     </td>
-                    <td><button className="btn-dl" onClick={() => deleteRow(row.id)}>×</button></td>
+                    <td style={{ whiteSpace: 'nowrap' }}>
+                      <button className="btn btn-g btn-sm" style={{ padding: '2px 7px', marginRight: 4 }}
+                        title="Add another packaging size for this product"
+                        onClick={() => duplicateProduct(row.product_id, null)}>⧉</button>
+                      <button className="btn-dl" onClick={() => deleteRow(row.id)}>×</button>
+                    </td>
                   </tr>
                 )
               })}
@@ -304,7 +327,12 @@ export default function PricesPage() {
                         value={d.dc} placeholder="£ delivery"
                         onChange={(e) => updateDraft(d.key, { dc: e.target.value })} />
                     </td>
-                    <td><button className="btn-dl" onClick={() => removeDraft(d.key)}>×</button></td>
+                    <td style={{ whiteSpace: 'nowrap' }}>
+                      <button className="btn btn-g btn-sm" style={{ padding: '2px 7px', marginRight: 4 }}
+                        title="Add another packaging size for this product"
+                        onClick={() => duplicateProduct(d.productId, d.key)}>⧉</button>
+                      <button className="btn-dl" onClick={() => removeDraft(d.key)}>×</button>
+                    </td>
                   </tr>
                 )
               })}
@@ -358,7 +386,7 @@ export default function PricesPage() {
               <span className="muted" style={{ fontSize: 12 }}>{drafts.length} product{drafts.length !== 1 ? 's' : ''} added — rows with no price are ignored on save.</span>
             </div>
           )}
-          <p className="hint">Use <b>⤓ Fill products</b> to load every product in this customer's range that has no price yet — then just type the prices and click <b>Save filled prices</b>. Type in the product box to search by product name or range — no need to scroll. Products marked ★ belong to this customer's own range and appear at the top. Enter either £/litre or £/pack — the other calculates automatically. Set a delivery charge for products that carry a mandatory delivery surcharge for this customer — it will auto-fill on the order page.</p>
+          <p className="hint">Use <b>⤓ Fill products</b> to load every product in this customer's range that has no price yet — then just type the prices and click <b>Save filled prices</b>. Type in the product box to search by product name or range — no need to scroll. Products marked ★ belong to this customer's own range and appear at the top. Enter either £/litre or £/pack — the other calculates automatically. Use the <b>⧉</b> button beside a product to add another row for a different packaging size of the same product. Set a delivery charge for products that carry a mandatory delivery surcharge for this customer — it will auto-fill on the order page.</p>
         </>
       )}
       <ChangePassword />
