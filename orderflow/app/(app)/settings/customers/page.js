@@ -47,14 +47,19 @@ function AddressListEditor({ list, kind, withContact, onChange }) {
 export default function CustomersPage() {
   const supabase = createClient()
   const [rows, setRows] = useState(null)
+  const [letterheads, setLetterheads] = useState([])
   const [expandedTiersId, setExpandedTiersId] = useState(null)
   const [tierRows, setTierRows] = useState({}) // { [customerId]: [{id, pallets_from, pallets_to, charge}] }
 
   useEffect(() => { load() }, [])
 
   async function load() {
-    const { data } = await supabase.from('customers').select('*').order('name')
-    setRows(data || [])
+    const [custRes, lhRes] = await Promise.all([
+      supabase.from('customers').select('*').order('name'),
+      supabase.from('letterheads').select('id, name, company').order('name'),
+    ])
+    setRows(custRes.data || [])
+    setLetterheads(lhRes.data || [])
   }
 
   async function update(id, patch) {
@@ -122,10 +127,11 @@ export default function CustomersPage() {
       <table className="tbl">
         <thead><tr>
           <th style={{ width: '13%' }}>Name</th>
-          <th style={{ width: '28%' }}>Invoice addresses</th>
-          <th style={{ width: '34%' }}>Delivery addresses (each with its own contact)</th>
+          <th style={{ width: '24%' }}>Invoice addresses</th>
+          <th style={{ width: '28%' }}>Delivery addresses (each with its own contact)</th>
           <th style={{ width: '7%' }}>£/label</th>
-          <th style={{ width: '8%' }}>Flat del. £</th>
+          <th style={{ width: '7%' }}>Flat del. £</th>
+          <th style={{ width: '11%' }}>Default letterhead</th>
           <th style={{ width: '8%' }}>Del. rules</th>
           <th style={{ width: '2%' }}></th>
         </tr></thead>
@@ -171,6 +177,18 @@ export default function CustomersPage() {
                       onBlur={(e) => update(it.id, { default_delivery_charge: parseFloat(e.target.value) || 0 })} />
                   </td>
                   <td>
+                    <select
+                      value={it.default_letterhead_id || ''}
+                      onChange={(e) => update(it.id, { default_letterhead_id: e.target.value || null })}
+                      style={{ fontSize: 12, padding: '4px 6px', width: '100%' }}
+                    >
+                      <option value="">— default —</option>
+                      {letterheads.map((l) => (
+                        <option key={l.id} value={l.id}>{l.name}</option>
+                      ))}
+                    </select>
+                  </td>
+                  <td>
                     <button
                       className={'btn btn-sm ' + (tiersOpen ? 'btn-a' : 'btn-g')}
                       style={{ width: '100%', fontSize: 11 }}
@@ -184,7 +202,7 @@ export default function CustomersPage() {
 
                 {tiersOpen && (
                   <tr style={{ background: 'var(--panel-2)' }}>
-                    <td colSpan={7} style={{ padding: '14px 18px' }}>
+                    <td colSpan={8} style={{ padding: '14px 18px' }}>
                       <div style={{ display: 'flex', gap: 32, flexWrap: 'wrap', alignItems: 'flex-start' }}>
 
                         {/* Free delivery threshold */}

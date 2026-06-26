@@ -185,6 +185,7 @@ insert into customers (name, details, deliver, contact_name, email, phone) value
 --   alter table customers add column if not exists label_price numeric default 0;
 --   alter table customers add column if not exists default_delivery_charge numeric default 0;
 --   alter table customers add column if not exists free_delivery_above numeric default 0;
+--   alter table customers add column if not exists default_letterhead_id uuid references letterheads(id) on delete set null;
 --
 -- Pallet delivery tiers (run once on existing databases):
 --   create table if not exists customer_delivery_tiers (
