@@ -252,15 +252,13 @@ ${items.map((it) => `  <li>${it.name}${it.pack ? ` — ${it.qty} x ${it.pack}` :
       setDeliveryCharge('0.00')
       return
     }
-    // Pallet tier — only if a pallet count has been entered
+    // Pallet tier — runs even before pallet count is entered (p=0 matches a "0 to X" band)
     if (!noPallets && custDeliveryTiers.length > 0) {
       const p = parseInt(pallets) || 0
-      if (p > 0) {
-        const tier = [...custDeliveryTiers]
-          .sort((a, b) => a.pallets_from - b.pallets_from)
-          .find((t) => p >= t.pallets_from && (t.pallets_to == null || p <= t.pallets_to))
-        if (tier != null) setDeliveryCharge(Number(tier.charge).toFixed(2))
-      }
+      const tier = [...custDeliveryTiers]
+        .sort((a, b) => a.pallets_from - b.pallets_from)
+        .find((t) => p >= t.pallets_from && (t.pallets_to == null || p <= t.pallets_to))
+      if (tier != null) setDeliveryCharge(Number(tier.charge).toFixed(2))
     }
   }, [custFreeAbove, custDeliveryTiers, pallets, noPallets, lines, prices])
 
