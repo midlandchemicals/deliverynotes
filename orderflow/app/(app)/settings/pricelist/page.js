@@ -124,10 +124,11 @@ export default function PriceListPage() {
                 </tr>
               </thead>
               <tbody>
-                {e.rows.map((r) => {
+                {e.rows.map((r, i) => {
                   const isEditing = editingId === r.id
+                  const rowBg = i % 2 === 0 ? '#fff' : 'rgba(31,168,107,0.06)'
                   return (
-                    <tr key={r.id}>
+                    <tr key={r.id} style={{ background: rowBg }}>
                       <td style={gridTd}>{r.prod.name}</td>
                       <td style={{ ...gridTd, color: 'var(--muted)' }}>{r.prod.category || '—'}</td>
                       <td style={gridTd}>{r.pkg.name}</td>
