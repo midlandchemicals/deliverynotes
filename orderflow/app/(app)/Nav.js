@@ -6,7 +6,7 @@ import { createClient } from '@/lib/supabase/client'
 const MAIN_LINKS = [
   ['/orders/new', 'New Order'],
   ['/orders', 'Order Book'],
-  ['/settings/products', 'Admin'],
+  ['/settings/dashboard', 'Admin'],
 ]
 
 export default function Nav({ email }) {
@@ -23,7 +23,7 @@ export default function Nav({ email }) {
   const isActive = (href) => {
     if (href === '/orders/new') return path === '/orders/new'
     if (href === '/orders') return path === '/orders' || (path.startsWith('/orders/') && path !== '/orders/new')
-    if (href === '/settings/products') return path.startsWith('/settings')
+    if (href === '/settings/dashboard') return path.startsWith('/settings')
     return false
   }
 
