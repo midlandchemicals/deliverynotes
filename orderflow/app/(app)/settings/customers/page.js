@@ -213,7 +213,7 @@ export default function CustomersPage() {
                               <input className="mono" style={{ width: 52, textAlign: 'center' }}
                                 value={tier.pallets_from}
                                 onChange={(e) => updateTierLocal(it.id, tier.id, { pallets_from: e.target.value })}
-                                onBlur={(e) => saveTier(it.id, tier.id, { pallets_from: parseInt(e.target.value) || 1 })}
+                                onBlur={(e) => saveTier(it.id, tier.id, { pallets_from: e.target.value !== '' ? (parseInt(e.target.value) || 0) : 1 })}
                               />
                               <span style={{ fontSize: 12, color: 'var(--muted)' }}>to</span>
                               <input className="mono" style={{ width: 52, textAlign: 'center' }}
