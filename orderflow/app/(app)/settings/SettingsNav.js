@@ -3,6 +3,7 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 
 const SUB_LINKS = [
+  ['/settings/dashboard', 'Dashboard'],
   ['/settings/products', 'Products'],
   ['/settings/packaging', 'Packaging'],
   ['/settings/customers', 'Customers'],
