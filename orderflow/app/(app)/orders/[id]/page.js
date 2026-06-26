@@ -41,6 +41,8 @@ export default function OrderDetailPage() {
   const [busy, setBusy] = useState(false)
 
   const [availableByProduct, setAvailableByProduct] = useState({}) // productId -> [packagingId] from price list
+  const [custDeliveryTiers, setCustDeliveryTiers] = useState([])
+  const [custFreeAbove, setCustFreeAbove] = useState(0)
   const [unpricedItems, setUnpricedItems] = useState([]) // lines missing a price for this customer
   const [unpricedModal, setUnpricedModal] = useState(null) // currently open item
   const [unpricedPackPrice, setUnpricedPackPrice] = useState('')
@@ -70,10 +72,11 @@ export default function OrderDetailPage() {
       setDispatched(existing.data || [])
 
       if (o.data?.customer_id) {
-        const [priceData, custData] = await Promise.all([
+        const [priceData, custData, tiersData] = await Promise.all([
           supabase.from('customer_product_prices')
             .select('product_id, packaging_id, price_per_litre, delivery_charge').eq('customer_id', o.data.customer_id),
-          supabase.from('customers').select('label_price, default_delivery_charge').eq('id', o.data.customer_id).single(),
+          supabase.from('customers').select('label_price, default_delivery_charge, free_delivery_above').eq('id', o.data.customer_id).single(),
+          supabase.from('customer_delivery_tiers').select('*').eq('customer_id', o.data.customer_id).order('pallets_from'),
         ])
         const priceRows = priceData.data || []
         const orderLines = o.data?.lines || []
@@ -98,6 +101,8 @@ export default function OrderDetailPage() {
           setDeliveryCharge(Number(custData.data.default_delivery_charge).toFixed(2))
         }
         setLabelPriceRaw(String(custData.data?.label_price || ''))
+        setCustFreeAbove(custData.data?.free_delivery_above || 0)
+        setCustDeliveryTiers(tiersData.data || [])
         // Detect order lines with no price for this customer
         const seenKeys = new Set()
         const unpricedList = []
@@ -233,6 +238,27 @@ ${items.map((it) => `  <li>${it.name}${it.pack ? ` — ${it.qty} x ${it.pack}` :
   }
 
   // Step 1 — validate, then open the batch-number modal
+  // Auto-calculate delivery when pallet count changes, using customer's delivery rules.
+  // Priority: free-delivery threshold (if subtotal >= X → £0) > pallet tiers > flat default.
+  useEffect(() => {
+    if (noPallets || !custDeliveryTiers.length) return
+    const p = parseInt(pallets) || 0
+    if (!p) return
+    const subtotal = lines.reduce((sum, l) => {
+      const c = computeLine(l, products, packaging)
+      const ppl = parseFloat(prices[`${c.product?.id}::${c.packaging?.id}`]) || 0
+      return sum + ppl * (c.vol || 0) * c.qty
+    }, 0)
+    if (custFreeAbove > 0 && subtotal >= custFreeAbove) {
+      setDeliveryCharge('0.00')
+      return
+    }
+    const tier = custDeliveryTiers
+      .sort((a, b) => a.pallets_from - b.pallets_from)
+      .find((t) => p >= t.pallets_from && (t.pallets_to == null || p <= t.pallets_to))
+    if (tier != null) setDeliveryCharge(Number(tier.charge).toFixed(2))
+  }, [pallets, noPallets])
+
   function startDispatch() {
     const lh = letterheads[lhIndex]
     if (!lh) { alert('Add a letterhead first (Letterheads tab).'); return }
@@ -445,7 +471,11 @@ ${items.map((it) => `  <li>${it.name}${it.pack ? ` — ${it.qty} x ${it.pack}` :
                   </div>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-                  <span className="muted" style={{ fontSize: 12 }}>Delivery charge (optional)</span>
+                  <span className="muted" style={{ fontSize: 12 }}>
+                    Delivery charge
+                    {custDeliveryTiers.length > 0 && <span style={{ marginLeft: 5, color: 'var(--accent)', fontSize: 11 }}>⚡ auto from pallet tiers</span>}
+                    {custFreeAbove > 0 && <span style={{ marginLeft: 5, color: 'var(--accent)', fontSize: 11 }}>· free above £{custFreeAbove}</span>}
+                  </span>
                   <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
                     <span style={{ position: 'absolute', left: 8, color: 'var(--muted)', fontSize: 13 }}>£</span>
                     <input className="mono" style={{ textAlign: 'right', paddingLeft: 20, width: 90 }}

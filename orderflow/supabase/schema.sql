@@ -18,6 +18,17 @@ create table if not exists customers (
   phone text default '',
   label_price numeric default 0,
   default_delivery_charge numeric default 0,
+  free_delivery_above numeric default 0,
+  created_at timestamptz default now()
+);
+
+-- ---------- per-customer pallet delivery tiers ----------
+create table if not exists customer_delivery_tiers (
+  id uuid primary key default gen_random_uuid(),
+  customer_id uuid references customers(id) on delete cascade,
+  pallets_from int not null default 1,
+  pallets_to int,                         -- null = "and above" (open-ended top tier)
+  charge numeric not null default 0,
   created_at timestamptz default now()
 );
 
@@ -116,7 +127,8 @@ insert into app_settings (key, value) values ('pricing_password', '') on conflic
 
 -- ---------- row level security ----------
 -- Internal team app: any signed-in user may read/write everything.
-alter table customers               enable row level security;
+alter table customers                    enable row level security;
+alter table customer_delivery_tiers      enable row level security;
 alter table products                enable row level security;
 alter table packaging               enable row level security;
 alter table letterheads             enable row level security;
@@ -128,7 +140,7 @@ alter table app_settings enable row level security;
 do $$
 declare t text;
 begin
-  foreach t in array array['customers','products','packaging','letterheads','orders','dispatch_notes','customer_product_prices','app_settings']
+  foreach t in array array['customers','products','packaging','letterheads','orders','dispatch_notes','customer_product_prices','app_settings','customer_delivery_tiers']
   loop
     execute format('drop policy if exists "auth all" on %I;', t);
     execute format('create policy "auth all" on %I for all to authenticated using (true) with check (true);', t);
@@ -172,6 +184,19 @@ insert into customers (name, details, deliver, contact_name, email, phone) value
 --   alter table customers add column if not exists phone text default '';
 --   alter table customers add column if not exists label_price numeric default 0;
 --   alter table customers add column if not exists default_delivery_charge numeric default 0;
+--   alter table customers add column if not exists free_delivery_above numeric default 0;
+--
+-- Pallet delivery tiers (run once on existing databases):
+--   create table if not exists customer_delivery_tiers (
+--     id uuid primary key default gen_random_uuid(),
+--     customer_id uuid references customers(id) on delete cascade,
+--     pallets_from int not null default 1,
+--     pallets_to int,
+--     charge numeric not null default 0,
+--     created_at timestamptz default now()
+--   );
+--   alter table customer_delivery_tiers enable row level security;
+--   create policy "auth all" on customer_delivery_tiers for all to authenticated using (true) with check (true);
 --   alter table customers add column if not exists invoice_addresses jsonb default '[]';
 --   alter table customers add column if not exists delivery_addresses jsonb default '[]';
 --

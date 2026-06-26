@@ -1,28 +1,20 @@
 'use client'
-import { useEffect, useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 
-// Build an editable invoice address list, falling back to the legacy single
-// text field when no array has been saved yet.
 function addrList(arr, legacy) {
   if (Array.isArray(arr) && arr.length) return arr
   return [{ label: '', text: legacy || '' }]
 }
 
-// Delivery addresses carry their own contact. Fall back to the legacy single
-// delivery field + customer-level contact for un-migrated records.
 function deliveryAddrList(c) {
   if (Array.isArray(c.delivery_addresses) && c.delivery_addresses.length) return c.delivery_addresses
   return [{ label: '', text: c.deliver || '', contact: { name: c.contact_name || '', email: c.email || '', phone: c.phone || '' } }]
 }
 
 function AddressListEditor({ list, kind, withContact, onChange }) {
-  function setEntry(i, patch) {
-    onChange(list.map((e, idx) => (idx === i ? { ...e, ...patch } : e)))
-  }
-  function setContact(i, patch) {
-    onChange(list.map((e, idx) => (idx === i ? { ...e, contact: { ...(e.contact || {}), ...patch } } : e)))
-  }
+  function setEntry(i, patch) { onChange(list.map((e, idx) => (idx === i ? { ...e, ...patch } : e))) }
+  function setContact(i, patch) { onChange(list.map((e, idx) => (idx === i ? { ...e, contact: { ...(e.contact || {}), ...patch } } : e))) }
   function addEntry() { onChange([...list, withContact ? { label: '', text: '', contact: { name: '', email: '', phone: '' } } : { label: '', text: '' }]) }
   function removeEntry(i) {
     const next = list.filter((_, idx) => idx !== i)
@@ -33,8 +25,7 @@ function AddressListEditor({ list, kind, withContact, onChange }) {
       {list.map((e, i) => (
         <div key={i} style={{ border: '1px solid var(--border)', borderRadius: 8, padding: 6 }}>
           <div style={{ display: 'flex', gap: 6, marginBottom: 4, alignItems: 'center' }}>
-            <input style={{ flex: 1, fontSize: 12 }}
-              placeholder={i === 0 ? 'Label (e.g. Main / Head Office)' : 'Label'}
+            <input style={{ flex: 1, fontSize: 12 }} placeholder={i === 0 ? 'Label (e.g. Main / Head Office)' : 'Label'}
               value={e.label || ''} onChange={(ev) => setEntry(i, { label: ev.target.value })} />
             {list.length > 1 && <button className="btn-dl" onClick={() => removeEntry(i)}>×</button>}
           </div>
@@ -56,23 +47,71 @@ function AddressListEditor({ list, kind, withContact, onChange }) {
 export default function CustomersPage() {
   const supabase = createClient()
   const [rows, setRows] = useState(null)
+  const [expandedTiersId, setExpandedTiersId] = useState(null)
+  const [tierRows, setTierRows] = useState({}) // { [customerId]: [{id, pallets_from, pallets_to, charge}] }
 
   useEffect(() => { load() }, [])
+
   async function load() {
     const { data } = await supabase.from('customers').select('*').order('name')
     setRows(data || [])
   }
+
   async function update(id, patch) {
     setRows((r) => r.map((x) => (x.id === id ? { ...x, ...patch } : x)))
     await supabase.from('customers').update(patch).eq('id', id)
   }
+
   async function add() {
-    const { data } = await supabase.from('customers').insert({ name: 'New customer', details: '', deliver: '', contact_name: '', email: '', phone: '', invoice_addresses: [], delivery_addresses: [], default_delivery_charge: 0 }).select('*').single()
+    const { data } = await supabase.from('customers')
+      .insert({ name: 'New customer', details: '', deliver: '', contact_name: '', email: '', phone: '',
+                invoice_addresses: [], delivery_addresses: [], default_delivery_charge: 0, free_delivery_above: 0 })
+      .select('*').single()
     setRows((r) => [...r, data])
   }
+
   async function remove(id) {
     setRows((r) => r.filter((x) => x.id !== id))
     await supabase.from('customers').delete().eq('id', id)
+  }
+
+  async function toggleTiers(customerId) {
+    if (expandedTiersId === customerId) { setExpandedTiersId(null); return }
+    setExpandedTiersId(customerId)
+    if (!tierRows[customerId]) {
+      const { data } = await supabase.from('customer_delivery_tiers')
+        .select('*').eq('customer_id', customerId).order('pallets_from')
+      setTierRows((t) => ({ ...t, [customerId]: data || [] }))
+    }
+  }
+
+  function setCustomerTiers(customerId, tiers) {
+    setTierRows((t) => ({ ...t, [customerId]: tiers }))
+  }
+
+  async function addTier(customerId) {
+    const existing = tierRows[customerId] || []
+    const nextFrom = existing.length ? Math.max(...existing.map((t) => t.pallets_to || t.pallets_from)) + 1 : 1
+    const { data } = await supabase.from('customer_delivery_tiers')
+      .insert({ customer_id: customerId, pallets_from: nextFrom, pallets_to: null, charge: 0 })
+      .select('*').single()
+    if (data) setCustomerTiers(customerId, [...existing, data])
+  }
+
+  async function saveTier(customerId, tierId, patch) {
+    await supabase.from('customer_delivery_tiers').update(patch).eq('id', tierId)
+  }
+
+  function updateTierLocal(customerId, tierId, patch) {
+    setTierRows((t) => ({
+      ...t,
+      [customerId]: (t[customerId] || []).map((r) => (r.id === tierId ? { ...r, ...patch } : r)),
+    }))
+  }
+
+  async function deleteTier(customerId, tierId) {
+    setCustomerTiers(customerId, (tierRows[customerId] || []).filter((r) => r.id !== tierId))
+    await supabase.from('customer_delivery_tiers').delete().eq('id', tierId)
   }
 
   if (rows === null) return <div className="card"><div className="empty">Loading…</div></div>
@@ -82,57 +121,131 @@ export default function CustomersPage() {
       <div className="ttl"><h2>Address Book</h2></div>
       <table className="tbl">
         <thead><tr>
-          <th style={{ width: '15%' }}>Name</th>
-          <th style={{ width: '32%' }}>Invoice addresses</th>
-          <th style={{ width: '40%' }}>Delivery addresses (each with its own contact)</th>
-          <th style={{ width: '8%' }}>£/label</th>
-          <th style={{ width: '10%' }}>Delivery £</th>
-          <th style={{ width: '4%' }}></th>
+          <th style={{ width: '13%' }}>Name</th>
+          <th style={{ width: '28%' }}>Invoice addresses</th>
+          <th style={{ width: '34%' }}>Delivery addresses (each with its own contact)</th>
+          <th style={{ width: '7%' }}>£/label</th>
+          <th style={{ width: '8%' }}>Flat del. £</th>
+          <th style={{ width: '8%' }}>Del. rules</th>
+          <th style={{ width: '2%' }}></th>
         </tr></thead>
         <tbody>
-          {rows.map((it) => (
-            <tr key={it.id}>
-              <td><input value={it.name} onChange={(e) => update(it.id, { name: e.target.value })} /></td>
-              <td>
-                <AddressListEditor
-                  list={addrList(it.invoice_addresses, it.details)}
-                  kind="invoice"
-                  onChange={(list) => update(it.id, { invoice_addresses: list, details: list[0]?.text || '' })}
-                />
-              </td>
-              <td>
-                <AddressListEditor
-                  list={deliveryAddrList(it)}
-                  kind="delivery"
-                  withContact
-                  onChange={(list) => update(it.id, {
-                    delivery_addresses: list,
-                    deliver: list[0]?.text || '',
-                    contact_name: list[0]?.contact?.name || '',
-                    email: list[0]?.contact?.email || '',
-                    phone: list[0]?.contact?.phone || '',
-                  })}
-                />
-              </td>
-              <td>
-                <input className="mono" style={{ textAlign: 'right' }}
-                  value={it.label_price ?? ''} placeholder="0.00"
-                  onChange={(e) => setRows((r) => r.map((x) => (x.id === it.id ? { ...x, label_price: e.target.value } : x)))}
-                  onBlur={(e) => update(it.id, { label_price: parseFloat(e.target.value) || 0 })} />
-              </td>
-              <td>
-                <input className="mono" style={{ textAlign: 'right' }}
-                  value={it.default_delivery_charge ?? ''} placeholder="0.00"
-                  onChange={(e) => setRows((r) => r.map((x) => (x.id === it.id ? { ...x, default_delivery_charge: e.target.value } : x)))}
-                  onBlur={(e) => update(it.id, { default_delivery_charge: parseFloat(e.target.value) || 0 })} />
-              </td>
-              <td><button className="btn-dl" onClick={() => remove(it.id)}>×</button></td>
-            </tr>
-          ))}
+          {rows.map((it) => {
+            const tiersOpen = expandedTiersId === it.id
+            const tiers = tierRows[it.id] || []
+            return (
+              <React.Fragment key={it.id}>
+                <tr>
+                  <td><input value={it.name} onChange={(e) => update(it.id, { name: e.target.value })} /></td>
+                  <td>
+                    <AddressListEditor
+                      list={addrList(it.invoice_addresses, it.details)}
+                      kind="invoice"
+                      onChange={(list) => update(it.id, { invoice_addresses: list, details: list[0]?.text || '' })}
+                    />
+                  </td>
+                  <td>
+                    <AddressListEditor
+                      list={deliveryAddrList(it)}
+                      kind="delivery"
+                      withContact
+                      onChange={(list) => update(it.id, {
+                        delivery_addresses: list,
+                        deliver: list[0]?.text || '',
+                        contact_name: list[0]?.contact?.name || '',
+                        email: list[0]?.contact?.email || '',
+                        phone: list[0]?.contact?.phone || '',
+                      })}
+                    />
+                  </td>
+                  <td>
+                    <input className="mono" style={{ textAlign: 'right' }}
+                      value={it.label_price ?? ''} placeholder="0.00"
+                      onChange={(e) => setRows((r) => r.map((x) => (x.id === it.id ? { ...x, label_price: e.target.value } : x)))}
+                      onBlur={(e) => update(it.id, { label_price: parseFloat(e.target.value) || 0 })} />
+                  </td>
+                  <td>
+                    <input className="mono" style={{ textAlign: 'right' }}
+                      value={it.default_delivery_charge ?? ''} placeholder="0.00"
+                      onChange={(e) => setRows((r) => r.map((x) => (x.id === it.id ? { ...x, default_delivery_charge: e.target.value } : x)))}
+                      onBlur={(e) => update(it.id, { default_delivery_charge: parseFloat(e.target.value) || 0 })} />
+                  </td>
+                  <td>
+                    <button
+                      className={'btn btn-sm ' + (tiersOpen ? 'btn-a' : 'btn-g')}
+                      style={{ width: '100%', fontSize: 11 }}
+                      onClick={() => toggleTiers(it.id)}
+                    >
+                      {tiersOpen ? 'Close' : tiers.length || (it.free_delivery_above > 0) ? '⚡ Edit' : '+ Set up'}
+                    </button>
+                  </td>
+                  <td><button className="btn-dl" onClick={() => remove(it.id)}>×</button></td>
+                </tr>
+
+                {tiersOpen && (
+                  <tr style={{ background: 'var(--panel-2)' }}>
+                    <td colSpan={7} style={{ padding: '14px 18px' }}>
+                      <div style={{ display: 'flex', gap: 32, flexWrap: 'wrap', alignItems: 'flex-start' }}>
+
+                        {/* Free delivery threshold */}
+                        <div>
+                          <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.04em', color: 'var(--muted)', marginBottom: 8 }}>Free delivery above order value</div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <span style={{ color: 'var(--muted)', fontSize: 13 }}>£</span>
+                            <input className="mono" style={{ width: 90, textAlign: 'right' }}
+                              value={it.free_delivery_above || ''} placeholder="0.00"
+                              onChange={(e) => setRows((r) => r.map((x) => (x.id === it.id ? { ...x, free_delivery_above: e.target.value } : x)))}
+                              onBlur={(e) => update(it.id, { free_delivery_above: parseFloat(e.target.value) || 0 })}
+                            />
+                          </div>
+                          <p className="hint" style={{ marginTop: 6, maxWidth: 180 }}>Order subtotal at or above this → delivery auto-sets to £0. Leave blank or 0 to disable.</p>
+                        </div>
+
+                        {/* Pallet tiers */}
+                        <div style={{ flex: 1, minWidth: 280 }}>
+                          <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.04em', color: 'var(--muted)', marginBottom: 8 }}>Pallet-based delivery tiers</div>
+                          {tiers.length === 0 && (
+                            <p className="hint" style={{ marginBottom: 8 }}>No tiers set — add one below.</p>
+                          )}
+                          {tiers.map((tier) => (
+                            <div key={tier.id} style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 6, flexWrap: 'wrap' }}>
+                              <span style={{ fontSize: 12, color: 'var(--muted)', minWidth: 40 }}>Pallets</span>
+                              <input className="mono" style={{ width: 52, textAlign: 'center' }}
+                                value={tier.pallets_from}
+                                onChange={(e) => updateTierLocal(it.id, tier.id, { pallets_from: e.target.value })}
+                                onBlur={(e) => saveTier(it.id, tier.id, { pallets_from: parseInt(e.target.value) || 1 })}
+                              />
+                              <span style={{ fontSize: 12, color: 'var(--muted)' }}>to</span>
+                              <input className="mono" style={{ width: 52, textAlign: 'center' }}
+                                value={tier.pallets_to ?? ''}
+                                placeholder="∞"
+                                onChange={(e) => updateTierLocal(it.id, tier.id, { pallets_to: e.target.value })}
+                                onBlur={(e) => saveTier(it.id, tier.id, { pallets_to: e.target.value ? parseInt(e.target.value) : null })}
+                              />
+                              <span style={{ fontSize: 12, color: 'var(--muted)' }}>= £</span>
+                              <input className="mono" style={{ width: 72, textAlign: 'right' }}
+                                value={tier.charge}
+                                onChange={(e) => updateTierLocal(it.id, tier.id, { charge: e.target.value })}
+                                onBlur={(e) => saveTier(it.id, tier.id, { charge: parseFloat(e.target.value) || 0 })}
+                              />
+                              <button className="btn-dl" onClick={() => deleteTier(it.id, tier.id)}>×</button>
+                            </div>
+                          ))}
+                          <button className="addrow" style={{ fontSize: 12, marginTop: 4 }} onClick={() => addTier(it.id)}>+ Add tier</button>
+                          <p className="hint" style={{ marginTop: 8, maxWidth: 320 }}>Leave "to" blank (∞) for the top tier. When pallet count is entered on an order, the matching tier auto-fills the delivery charge (unless the free-delivery threshold is met).</p>
+                        </div>
+
+                      </div>
+                    </td>
+                  </tr>
+                )}
+              </React.Fragment>
+            )
+          })}
         </tbody>
       </table>
       <button className="addrow" onClick={add}>+ Add customer</button>
-      <p className="hint">Add several invoice or delivery addresses per customer, each with a short label. Each delivery address carries its own contact (name / email / phone). The first address is the default; when raising an order you choose which one to use from a dropdown and its contact fills in automatically.</p>
+      <p className="hint">Add several invoice or delivery addresses per customer. Use <b>Del. rules</b> to set pallet-based delivery tiers or a free-delivery order threshold — both are optional and work independently per customer.</p>
     </div>
   )
 }
