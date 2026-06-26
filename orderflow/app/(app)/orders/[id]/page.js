@@ -257,7 +257,7 @@ ${items.map((it) => `  <li>${it.name}${it.pack ? ` — ${it.qty} x ${it.pack}` :
       const p = parseInt(pallets) || 0
       const tier = [...custDeliveryTiers]
         .sort((a, b) => a.pallets_from - b.pallets_from)
-        .find((t) => p >= t.pallets_from && (t.pallets_to == null || p <= t.pallets_to))
+        .find((t) => p >= t.pallets_from && (t.pallets_to == null || p < t.pallets_to))
       if (tier != null) setDeliveryCharge(Number(tier.charge).toFixed(2))
       else setDeliveryCharge('')
     }

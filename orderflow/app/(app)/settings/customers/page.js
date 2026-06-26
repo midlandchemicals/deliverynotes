@@ -232,7 +232,7 @@ export default function CustomersPage() {
                             </div>
                           ))}
                           <button className="addrow" style={{ fontSize: 12, marginTop: 4 }} onClick={() => addTier(it.id)}>+ Add tier</button>
-                          <p className="hint" style={{ marginTop: 8, maxWidth: 320 }}>Leave "to" blank (∞) for the top tier. When pallet count is entered on an order, the matching tier auto-fills the delivery charge (unless the free-delivery threshold is met).</p>
+                          <p className="hint" style={{ marginTop: 8, maxWidth: 320 }}>Leave "to" blank (∞) for the top tier. The "to" value is exclusive — e.g. "0 to 1" applies when pallets &lt; 1 (i.e. no full pallet). When pallet count is entered on an order, the matching tier auto-fills the delivery charge (unless the free-delivery threshold is met).</p>
                         </div>
 
                       </div>
