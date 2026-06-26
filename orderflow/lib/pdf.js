@@ -415,6 +415,72 @@ export function generateOfficeCopyPDF(doc_, lh, products, packaging, pricing = {
   window.open(URL.createObjectURL(new Blob([doc.output('arraybuffer')], { type: 'application/pdf' })), '_blank')
 }
 
+// Price list export — one or more customers, each a branded section with
+// a gridded product/price table. `entries` = [{ customer:{name}, rows:[{prod, pkg, vol, ppl, ppp}] }]
+export function generatePriceListPDF(entries, lh = {}) {
+  const [r, g, b] = hexToRgb(lh.color || '#197B55')
+  const doc = new jsPDF({ unit: 'mm', format: 'a4' })
+  FONT = registerFonts(doc)
+  const W = 210, M = 16
+  const f2 = (n) => (n || n === 0) ? `£${(Math.round(n * 100) / 100).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—'
+
+  entries.forEach((e, idx) => {
+    if (idx > 0) doc.addPage()
+    let y = 16
+
+    if (lh.logo) {
+      try {
+        const props = doc.getImageProperties(lh.logo)
+        const maxW = 38, maxH = 14
+        let lw = maxW
+        let logoH = (lw * props.height) / props.width
+        if (logoH > maxH) { logoH = maxH; lw = (logoH * props.width) / props.height }
+        const imgFmt = (lh.logo.match(/data:image\/(\w+)/) || [])[1]?.toUpperCase() || 'PNG'
+        doc.addImage(lh.logo, imgFmt, M, y, lw, logoH); y += logoH + 2
+      } catch (e2) {}
+    }
+
+    doc.setFont(FONT, 'bold').setFontSize(13).setTextColor(r, g, b).text(lh.company || '', M, y + 2)
+    doc.setFont(FONT, 'bold').setFontSize(20).setTextColor(40, 40, 40).text('PRICE LIST', W - M, y + 2, { align: 'right' })
+    doc.setFont(FONT, 'normal').setFontSize(9).setTextColor(120, 120, 120)
+      .text(prettyDate(new Date().toISOString().slice(0, 10)), W - M, y + 8, { align: 'right' })
+    y += 8
+
+    doc.setFillColor(r, g, b).rect(M, y, W - 2 * M, 1.2, 'F')
+    y += 7
+
+    doc.setFont(FONT, 'bold').setFontSize(14).setTextColor(30, 30, 30).text(e.customer.name, M, y)
+    y += 3
+
+    autoTable(doc, {
+      startY: y + 2,
+      margin: { left: M, right: M, bottom: 18 },
+      head: [['Product', 'Range', 'Packaging', '£ / Litre', '£ / Pack']],
+      body: e.rows.map((row) => [
+        row.prod.name,
+        row.prod.category || '—',
+        row.pkg.name,
+        row.ppl ? `£${row.ppl.toFixed(4)}` : '—',
+        f2(row.ppp),
+      ]),
+      styles: { font: FONT, fontSize: 9, cellPadding: 2, lineColor: [200, 200, 200], lineWidth: 0.2, textColor: [30, 30, 30] },
+      headStyles: { fillColor: [r, g, b], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 8.5 },
+      columnStyles: {
+        3: { halign: 'right', cellWidth: 26 },
+        4: { halign: 'right', cellWidth: 26, fontStyle: 'bold' },
+      },
+      alternateRowStyles: { fillColor: [240, 247, 244] },
+    })
+
+    const fy = 290
+    doc.setDrawColor(200, 200, 200).setLineWidth(0.2).line(M, fy - 5, W - M, fy - 5)
+    doc.setFont(FONT, 'normal').setFontSize(7.5).setTextColor(140, 140, 140)
+      .text(doc.splitTextToSize(lh.footer || '', W - 2 * M), W / 2, fy, { align: 'center' })
+  })
+
+  window.open(URL.createObjectURL(new Blob([doc.output('arraybuffer')], { type: 'application/pdf' })), '_blank')
+}
+
 // Reprint from stored snapshot — two copies in one PDF.
 export function reprintPDF(d) {
   import('jspdf').then(({ jsPDF }) => import('jspdf-autotable').then((mod) => {

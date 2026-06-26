@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import PricingGuard from '@/app/(app)/PricingGuard'
+import { generatePriceListPDF } from '@/lib/pdf'
 
 function toast(msg) {
   let t = document.getElementById('toast')
@@ -19,16 +20,25 @@ export default function PriceListPage() {
   const [q, setQ] = useState('')
   const [editingId, setEditingId] = useState(null) // customer_product_prices.id being edited
   const [editVal, setEditVal] = useState('')        // draft pack-price string
+  const [selected, setSelected] = useState({})       // { [customerId]: true } for export
+  const [letterhead, setLetterhead] = useState({})
 
   async function load() {
-    const [custRes, prodRes, pkgRes, priceRes] = await Promise.all([
+    const [custRes, prodRes, pkgRes, priceRes, lhRes] = await Promise.all([
       supabase.from('customers').select('id, name').order('name'),
       supabase.from('products').select('id, name, category').order('category').order('name'),
       supabase.from('packaging').select('id, name, volume').order('volume'),
       supabase.from('customer_product_prices')
         .select('id, customer_id, product_id, packaging_id, price_per_litre')
         .gt('price_per_litre', 0),
+      supabase.from('letterheads').select('*').order('name'),
     ])
+
+    const lhs = lhRes.data || []
+    const midland = lhs.find((l) =>
+      (l.name || '').toLowerCase().includes('midland') || (l.company || '').toLowerCase().includes('midland')
+    )
+    setLetterhead(midland || lhs[0] || {})
 
     const customers = custRes.data || []
     const products  = prodRes.data || []
@@ -81,6 +91,39 @@ export default function PriceListPage() {
     !q || e.customer.name.toLowerCase().includes(q.toLowerCase())
   )
 
+  function toggleSelect(customerId) {
+    setSelected((s) => {
+      const n = { ...s }
+      if (n[customerId]) delete n[customerId]; else n[customerId] = true
+      return n
+    })
+  }
+
+  function toggleSelectAll() {
+    if (filtered.every((e) => selected[e.customer.id])) {
+      setSelected((s) => {
+        const n = { ...s }
+        filtered.forEach((e) => delete n[e.customer.id])
+        return n
+      })
+    } else {
+      setSelected((s) => {
+        const n = { ...s }
+        filtered.forEach((e) => { n[e.customer.id] = true })
+        return n
+      })
+    }
+  }
+
+  function exportSelected() {
+    const chosen = (entries || []).filter((e) => selected[e.customer.id])
+    if (!chosen.length) { toast('Select at least one customer to export'); return }
+    generatePriceListPDF(chosen, letterhead)
+  }
+
+  const selectedCount = Object.keys(selected).length
+  const allVisibleSelected = filtered.length > 0 && filtered.every((e) => selected[e.customer.id])
+
   return (
     <PricingGuard>
       <div>
@@ -94,21 +137,42 @@ export default function PriceListPage() {
           {entries === null ? (
             <div className="empty">Loading…</div>
           ) : (
-            <div className="filters" style={{ marginBottom: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
               <input
                 placeholder="Filter by customer name…"
                 value={q}
                 onChange={(e) => setQ(e.target.value)}
                 style={{ maxWidth: 320 }}
               />
+              <label style={{ display: 'inline-flex', alignItems: 'center', gap: 7, fontSize: 13, cursor: 'pointer', textTransform: 'none', letterSpacing: 0, fontWeight: 500, color: 'var(--ink)', margin: 0 }}>
+                <input type="checkbox" checked={allVisibleSelected} onChange={toggleSelectAll} style={{ width: 'auto', height: 16, accentColor: 'var(--accent)' }} />
+                Select all
+              </label>
+              <button
+                className="btn btn-a"
+                onClick={exportSelected}
+                disabled={selectedCount === 0}
+                style={{ marginLeft: 'auto', opacity: selectedCount === 0 ? 0.5 : 1 }}
+              >
+                ⬇ Export to PDF{selectedCount > 0 ? ` (${selectedCount})` : ''}
+              </button>
             </div>
           )}
         </div>
 
         {filtered.map((e) => (
-          <div key={e.customer.id} className="card" style={{ marginTop: 12 }}>
+          <div key={e.customer.id} className="card" style={{ marginTop: 12, border: selected[e.customer.id] ? '2px solid var(--accent)' : undefined }}>
             <div className="ttl" style={{ marginBottom: 10 }}>
-              <h3 style={{ margin: 0 }}>{e.customer.name}</h3>
+              <label style={{ display: 'inline-flex', alignItems: 'center', gap: 10, cursor: 'pointer', textTransform: 'none', letterSpacing: 0, margin: 0 }}>
+                <input
+                  type="checkbox"
+                  checked={!!selected[e.customer.id]}
+                  onChange={() => toggleSelect(e.customer.id)}
+                  style={{ width: 'auto', height: 17, accentColor: 'var(--accent)' }}
+                />
+                <h3 style={{ margin: 0 }}>{e.customer.name}</h3>
+                <span style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 600 }}>EXPORT</span>
+              </label>
               <span className="muted" style={{ fontSize: 12 }}>
                 {e.rows.length} product line{e.rows.length !== 1 ? 's' : ''}
               </span>
