@@ -343,19 +343,29 @@ export default function NewOrderPage() {
                             </div>
                           )
 
-                          // STATE 1: idle — solid contrasting chip, click to enter qty
+                          // STATE 1: idle — solid raised "tablet", click to enter qty
                           return (
                             <button
                               key={pkg.id}
                               onClick={() => startChip(product.id, pkg.id)}
+                              onMouseEnter={(e) => {
+                                e.currentTarget.style.background = '#dfe6f2'
+                                e.currentTarget.style.borderColor = 'var(--accent)'
+                                e.currentTarget.style.color = 'var(--accent-dark)'
+                              }}
+                              onMouseLeave={(e) => {
+                                e.currentTarget.style.background = '#e9eef7'
+                                e.currentTarget.style.borderColor = '#b9c4d9'
+                                e.currentTarget.style.color = 'var(--ink)'
+                              }}
                               style={{
-                                padding: '7px 14px', borderRadius: 8, fontSize: 12, fontWeight: 700,
+                                padding: '8px 16px', borderRadius: 9, fontSize: 12.5, fontWeight: 700,
                                 cursor: 'pointer',
-                                border: '2px solid var(--border)',
-                                background: 'var(--panel-2)',
-                                color: 'var(--fg)',
-                                boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
-                                transition: 'border-color 0.1s, box-shadow 0.1s',
+                                border: '1.5px solid #b9c4d9',
+                                background: '#e9eef7',
+                                color: 'var(--ink)',
+                                boxShadow: '0 1px 0 #c5cfe0, 0 2px 4px rgba(22,41,79,0.10)',
+                                transition: 'background 0.12s, border-color 0.12s, color 0.12s',
                               }}
                             >
                               {pkg.name}
