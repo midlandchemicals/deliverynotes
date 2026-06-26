@@ -6,6 +6,11 @@ import { nextNo, splitContact } from '@/lib/calc'
 import LineEditor from '../LineEditor'
 import Combobox from '../../Combobox'
 
+const qtyBtn = {
+  padding: '4px 9px', fontSize: 14, fontWeight: 700, cursor: 'pointer', lineHeight: 1,
+  border: 'none', background: 'transparent', color: 'var(--accent)',
+}
+
 export default function NewOrderPage() {
   const supabase = createClient()
   const router = useRouter()
@@ -89,6 +94,20 @@ export default function NewOrderPage() {
     }
   }
 
+  function setLineQty(productId, packagingId, qty) {
+    setLines((ls) => ls.map((l) =>
+      l.productId === productId && l.packagingId === packagingId ? { ...l, qty } : l
+    ))
+  }
+
+  function bumpLineQty(productId, packagingId, delta) {
+    setLines((ls) => ls.map((l) => {
+      if (l.productId !== productId || l.packagingId !== packagingId) return l
+      const next = Math.max(1, (parseInt(l.qty) || 0) + delta)
+      return { ...l, qty: String(next) }
+    }))
+  }
+
   function pickCustomer(id) {
     setCustomerId(id)
     setCustomerCatalog([])
@@ -159,9 +178,9 @@ export default function NewOrderPage() {
   const customerOptions = customers.map((c) => ({ id: c.id, label: c.name }))
 
   return (
-    <div style={{ maxWidth: 640, margin: '0 auto' }}>
+    <div style={{ maxWidth: step === 2 ? 1180 : 760, margin: '0 auto', transition: 'max-width 0.2s' }}>
       {/* Step indicator */}
-      <div style={{ display: 'flex', alignItems: 'center', marginBottom: 28 }}>
+      <div style={{ display: 'flex', alignItems: 'center', marginBottom: 28, maxWidth: 760, marginLeft: 'auto', marginRight: 'auto' }}>
         <StepBubble n={1} active={step === 1} done={step > 1} label="Customer & Dates" />
         <div style={{ flex: 1, height: 2, background: step > 1 ? 'var(--accent)' : 'var(--border)', margin: '0 4px', transition: 'background 0.2s' }} />
         <StepBubble n={2} active={step === 2} done={false} label="Products" />
@@ -238,15 +257,16 @@ export default function NewOrderPage() {
                 <h2 style={{ margin: 0 }}>Quick add</h2>
                 <span className="muted" style={{ fontSize: 12 }}>Tap a size to add it to the order — tap again to remove</span>
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 10 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 12 }}>
                 {customerCatalog.map(({ product, options }) => {
                   const anyAdded = options.some((pkg) => lines.some((l) => l.productId === product.id && l.packagingId === pkg.id))
                   return (
                     <div key={product.id} style={{
-                      border: `2px solid ${anyAdded ? 'var(--accent)' : 'var(--border)'}`,
+                      border: `1px solid ${anyAdded ? 'var(--accent)' : 'var(--border)'}`,
                       borderRadius: 12, padding: '12px 14px',
-                      background: anyAdded ? 'color-mix(in srgb, var(--accent) 6%, var(--panel))' : 'var(--panel)',
-                      transition: 'border-color 0.15s, background 0.15s',
+                      background: 'var(--panel)',
+                      boxShadow: anyAdded ? '0 0 0 1px var(--accent) inset' : 'none',
+                      transition: 'border-color 0.15s, box-shadow 0.15s',
                     }}>
                       <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 8, lineHeight: 1.3 }}>
                         {product.name}
@@ -254,22 +274,63 @@ export default function NewOrderPage() {
                       {product.category && (
                         <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 8 }}>{product.category}</div>
                       )}
-                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
                         {options.map((pkg) => {
-                          const added = lines.some((l) => l.productId === product.id && l.packagingId === pkg.id)
+                          const line = lines.find((l) => l.productId === product.id && l.packagingId === pkg.id)
+                          const added = !!line
+                          if (added) {
+                            return (
+                              <div key={pkg.id} style={{
+                                display: 'inline-flex', alignItems: 'center', gap: 0,
+                                borderRadius: 8, overflow: 'hidden',
+                                border: '1.5px solid var(--accent)',
+                                background: 'color-mix(in srgb, var(--accent) 12%, var(--panel))',
+                              }}>
+                                <button
+                                  title="Remove"
+                                  onClick={() => toggleLine(product.id, pkg.id)}
+                                  style={{
+                                    padding: '5px 9px', fontSize: 12, fontWeight: 700, cursor: 'pointer',
+                                    border: 'none', background: 'transparent', color: 'var(--accent)',
+                                    borderRight: '1px solid color-mix(in srgb, var(--accent) 35%, transparent)',
+                                  }}
+                                >✓ {pkg.name}</button>
+                                <button
+                                  onClick={() => bumpLineQty(product.id, pkg.id, -1)}
+                                  style={qtyBtn}
+                                >−</button>
+                                <input
+                                  className="mono"
+                                  value={line.qty}
+                                  onChange={(e) => setLineQty(product.id, pkg.id, e.target.value.replace(/[^0-9]/g, ''))}
+                                  onBlur={(e) => { if (!parseInt(e.target.value)) setLineQty(product.id, pkg.id, '1') }}
+                                  style={{
+                                    width: 34, textAlign: 'center', padding: '4px 0', fontSize: 12, fontWeight: 700,
+                                    border: 'none', borderLeft: '1px solid color-mix(in srgb, var(--accent) 25%, transparent)',
+                                    borderRight: '1px solid color-mix(in srgb, var(--accent) 25%, transparent)',
+                                    background: 'var(--bg)', color: 'var(--fg)',
+                                  }}
+                                />
+                                <button
+                                  onClick={() => bumpLineQty(product.id, pkg.id, 1)}
+                                  style={qtyBtn}
+                                >+</button>
+                              </div>
+                            )
+                          }
                           return (
                             <button
                               key={pkg.id}
                               onClick={() => toggleLine(product.id, pkg.id)}
                               style={{
-                                padding: '5px 11px', borderRadius: 20, fontSize: 12, fontWeight: 600, cursor: 'pointer',
-                                border: `1.5px solid ${added ? 'var(--accent)' : 'var(--border)'}`,
-                                background: added ? 'var(--accent)' : 'var(--bg)',
-                                color: added ? '#fff' : 'var(--fg)',
+                                padding: '5px 12px', borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                                border: '1.5px solid var(--border)',
+                                background: 'var(--bg)',
+                                color: 'var(--fg)',
                                 transition: 'all 0.12s',
                               }}
                             >
-                              {added ? '✓ ' : ''}{pkg.name}
+                              {pkg.name}
                             </button>
                           )
                         })}
