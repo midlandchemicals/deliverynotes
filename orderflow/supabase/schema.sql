@@ -19,6 +19,9 @@ create table if not exists customers (
   label_price numeric default 0,
   default_delivery_charge numeric default 0,
   free_delivery_above numeric default 0,
+  -- When true, each product carries three buyer prices (Trade / Buyer group /
+  -- Retail) and the order picks which level applies.
+  three_tier_pricing boolean not null default false,
   created_at timestamptz default now()
 );
 
@@ -80,6 +83,7 @@ create table if not exists orders (
   status text not null default 'New',   -- New | In progress | Delivery Note Generated
   notes text default '',
   lines jsonb not null default '[]',     -- [{productId, packagingId, qty}]
+  price_level text,                      -- 'trade'|'buyer_group'|'retail' for 3-tier customers
   added_by text default '',              -- email of user who created the order
   created_by uuid references auth.users(id) on delete set null,
   created_at timestamptz default now()
@@ -121,6 +125,11 @@ create table if not exists customer_product_prices (
   --   'line'  → this product line's own pack qty (default)
   --   'order' → combined pack qty of ALL 'order'-basis products on the order
   tier_basis text not null default 'line',
+  -- Three buyer-level prices (per litre) for three_tier_pricing customers.
+  -- Null falls back to price_per_litre. price_per_litre mirrors price_trade.
+  price_trade numeric,
+  price_buyer_group numeric,
+  price_retail numeric,
   updated_at timestamptz default now(),
   unique(customer_id, product_id, packaging_id)
 );
@@ -224,6 +233,13 @@ insert into customers (name, details, deliver, contact_name, email, phone) value
 -- Quantity-break price tiers on customer_product_prices (run once on existing databases):
 --   alter table customer_product_prices add column if not exists qty_tiers jsonb not null default '[]';
 --   alter table customer_product_prices add column if not exists tier_basis text not null default 'line';
+--
+-- Three buyer-level pricing (run once on existing databases):
+--   alter table customers add column if not exists three_tier_pricing boolean not null default false;
+--   alter table customer_product_prices add column if not exists price_trade numeric;
+--   alter table customer_product_prices add column if not exists price_buyer_group numeric;
+--   alter table customer_product_prices add column if not exists price_retail numeric;
+--   alter table orders add column if not exists price_level text;
 --
 -- Per-customer pricing table (run once on existing databases):
 --   drop table if exists customer_product_prices;

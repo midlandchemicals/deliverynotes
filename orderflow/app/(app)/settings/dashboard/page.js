@@ -1,7 +1,7 @@
 'use client'
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { computeLine } from '@/lib/calc'
+import { computeLine, PRICE_LEVELS } from '@/lib/calc'
 import PricingGuard from '@/app/(app)/PricingGuard'
 
 const VAT_RATE = 0.20
@@ -24,8 +24,8 @@ export default function DashboardPage() {
         supabase.from('orders').select('*').order('created_at', { ascending: false }),
         supabase.from('products').select('id, name, sg'),
         supabase.from('packaging').select('id, name, volume, tare'),
-        supabase.from('customer_product_prices').select('customer_id, product_id, packaging_id, price_per_litre, delivery_charge, qty_tiers, tier_basis'),
-        supabase.from('customers').select('id, name, default_letterhead_id'),
+        supabase.from('customer_product_prices').select('customer_id, product_id, packaging_id, price_per_litre, delivery_charge, qty_tiers, tier_basis, price_trade, price_buyer_group, price_retail'),
+        supabase.from('customers').select('id, name, default_letterhead_id, three_tier_pricing'),
         supabase.from('letterheads').select('id, name, company, color'),
         supabase.from('dispatch_notes').select('order_id, doc_date, created_at, totals, lines_snapshot').order('created_at', { ascending: false }),
       ])
@@ -49,15 +49,19 @@ export default function DashboardPage() {
       const priceMap = {}
       const tierMap = {}
       const basisMap = {}
+      const levelMap = {}   // key -> { trade, buyer_group, retail }
       for (const p of prices) {
         const key = `${p.customer_id}::${p.product_id}::${p.packaging_id}`
         priceMap[key] = p.price_per_litre || 0
         basisMap[key] = p.tier_basis || 'line'
+        levelMap[key] = { trade: p.price_trade, buyer_group: p.price_buyer_group, retail: p.price_retail }
         tierMap[key] = (Array.isArray(p.qty_tiers) ? p.qty_tiers : [])
           .map((t) => ({ from: Number(t.from) || 0, to: t.to == null || t.to === '' ? null : Number(t.to), ppl: Number(t.ppl) || 0 }))
           .filter((t) => t.ppl > 0)
           .sort((a, b) => a.from - b.from)
       }
+      const custThreeTier = Object.fromEntries(customers.map((c) => [c.id, !!c.three_tier_pricing]))
+      const levelCol = (lvl) => (PRICE_LEVELS.find((l) => l.key === lvl) || PRICE_LEVELS[0]).col
       // Effective £/litre for a customer/product/packaging at a given pack qty,
       // matching the order page: a tier band overrides the base when qty fits.
       function pplFor(key, qty) {
@@ -98,6 +102,8 @@ export default function DashboardPage() {
           const k = `${o.customer_id}::${c.product.id}::${c.packaging.id}`
           return basisMap[k] === 'order' ? sum + (c.qty || 0) : sum
         }, 0)
+        const threeTier = custThreeTier[o.customer_id]
+        const lvlCol = levelCol(o.price_level || 'trade')
         let total = 0
         const byName = {}
         for (const l of (o.lines || [])) {
@@ -105,7 +111,9 @@ export default function DashboardPage() {
           if (!c.product || !c.packaging) continue
           const key = `${o.customer_id}::${c.product.id}::${c.packaging.id}`
           const q = basisMap[key] === 'order' ? combined : c.qty
-          const ppl = pplFor(key, q)
+          // 3-tier customers price by buyer level; others use quantity tiers.
+          const lvlPrice = threeTier ? levelMap[key]?.[lvlCol] : null
+          const ppl = threeTier ? (lvlPrice != null ? lvlPrice : (priceMap[key] || 0)) : pplFor(key, q)
           const lineVal = ppl * (c.vol || 0) * c.qty
           total += lineVal
           byName[c.productName] = (byName[c.productName] || 0) + lineVal

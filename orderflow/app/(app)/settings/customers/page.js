@@ -132,6 +132,7 @@ export default function CustomersPage() {
           <th style={{ width: '7%' }}>£/label</th>
           <th style={{ width: '7%' }}>Flat del. £</th>
           <th style={{ width: '11%' }}>Default letterhead</th>
+          <th style={{ width: '6%' }}>3-tier price</th>
           <th style={{ width: '8%' }}>Del. rules</th>
           <th style={{ width: '2%' }}></th>
         </tr></thead>
@@ -188,6 +189,15 @@ export default function CustomersPage() {
                       ))}
                     </select>
                   </td>
+                  <td style={{ textAlign: 'center' }}>
+                    <input
+                      type="checkbox"
+                      checked={!!it.three_tier_pricing}
+                      onChange={(e) => update(it.id, { three_tier_pricing: e.target.checked })}
+                      style={{ width: 'auto', height: 16, accentColor: 'var(--accent)' }}
+                      title="Trade / Buyer group / Retail pricing for this customer"
+                    />
+                  </td>
                   <td>
                     <button
                       className={'btn btn-sm ' + (tiersOpen ? 'btn-a' : 'btn-g')}
@@ -202,7 +212,7 @@ export default function CustomersPage() {
 
                 {tiersOpen && (
                   <tr style={{ background: 'var(--panel-2)' }}>
-                    <td colSpan={8} style={{ padding: '14px 18px' }}>
+                    <td colSpan={9} style={{ padding: '14px 18px' }}>
                       <div style={{ display: 'flex', gap: 32, flexWrap: 'wrap', alignItems: 'flex-start' }}>
 
                         {/* Free delivery threshold */}

@@ -33,11 +33,11 @@ export default function PriceListPage() {
 
   async function load() {
     const [custRes, prodRes, pkgRes, priceRes, lhRes] = await Promise.all([
-      supabase.from('customers').select('id, name, default_letterhead_id').order('name'),
+      supabase.from('customers').select('id, name, default_letterhead_id, three_tier_pricing').order('name'),
       supabase.from('products').select('id, name, category').order('category').order('name'),
       supabase.from('packaging').select('id, name, volume').order('volume'),
       supabase.from('customer_product_prices')
-        .select('id, customer_id, product_id, packaging_id, price_per_litre, qty_tiers, tier_basis')
+        .select('id, customer_id, product_id, packaging_id, price_per_litre, qty_tiers, tier_basis, price_trade, price_buyer_group, price_retail')
         .gt('price_per_litre', 0),
       supabase.from('letterheads').select('*').order('name'),
     ])
@@ -76,7 +76,13 @@ export default function PriceListPage() {
               })
               .filter((t) => t.from != null && t.ppl > 0)
               .sort((a, b) => a.from - b.from)
-            return { id: p.id, prod, pkg, vol, ppl, ppp, tiers, basis: p.tier_basis || 'line' }
+            // Buyer-level prices (for three_tier customers): { trade, buyer_group, retail } £/L
+            const levels = {
+              trade: p.price_trade != null ? p.price_trade : ppl,
+              buyer_group: p.price_buyer_group != null ? p.price_buyer_group : null,
+              retail: p.price_retail != null ? p.price_retail : null,
+            }
+            return { id: p.id, prod, pkg, vol, ppl, ppp, tiers, basis: p.tier_basis || 'line', levels }
           })
           .filter((r) => r.prod && r.pkg)
           .sort((a, b) => {
@@ -205,24 +211,48 @@ export default function PriceListPage() {
                 <span style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 600 }}>EXPORT</span>
               </label>
               <span className="muted" style={{ fontSize: 12 }}>
-                {e.rows.length} product line{e.rows.length !== 1 ? 's' : ''}
+                {e.customer.three_tier_pricing ? '3 buyer levels · ' : ''}{e.rows.length} product line{e.rows.length !== 1 ? 's' : ''}
               </span>
             </div>
             <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 0 }}>
               <thead>
-                <tr>
-                  <th style={gridTh}>Product</th>
-                  <th style={gridTh}>Range</th>
-                  <th style={gridTh}>Packaging</th>
-                  <th style={{ ...gridTh, textAlign: 'right', width: '14%' }}>£ / Litre</th>
-                  <th style={{ ...gridTh, textAlign: 'right', width: '16%' }}>£ / Pack</th>
-                </tr>
+                {e.customer.three_tier_pricing ? (
+                  <tr>
+                    <th style={gridTh}>Product</th>
+                    <th style={gridTh}>Range</th>
+                    <th style={gridTh}>Packaging</th>
+                    <th style={{ ...gridTh, textAlign: 'right', width: '15%' }}>Trade £/L</th>
+                    <th style={{ ...gridTh, textAlign: 'right', width: '15%' }}>Buyer group £/L</th>
+                    <th style={{ ...gridTh, textAlign: 'right', width: '15%' }}>Retail £/L</th>
+                  </tr>
+                ) : (
+                  <tr>
+                    <th style={gridTh}>Product</th>
+                    <th style={gridTh}>Range</th>
+                    <th style={gridTh}>Packaging</th>
+                    <th style={{ ...gridTh, textAlign: 'right', width: '14%' }}>£ / Litre</th>
+                    <th style={{ ...gridTh, textAlign: 'right', width: '16%' }}>£ / Pack</th>
+                  </tr>
+                )}
               </thead>
               <tbody>
                 {e.rows.map((r, i) => {
                   const isEditing = editingId === r.id
                   const rowBg = i % 2 === 0 ? 'var(--row)' : 'var(--row-alt)'
                   const hasTiers = (r.tiers || []).length > 0
+                  const money4 = (v) => (v != null ? `£${Number(v).toFixed(4)}` : '—')
+                  if (e.customer.three_tier_pricing) {
+                    return (
+                      <tr key={r.id} style={{ background: rowBg }}>
+                        <td style={gridTd}>{r.prod.name}</td>
+                        <td style={{ ...gridTd, color: 'var(--muted)' }}>{r.prod.category || '—'}</td>
+                        <td style={gridTd}>{r.pkg.name}</td>
+                        <td style={{ ...gridTd, textAlign: 'right', fontFamily: 'monospace' }}>{money4(r.levels.trade)}</td>
+                        <td style={{ ...gridTd, textAlign: 'right', fontFamily: 'monospace' }}>{money4(r.levels.buyer_group)}</td>
+                        <td style={{ ...gridTd, textAlign: 'right', fontFamily: 'monospace' }}>{money4(r.levels.retail)}</td>
+                      </tr>
+                    )
+                  }
                   return (
                     <Fragment key={r.id}>
                     <tr style={{ background: rowBg }}>

@@ -2,13 +2,26 @@
 import { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import { computeLine, docTotals, fmt, prettyDate, splitContact, labelCount } from '@/lib/calc'
+import { computeLine, docTotals, fmt, prettyDate, splitContact, labelCount, PRICE_LEVELS } from '@/lib/calc'
 import { generateDispatchPDF, generateOfficeCopyPDF, reprintPDF } from '@/lib/pdf'
 import PricingGuard, { usePricingCheck } from '@/app/(app)/PricingGuard'
 import { StatusBadge } from '../page'
 import LineEditor from '../LineEditor'
 
 const STATUS_FLOW = ['New', 'In progress', 'Delivery Note Generated']
+
+// Build the productId::packagingId -> £/litre map for the active buyer level.
+// For 3-tier customers, read the level's column (falling back to price_per_litre).
+function buildPriceMap(rows, level, threeTier) {
+  const col = (PRICE_LEVELS.find((l) => l.key === level) || PRICE_LEVELS[0]).col
+  const map = {}
+  for (const r of rows) {
+    const key = `${r.product_id}::${r.packaging_id}`
+    const v = threeTier ? (r[col] != null ? r[col] : r.price_per_litre) : r.price_per_litre
+    map[key] = v || 0
+  }
+  return map
+}
 
 export default function OrderDetailPage() {
   const { id } = useParams()
@@ -28,6 +41,10 @@ export default function OrderDetailPage() {
   const [priceTiers, setPriceTiers] = useState({})
   // tier basis per price row: { [productId::packagingId]: 'line' | 'order' }
   const [tierBasis, setTierBasis] = useState({})
+  // 3-tier buyer pricing
+  const [customerThreeTier, setCustomerThreeTier] = useState(false)
+  const [priceLevel, setPriceLevel] = useState('trade')
+  const [priceRowsRaw, setPriceRowsRaw] = useState([])
   const [deliveryCharge, setDeliveryCharge] = useState('')
   const [labelPriceRaw, setLabelPriceRaw] = useState('')  // raw string while editing
   const labelPrice = parseFloat(labelPriceRaw) || 0
@@ -78,8 +95,8 @@ export default function OrderDetailPage() {
       if (o.data?.customer_id) {
         const [priceData, custData, tiersData] = await Promise.all([
           supabase.from('customer_product_prices')
-            .select('product_id, packaging_id, price_per_litre, delivery_charge, qty_tiers, tier_basis').eq('customer_id', o.data.customer_id),
-          supabase.from('customers').select('label_price, default_delivery_charge, free_delivery_above, default_letterhead_id').eq('id', o.data.customer_id).single(),
+            .select('product_id, packaging_id, price_per_litre, delivery_charge, qty_tiers, tier_basis, price_trade, price_buyer_group, price_retail').eq('customer_id', o.data.customer_id),
+          supabase.from('customers').select('label_price, default_delivery_charge, free_delivery_above, default_letterhead_id, three_tier_pricing').eq('id', o.data.customer_id).single(),
           supabase.from('customer_delivery_tiers').select('*').eq('customer_id', o.data.customer_id).order('pallets_from'),
         ])
         const priceRows = priceData.data || []
@@ -91,8 +108,13 @@ export default function OrderDetailPage() {
           if (!availMap[r.product_id].includes(r.packaging_id)) availMap[r.product_id].push(r.packaging_id)
         }
         setAvailableByProduct(availMap)
+        const threeTier = !!custData.data?.three_tier_pricing
+        const initialLevel = o.data?.price_level || 'trade'
+        setCustomerThreeTier(threeTier)
+        setPriceLevel(initialLevel)
+        setPriceRowsRaw(priceRows)
         if (priceRows.length) {
-          setPrices(Object.fromEntries(priceRows.map((r) => [`${r.product_id}::${r.packaging_id}`, r.price_per_litre])))
+          setPrices(buildPriceMap(priceRows, initialLevel, threeTier))
           setPriceTiers(Object.fromEntries(priceRows.map((r) => [
             `${r.product_id}::${r.packaging_id}`,
             (Array.isArray(r.qty_tiers) ? r.qty_tiers : [])
@@ -170,11 +192,33 @@ export default function OrderDetailPage() {
     toast('Products saved')
   }
 
+  // The DB column the order's current buyer level writes to.
+  function levelCol() {
+    return (PRICE_LEVELS.find((l) => l.key === priceLevel) || PRICE_LEVELS[0]).col
+  }
+
+  // Switch buyer level: re-price every line and remember the choice on the order.
+  function changeLevel(lvl) {
+    setPriceLevel(lvl)
+    setPrices(buildPriceMap(priceRowsRaw, lvl, customerThreeTier))
+    if (order?.id) supabase.from('orders').update({ price_level: lvl }).eq('id', order.id)
+  }
+
+  // Build the price columns to upsert — includes the active level for 3-tier.
+  function priceUpsertCols(ppl) {
+    const cols = { price_per_litre: ppl }
+    if (customerThreeTier) {
+      cols[levelCol()] = ppl
+      if (priceLevel === 'trade') cols.price_per_litre = ppl
+    }
+    return cols
+  }
+
   async function saveUnpricedPrice(ppl) {
     const item = unpricedModal
     if (!item || !order?.customer_id || ppl <= 0) return
     await supabase.from('customer_product_prices').upsert(
-      { customer_id: order.customer_id, product_id: item.productId, packaging_id: item.packagingId, price_per_litre: ppl, delivery_charge: 0, updated_at: new Date().toISOString() },
+      { customer_id: order.customer_id, product_id: item.productId, packaging_id: item.packagingId, ...priceUpsertCols(ppl), delivery_charge: 0, updated_at: new Date().toISOString() },
       { onConflict: 'customer_id,product_id,packaging_id', ignoreDuplicates: false }
     )
     setPrices((prev) => ({ ...prev, [`${item.productId}::${item.packagingId}`]: ppl }))
@@ -187,7 +231,7 @@ export default function OrderDetailPage() {
   async function savePrice(productId, packagingId, price) {
     if (!order?.customer_id) return
     await supabase.from('customer_product_prices').upsert(
-      { customer_id: order.customer_id, product_id: productId, packaging_id: packagingId, price_per_litre: price, updated_at: new Date().toISOString() },
+      { customer_id: order.customer_id, product_id: productId, packaging_id: packagingId, ...priceUpsertCols(price), updated_at: new Date().toISOString() },
       { onConflict: 'customer_id,product_id,packaging_id', ignoreDuplicates: false }
     )
   }
@@ -449,7 +493,19 @@ ${items.map((it) => `  <li>${it.name}${it.pack ? ` — ${it.qty} x ${it.pack}` :
       {order.customer_id && (
         <PricingGuard>
         <div className="card">
-          <div className="ttl"><h2>Pricing</h2></div>
+          <div className="ttl">
+            <h2>Pricing</h2>
+            {customerThreeTier && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 9, flexWrap: 'wrap' }}>
+                <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 600 }}>Buyer level:</span>
+                <div className="theme-tog" style={{ background: 'var(--field-bg)' }}>
+                  {PRICE_LEVELS.map((l) => (
+                    <button key={l.key} className={priceLevel === l.key ? 'on' : ''} onClick={() => changeLevel(l.key)}>{l.label}</button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
           <table className="tbl">
             <thead><tr>
               <th>Product</th>
