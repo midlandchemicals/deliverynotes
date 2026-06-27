@@ -6,7 +6,7 @@ export const metadata = {
 }
 
 // Set the theme before first paint to avoid a flash of the wrong theme.
-const themeScript = `(function(){try{var t=localStorage.getItem('of_theme')||'midnight';document.documentElement.setAttribute('data-theme',t);}catch(e){document.documentElement.setAttribute('data-theme','midnight');}})();`
+const themeScript = `(function(){try{var t=localStorage.getItem('of_theme')||'ivory';document.documentElement.setAttribute('data-theme',t);}catch(e){document.documentElement.setAttribute('data-theme','ivory');}})();`
 
 export default function RootLayout({ children }) {
   return (
