@@ -2,6 +2,7 @@
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
+import ThemeToggle from './ThemeToggle'
 
 const MAIN_LINKS = [
   ['/orders/new', 'New Order'],
@@ -40,7 +41,8 @@ export default function Nav({ email }) {
         ))}
       </nav>
       <div className="who">
-        {email}
+        <ThemeToggle />
+        <span>{email}</span>
         <button className="out" onClick={signOut}>Sign out</button>
       </div>
     </div>

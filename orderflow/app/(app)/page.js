@@ -54,10 +54,10 @@ function HomeCard({ href, icon, title, desc, accent }) {
         onMouseEnter={(e) => { e.currentTarget.style.transform = 'translateY(-3px)'; e.currentTarget.style.boxShadow = '0 8px 24px rgba(0,0,0,0.13)' }}
         onMouseLeave={(e) => { e.currentTarget.style.transform = ''; e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.06)' }}
       >
-        <span style={{ fontSize: 44, lineHeight: 1, color: accent ? '#fff' : 'var(--accent)' }}>{icon}</span>
+        <span style={{ fontSize: 44, lineHeight: 1, color: accent ? 'var(--on-accent)' : 'var(--accent)' }}>{icon}</span>
         <div>
-          <div style={{ fontWeight: 700, fontSize: 21, color: accent ? '#fff' : 'var(--ink)', marginBottom: 8 }}>{title}</div>
-          <div style={{ fontSize: 13.5, color: accent ? 'rgba(255,255,255,0.82)' : 'var(--muted)', lineHeight: 1.5 }}>{desc}</div>
+          <div style={{ fontWeight: 700, fontSize: 21, color: accent ? 'var(--on-accent)' : 'var(--ink)', marginBottom: 8 }}>{title}</div>
+          <div style={{ fontSize: 13.5, color: accent ? 'var(--on-accent)' : 'var(--muted)', opacity: accent ? 0.85 : 1, lineHeight: 1.5 }}>{desc}</div>
         </div>
       </div>
     </Link>

@@ -5,9 +5,15 @@ export const metadata = {
   description: 'Order intake & dispatch notes',
 }
 
+// Set the theme before first paint to avoid a flash of the wrong theme.
+const themeScript = `(function(){try{var t=localStorage.getItem('of_theme')||'midnight';document.documentElement.setAttribute('data-theme',t);}catch(e){document.documentElement.setAttribute('data-theme','midnight');}})();`
+
 export default function RootLayout({ children }) {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: themeScript }} />
+      </head>
       <body>{children}</body>
     </html>
   )
