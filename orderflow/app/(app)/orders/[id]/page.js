@@ -468,20 +468,38 @@ ${items.map((it) => `  <li>${it.name}${it.pack ? ` — ${it.qty} x ${it.pack}` :
                     </td>
                     <td>{c.packaging?.name || '—'}</td>
                     <td>
-                      <input className="mono" style={{ textAlign: 'right' }}
-                        value={prices[priceKey] ?? ''}
-                        placeholder="0.0000"
-                        onChange={(e) => setPrices((p) => ({ ...p, [priceKey]: e.target.value }))}
-                        onBlur={(e) => {
-                          const v = parseFloat(e.target.value) || 0
-                          setPrices((p) => ({ ...p, [priceKey]: v }))
-                          savePrice(c.product.id, c.packaging?.id, v)
-                        }}
-                      />
-                      {tierApplied && (
-                        <div style={{ fontSize: 10.5, color: 'var(--accent)', textAlign: 'right', marginTop: 2 }}>
-                          ⇅ qty {c.qty}: £{effPpl.toFixed(4)}/L
+                      {tierApplied ? (
+                        // A quantity tier is in effect — show the APPLIED price as the
+                        // headline (so it matches the unit price), with the editable
+                        // list/base price demoted to a small field beneath it.
+                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2 }}>
+                          <span className="mono" style={{ fontWeight: 700, fontSize: 15, color: 'var(--accent)' }}>£{effPpl.toFixed(4)}</span>
+                          <span style={{ fontSize: 10.5, color: 'var(--accent)' }}>⇅ tier price · qty {c.qty}</span>
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, color: 'var(--muted)', marginTop: 1 }}>
+                            list £
+                            <input className="mono" style={{ width: 64, textAlign: 'right', fontSize: 11, padding: '2px 5px' }}
+                              value={prices[priceKey] ?? ''}
+                              placeholder="0.0000"
+                              onChange={(e) => setPrices((p) => ({ ...p, [priceKey]: e.target.value }))}
+                              onBlur={(e) => {
+                                const v = parseFloat(e.target.value) || 0
+                                setPrices((p) => ({ ...p, [priceKey]: v }))
+                                savePrice(c.product.id, c.packaging?.id, v)
+                              }}
+                            />
+                          </span>
                         </div>
+                      ) : (
+                        <input className="mono" style={{ textAlign: 'right' }}
+                          value={prices[priceKey] ?? ''}
+                          placeholder="0.0000"
+                          onChange={(e) => setPrices((p) => ({ ...p, [priceKey]: e.target.value }))}
+                          onBlur={(e) => {
+                            const v = parseFloat(e.target.value) || 0
+                            setPrices((p) => ({ ...p, [priceKey]: v }))
+                            savePrice(c.product.id, c.packaging?.id, v)
+                          }}
+                        />
                       )}
                     </td>
                     <td className="mono" style={{ textAlign: 'right' }}>{unitPrice > 0 ? `£${unitPrice.toFixed(2)}` : '—'}</td>
