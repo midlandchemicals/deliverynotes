@@ -113,6 +113,10 @@ create table if not exists customer_product_prices (
   packaging_id uuid references packaging(id)  on delete cascade,
   price_per_litre numeric not null default 0,
   delivery_charge numeric not null default 0,
+  -- Optional quantity break tiers: price per litre changes with packs ordered.
+  -- [{ "from": 1, "to": 2, "ppl": 1.34 }, { "from": 5, "to": null, "ppl": 1.18 }]
+  -- `to` null means "and above". Base price_per_litre is the fallback.
+  qty_tiers jsonb not null default '[]',
   updated_at timestamptz default now(),
   unique(customer_id, product_id, packaging_id)
 );
@@ -212,6 +216,9 @@ insert into customers (name, details, deliver, contact_name, email, phone) value
 --
 -- Delivery charge column on customer_product_prices (run once on existing databases):
 --   alter table customer_product_prices add column if not exists delivery_charge numeric default 0;
+--
+-- Quantity-break price tiers on customer_product_prices (run once on existing databases):
+--   alter table customer_product_prices add column if not exists qty_tiers jsonb not null default '[]';
 --
 -- Per-customer pricing table (run once on existing databases):
 --   drop table if exists customer_product_prices;
