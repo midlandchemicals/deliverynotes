@@ -20,13 +20,14 @@ export default function DashboardPage() {
 
   useEffect(() => {
     (async () => {
-      const [ordRes, prodRes, pkgRes, priceRes, custRes, lhRes] = await Promise.all([
+      const [ordRes, prodRes, pkgRes, priceRes, custRes, lhRes, dnRes] = await Promise.all([
         supabase.from('orders').select('*').order('created_at', { ascending: false }),
         supabase.from('products').select('id, name, sg'),
         supabase.from('packaging').select('id, name, volume, tare'),
         supabase.from('customer_product_prices').select('customer_id, product_id, packaging_id, price_per_litre, delivery_charge, qty_tiers'),
         supabase.from('customers').select('id, name, default_letterhead_id'),
         supabase.from('letterheads').select('id, name, company, color'),
+        supabase.from('dispatch_notes').select('order_id, doc_date, created_at, totals, lines_snapshot').order('created_at', { ascending: false }),
       ])
       const orders = ordRes.data || []
       const products = prodRes.data || []
@@ -34,6 +35,14 @@ export default function DashboardPage() {
       const prices = priceRes.data || []
       const customers = custRes.data || []
       const letterheads = lhRes.data || []
+      const dispatchNotes = dnRes.data || []
+
+      // Latest dispatch note per order — its snapshot holds the LOCKED price the
+      // order was actually billed at. Revenue uses this, not current prices.
+      const dnByOrder = {}
+      for (const dn of dispatchNotes) {
+        if (dn.order_id && !dnByOrder[dn.order_id]) dnByOrder[dn.order_id] = dn // first = newest (sorted desc)
+      }
 
       // price lookup: `${customer}::${product}::${packaging}` -> ppl (base)
       // tierMap: same key -> [{from,to,ppl}] quantity-break bands
@@ -61,19 +70,36 @@ export default function DashboardPage() {
         l.name.toLowerCase().includes('midland') || l.company.toLowerCase().includes('midland')
       ) || letterheads[0] || { company: 'Midland Chemicals', color: '#1FA86B' }
 
-      // Value of an order (ex VAT), and per-product breakdown
-      function valueOf(o) {
+      // Locked value from a dispatch-note snapshot — what the order was billed.
+      // Breakdown keyed by product NAME (snapshots store names, not ids).
+      function lockedValue(dn) {
         let total = 0
-        const byProduct = {}
+        const byName = {}
+        for (const s of (dn.lines_snapshot || [])) {
+          const v = Number(s.line_total) || 0
+          total += v
+          const name = s.productName || '—'
+          byName[name] = (byName[name] || 0) + v
+        }
+        // Older snapshots may predate per-line totals — fall back to order_total.
+        if (total === 0 && dn.totals?.order_total) total = Number(dn.totals.order_total) || 0
+        return { total, byName }
+      }
+
+      // Estimated value at CURRENT prices — only for orders not yet dispatched
+      // (no locked snapshot exists yet, so this is pipeline, not realised revenue).
+      function estimateValue(o) {
+        let total = 0
+        const byName = {}
         for (const l of (o.lines || [])) {
           const c = computeLine(l, products, packaging)
           if (!c.product || !c.packaging) continue
           const ppl = pplFor(`${o.customer_id}::${c.product.id}::${c.packaging.id}`, c.qty)
           const lineVal = ppl * (c.vol || 0) * c.qty
           total += lineVal
-          byProduct[c.product.id] = (byProduct[c.product.id] || 0) + lineVal
+          byName[c.productName] = (byName[c.productName] || 0) + lineVal
         }
-        return { total, byProduct }
+        return { total, byName }
       }
 
       const now = new Date()
@@ -85,14 +111,16 @@ export default function DashboardPage() {
       let thisMonthRev = 0, lastMonthRev = 0
       const byMonth = {}            // 'YYYY-M' -> value
       const byCustomer = {}        // custId -> value
-      const byProductTotal = {}    // prodId -> value
+      const byProductTotal = {}    // productName -> value
       const byCompany = {}         // lhId|'default' -> value
       const statusCount = { 'New': 0, 'In progress': 0, 'Delivery Note Generated': 0 }
 
       for (const o of orders) {
-        const { total, byProduct } = valueOf(o)
+        // Dispatched orders use their locked snapshot; the rest are pipeline.
+        const dn = dnByOrder[o.id]
+        const { total, byName } = dn ? lockedValue(dn) : estimateValue(o)
         totalRevenue += total
-        if (o.status === 'Delivery Note Generated') dispatchedRevenue += total
+        if (dn) dispatchedRevenue += total
         else pipelineValue += total
         statusCount[o.status] = (statusCount[o.status] || 0) + 1
 
@@ -103,7 +131,7 @@ export default function DashboardPage() {
         if (mk === lastMonthKey) lastMonthRev += total
 
         if (o.customer_id) byCustomer[o.customer_id] = (byCustomer[o.customer_id] || 0) + total
-        for (const [pid, v] of Object.entries(byProduct)) byProductTotal[pid] = (byProductTotal[pid] || 0) + v
+        for (const [name, v] of Object.entries(byName)) byProductTotal[name] = (byProductTotal[name] || 0) + v
 
         const lhId = (o.customer_id && custLh[o.customer_id]) || 'default'
         byCompany[lhId] = (byCompany[lhId] || 0) + total
@@ -121,9 +149,8 @@ export default function DashboardPage() {
         .map(([id, v]) => ({ name: custName[id] || '—', value: v }))
         .sort((a, b) => b.value - a.value).slice(0, 8)
 
-      const prodName = Object.fromEntries(products.map((p) => [p.id, p.name]))
       const topProducts = Object.entries(byProductTotal)
-        .map(([id, v]) => ({ name: prodName[id] || '—', value: v }))
+        .map(([name, v]) => ({ name: name || '—', value: v }))
         .sort((a, b) => b.value - a.value).slice(0, 8)
 
       const companies = Object.entries(byCompany).map(([id, v]) => {
@@ -162,7 +189,7 @@ function Dashboard({ d }) {
       <div className="card">
         <div className="ttl">
           <h2>Financial Dashboard</h2>
-          <span className="muted" style={{ fontSize: 12 }}>All figures ex-VAT · based on per-customer pricing</span>
+          <span className="muted" style={{ fontSize: 12 }}>All figures ex-VAT · dispatched orders use the price billed at the time; pipeline uses current prices</span>
         </div>
         {!d.hasPrices && (
           <p className="hint" style={{ color: 'var(--bad, #b3261e)' }}>
