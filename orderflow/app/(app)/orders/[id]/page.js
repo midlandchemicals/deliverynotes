@@ -468,20 +468,29 @@ ${items.map((it) => `  <li>${it.name}${it.pack ? ` — ${it.qty} x ${it.pack}` :
                     </td>
                     <td>{c.packaging?.name || '—'}</td>
                     <td>
-                      <input className="mono" style={{ textAlign: 'right' }}
-                        value={prices[priceKey] ?? ''}
-                        placeholder="0.0000"
-                        onChange={(e) => setPrices((p) => ({ ...p, [priceKey]: e.target.value }))}
-                        onBlur={(e) => {
-                          const v = parseFloat(e.target.value) || 0
-                          setPrices((p) => ({ ...p, [priceKey]: v }))
-                          savePrice(c.product.id, c.packaging?.id, v)
-                        }}
-                      />
-                      {tierApplied && (
-                        <div style={{ fontSize: 10.5, color: 'var(--accent)', textAlign: 'right', marginTop: 2 }}>
-                          ⇅ qty {c.qty}: £{effPpl.toFixed(4)}/L
+                      {tierApplied ? (
+                        // A quantity tier is in effect — show ONLY the charged price.
+                        // The base/list price doesn't apply here, so we keep it off the
+                        // display (it's set in Price Entry, and shows inline again if an
+                        // order qty ever falls outside the tier bands). Base on hover.
+                        <div
+                          style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2 }}
+                          title={`Quantity-break tier for ${c.qty} packs. List price £${(parseFloat(prices[priceKey]) || 0).toFixed(4)}/L is not charged at this quantity.`}
+                        >
+                          <span className="mono" style={{ fontWeight: 700, fontSize: 15, color: 'var(--accent)' }}>£{effPpl.toFixed(4)}</span>
+                          <span style={{ fontSize: 10.5, color: 'var(--accent)' }}>⇅ tier price · {c.qty} packs</span>
                         </div>
+                      ) : (
+                        <input className="mono" style={{ textAlign: 'right' }}
+                          value={prices[priceKey] ?? ''}
+                          placeholder="0.0000"
+                          onChange={(e) => setPrices((p) => ({ ...p, [priceKey]: e.target.value }))}
+                          onBlur={(e) => {
+                            const v = parseFloat(e.target.value) || 0
+                            setPrices((p) => ({ ...p, [priceKey]: v }))
+                            savePrice(c.product.id, c.packaging?.id, v)
+                          }}
+                        />
                       )}
                     </td>
                     <td className="mono" style={{ textAlign: 'right' }}>{unitPrice > 0 ? `£${unitPrice.toFixed(2)}` : '—'}</td>
