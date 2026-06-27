@@ -279,8 +279,10 @@ export function generateDispatchPDF(doc_, lh, products, packaging) {
 // Office copy — B&W, "FOR OFFICE USE ONLY" banner, pricing columns + VAT + grand total.
 // pricing key format: `${productId}::${packagingId}`
 // tiersByKey (optional), same key -> [{from,to,ppl}]: quantity-break prices that
-// override the base when the line's pack qty falls within a band.
-export function generateOfficeCopyPDF(doc_, lh, products, packaging, pricing = {}, deliveryCharge = 0, labelTotal = 0, tiersByKey = {}) {
+// override the base when the qty falls within a band.
+// basisByKey (optional), same key -> 'line' | 'order': for 'order' rows the band
+// is chosen by the combined pack qty of all 'order'-basis lines on the order.
+export function generateOfficeCopyPDF(doc_, lh, products, packaging, pricing = {}, deliveryCharge = 0, labelTotal = 0, tiersByKey = {}, basisByKey = {}) {
   const BK = [20, 20, 20]
   const MU = [90, 90, 90]
   const f2 = (n) => `£${(Math.round(n * 100) / 100).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
@@ -349,11 +351,20 @@ export function generateOfficeCopyPDF(doc_, lh, products, packaging, pricing = {
   }
   cy += Math.max(bh1, rightH) + 5
 
+  // Combined pack qty across all 'order'-basis lines — the "mix" total.
+  const combinedQty = doc_.lines.reduce((sum, l) => {
+    const c = computeLine(l, products, packaging)
+    if (!c.product || !c.packaging) return sum
+    const k = `${c.product.id}::${c.packaging.id}`
+    return basisByKey[k] === 'order' ? sum + (c.qty || 0) : sum
+  }, 0)
+
   const lineData = doc_.lines.map((l, i) => {
     const c = computeLine(l, products, packaging)
     const key = `${c.product?.id}::${c.packaging?.id}`
     const tiers = tiersByKey[key] || []
-    const hit = tiers.find((t) => c.qty >= t.from && (t.to == null || c.qty <= t.to))
+    const q = basisByKey[key] === 'order' ? combinedQty : c.qty
+    const hit = tiers.find((t) => q >= t.from && (t.to == null || q <= t.to))
     const ppl = hit ? hit.ppl : (parseFloat(pricing[key]) || 0)
     const unitPrice = ppl * (c.vol || 0)
     const lineTotal = unitPrice * c.qty
@@ -460,9 +471,15 @@ export function generatePriceListPDF(entries, fallbackLh = {}) {
     doc.setFont(FONT, 'bold').setFontSize(14).setTextColor(30, 30, 30).text(e.customer.name, M, y)
     y += 3
     if (e.rows.some((row) => (row.tiers || []).length)) {
+      const hasCombined = e.rows.some((row) => (row.tiers || []).length && row.basis === 'order')
       y += 4
       doc.setFont(FONT, 'italic').setFontSize(8).setTextColor(120, 120, 120)
-        .text('Tiered items show £/litre by number of packs ordered (e.g. "3-4" = 3 to 4 packs).', M, y)
+        .text(
+          hasCombined
+            ? 'Tiered items show £/litre by packs ordered. "Combined" bands count the total packs of all combined-price products together.'
+            : 'Tiered items show £/litre by number of packs ordered (e.g. "3-4" = 3 to 4 packs).',
+          M, y,
+        )
       y -= 1
     }
 

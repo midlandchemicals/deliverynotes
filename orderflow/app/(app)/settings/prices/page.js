@@ -58,9 +58,9 @@ export default function PricesPage() {
 
   async function loadPrices(cid) {
     const { data } = await supabase.from('customer_product_prices')
-      .select('id, product_id, packaging_id, price_per_litre, delivery_charge, qty_tiers')
+      .select('id, product_id, packaging_id, price_per_litre, delivery_charge, qty_tiers, tier_basis')
       .eq('customer_id', cid)
-    setRows((data || []).map((r) => ({ ...r, qty_tiers: Array.isArray(r.qty_tiers) ? r.qty_tiers : [] })))
+    setRows((data || []).map((r) => ({ ...r, qty_tiers: Array.isArray(r.qty_tiers) ? r.qty_tiers : [], tier_basis: r.tier_basis || 'line' })))
   }
 
   function pkgVol(packagingId) {
@@ -137,6 +137,12 @@ export default function PricesPage() {
     const row = rowById(rowId)
     const tiers = (row?.qty_tiers || []).filter((_, i) => i !== idx)
     persistTiers(rowId, tiers)
+  }
+
+  async function setBasis(rowId, basis) {
+    setRows((r) => r.map((x) => (x.id === rowId ? { ...x, tier_basis: basis } : x)))
+    await supabase.from('customer_product_prices')
+      .update({ tier_basis: basis, updated_at: new Date().toISOString() }).eq('id', rowId)
   }
 
   async function addRow() {
@@ -357,7 +363,22 @@ export default function PricesPage() {
                     <tr>
                       <td colSpan={6} style={{ background: 'var(--panel-2)', padding: '14px 16px' }}>
                         <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.04em', color: 'var(--muted)', marginBottom: 8 }}>
-                          Quantity-break tiers — £/litre by number of {pkg?.name || 'packs'} ordered
+                          Quantity-break tiers — £/litre
+                        </div>
+                        {/* Mode: this line's qty, or combined IBCs across all combined-mode products on the order */}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
+                          <span style={{ fontSize: 12, color: 'var(--muted)' }}>Band decided by:</span>
+                          <div className="theme-tog" style={{ background: 'var(--field-bg)' }}>
+                            <button className={(row.tier_basis || 'line') === 'line' ? 'on' : ''}
+                              onClick={() => setBasis(row.id, 'line')}>This product’s qty</button>
+                            <button className={row.tier_basis === 'order' ? 'on' : ''}
+                              onClick={() => setBasis(row.id, 'order')}>Combined order qty</button>
+                          </div>
+                          <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>
+                            {row.tier_basis === 'order'
+                              ? 'band chosen by the total packs of all combined-mode products on the order'
+                              : `band chosen by the number of ${pkg?.name || 'packs'} of this product on the line`}
+                          </span>
                         </div>
                         {tiers.length === 0 && (
                           <p className="hint" style={{ marginBottom: 8 }}>
@@ -377,7 +398,7 @@ export default function PricesPage() {
                               <input className="mono" style={{ width: 56, textAlign: 'right' }} value={t.to ?? ''} placeholder="∞"
                                 onChange={(e) => updateTierLocal(row.id, i, { to: e.target.value })}
                                 onBlur={() => commitTiers(row.id)} />
-                              <span style={{ fontSize: 12, color: 'var(--muted)' }}>{pkg?.name || 'packs'} →</span>
+                              <span style={{ fontSize: 12, color: 'var(--muted)' }}>{row.tier_basis === 'order' ? 'packs (combined)' : (pkg?.name || 'packs')} →</span>
                               <span style={{ fontSize: 12, color: 'var(--muted)' }}>£</span>
                               <input className="mono" style={{ width: 90, textAlign: 'right' }} value={t.ppl ?? ''} placeholder="0.0000"
                                 onChange={(e) => updateTierLocal(row.id, i, { ppl: e.target.value })}
@@ -392,7 +413,10 @@ export default function PricesPage() {
                         })}
                         <button className="btn btn-g btn-sm" style={{ marginTop: 4 }} onClick={() => addTier(row.id)}>＋ Add tier</button>
                         <p className="hint" style={{ marginTop: 8 }}>
-                          Leave <b>to</b> blank for the top band (e.g. “5 and above”). Bands should not overlap. Tiers show on the Price List and its PDF export.
+                          Leave <b>to</b> blank for the top band (e.g. “10 and above”). Bands should not overlap.
+                          {row.tier_basis === 'order'
+                            ? ' Combined mode: the band is chosen by the total packs of every product on the order that is also set to “Combined order qty” for this customer — so a mix of products counts together.'
+                            : ' Tiers show on the Price List and its PDF export.'}
                         </p>
                       </td>
                     </tr>

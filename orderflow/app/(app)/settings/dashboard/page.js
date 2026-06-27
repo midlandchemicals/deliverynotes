@@ -24,7 +24,7 @@ export default function DashboardPage() {
         supabase.from('orders').select('*').order('created_at', { ascending: false }),
         supabase.from('products').select('id, name, sg'),
         supabase.from('packaging').select('id, name, volume, tare'),
-        supabase.from('customer_product_prices').select('customer_id, product_id, packaging_id, price_per_litre, delivery_charge, qty_tiers'),
+        supabase.from('customer_product_prices').select('customer_id, product_id, packaging_id, price_per_litre, delivery_charge, qty_tiers, tier_basis'),
         supabase.from('customers').select('id, name, default_letterhead_id'),
         supabase.from('letterheads').select('id, name, company, color'),
         supabase.from('dispatch_notes').select('order_id, doc_date, created_at, totals, lines_snapshot').order('created_at', { ascending: false }),
@@ -48,9 +48,11 @@ export default function DashboardPage() {
       // tierMap: same key -> [{from,to,ppl}] quantity-break bands
       const priceMap = {}
       const tierMap = {}
+      const basisMap = {}
       for (const p of prices) {
         const key = `${p.customer_id}::${p.product_id}::${p.packaging_id}`
         priceMap[key] = p.price_per_litre || 0
+        basisMap[key] = p.tier_basis || 'line'
         tierMap[key] = (Array.isArray(p.qty_tiers) ? p.qty_tiers : [])
           .map((t) => ({ from: Number(t.from) || 0, to: t.to == null || t.to === '' ? null : Number(t.to), ppl: Number(t.ppl) || 0 }))
           .filter((t) => t.ppl > 0)
@@ -89,12 +91,21 @@ export default function DashboardPage() {
       // Estimated value at CURRENT prices — only for orders not yet dispatched
       // (no locked snapshot exists yet, so this is pipeline, not realised revenue).
       function estimateValue(o) {
+        // Combined pack qty across this order's 'order'-basis lines (the "mix").
+        const combined = (o.lines || []).reduce((sum, l) => {
+          const c = computeLine(l, products, packaging)
+          if (!c.product || !c.packaging) return sum
+          const k = `${o.customer_id}::${c.product.id}::${c.packaging.id}`
+          return basisMap[k] === 'order' ? sum + (c.qty || 0) : sum
+        }, 0)
         let total = 0
         const byName = {}
         for (const l of (o.lines || [])) {
           const c = computeLine(l, products, packaging)
           if (!c.product || !c.packaging) continue
-          const ppl = pplFor(`${o.customer_id}::${c.product.id}::${c.packaging.id}`, c.qty)
+          const key = `${o.customer_id}::${c.product.id}::${c.packaging.id}`
+          const q = basisMap[key] === 'order' ? combined : c.qty
+          const ppl = pplFor(key, q)
           const lineVal = ppl * (c.vol || 0) * c.qty
           total += lineVal
           byName[c.productName] = (byName[c.productName] || 0) + lineVal
