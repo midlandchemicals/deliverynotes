@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useState, useMemo, useRef } from 'react'
+import { useEffect, useState, useMemo, useRef, Fragment } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import PricingGuard from '@/app/(app)/PricingGuard'
 import Combobox from '@/app/(app)/Combobox'
@@ -35,6 +35,7 @@ export default function PricesPage() {
   const [newRow, setNewRow] = useState({ productId: '', packagingId: '', ppl: '', ppp: '', dc: '' })
   const [drafts, setDrafts] = useState([]) // bulk-fill rows awaiting prices
   const dupSeq = useRef(0)                  // counter for unique duplicate-draft keys
+  const [tiersRowId, setTiersRowId] = useState(null) // saved-row id whose qty tiers are open
 
   useEffect(() => {
     ;(async () => {
@@ -57,9 +58,9 @@ export default function PricesPage() {
 
   async function loadPrices(cid) {
     const { data } = await supabase.from('customer_product_prices')
-      .select('id, product_id, packaging_id, price_per_litre, delivery_charge')
+      .select('id, product_id, packaging_id, price_per_litre, delivery_charge, qty_tiers')
       .eq('customer_id', cid)
-    setRows(data || [])
+    setRows((data || []).map((r) => ({ ...r, qty_tiers: Array.isArray(r.qty_tiers) ? r.qty_tiers : [] })))
   }
 
   function pkgVol(packagingId) {
@@ -91,6 +92,51 @@ export default function PricesPage() {
   async function deleteRow(rowId) {
     setRows((r) => r.filter((x) => x.id !== rowId))
     await supabase.from('customer_product_prices').delete().eq('id', rowId)
+  }
+
+  // ---- quantity-break tiers (per saved price row) ----
+  function rowById(id) { return rows.find((r) => r.id === id) }
+
+  async function persistTiers(rowId, tiers) {
+    setRows((r) => r.map((x) => (x.id === rowId ? { ...x, qty_tiers: tiers } : x)))
+    await supabase.from('customer_product_prices')
+      .update({ qty_tiers: tiers, updated_at: new Date().toISOString() }).eq('id', rowId)
+  }
+
+  function addTier(rowId) {
+    const row = rowById(rowId)
+    const existing = row?.qty_tiers || []
+    const last = existing[existing.length - 1]
+    const nextFrom = last ? ((last.to != null ? last.to : last.from) + 1) : 1
+    const base = row?.price_per_litre || 0
+    persistTiers(rowId, [...existing, { from: nextFrom, to: null, ppl: base }])
+  }
+
+  // Update a tier locally (string-friendly); save happens on blur.
+  function updateTierLocal(rowId, idx, patch) {
+    setRows((r) => r.map((x) => {
+      if (x.id !== rowId) return x
+      const tiers = (x.qty_tiers || []).map((t, i) => (i === idx ? { ...t, ...patch } : t))
+      return { ...x, qty_tiers: tiers }
+    }))
+  }
+
+  // Normalise a tier row's values to numbers and persist the whole array.
+  function commitTiers(rowId) {
+    const row = rowById(rowId)
+    if (!row) return
+    const clean = (row.qty_tiers || []).map((t) => ({
+      from: parseInt(t.from) || 0,
+      to: t.to === '' || t.to == null ? null : (parseInt(t.to) || null),
+      ppl: parseFloat(t.ppl) || 0,
+    }))
+    persistTiers(rowId, clean)
+  }
+
+  function deleteTier(rowId, idx) {
+    const row = rowById(rowId)
+    const tiers = (row?.qty_tiers || []).filter((_, i) => i !== idx)
+    persistTiers(rowId, tiers)
   }
 
   async function addRow() {
@@ -259,8 +305,11 @@ export default function PricesPage() {
                 const ppp = vol > 0 ? ppl * vol : 0
                 const prod = products.find((p) => p.id === row.product_id)
                 const pkg = packaging.find((p) => p.id === row.packaging_id)
+                const tiers = row.qty_tiers || []
+                const tiersOpen = tiersRowId === row.id
                 return (
-                  <tr key={row.id}>
+                  <Fragment key={row.id}>
+                  <tr>
                     <td>{prod ? (prod.category ? `${prod.name} (${prod.category})` : prod.name) : <span className="muted">—</span>}</td>
                     <td>{pkg?.name || <span className="muted">—</span>}</td>
                     <td>
@@ -292,12 +341,63 @@ export default function PricesPage() {
                       />
                     </td>
                     <td style={{ whiteSpace: 'nowrap' }}>
+                      <button
+                        className={'btn btn-sm ' + (tiersOpen ? 'btn-a' : 'btn-g')}
+                        style={{ padding: '2px 7px', marginRight: 4 }}
+                        title="Quantity-break pricing (price per litre changes with packs ordered)"
+                        onClick={() => setTiersRowId(tiersOpen ? null : row.id)}
+                      >{tiersOpen ? 'Close' : (tiers.length ? `⇅ ${tiers.length}` : '⇅')}</button>
                       <button className="btn btn-g btn-sm" style={{ padding: '2px 7px', marginRight: 4 }}
                         title="Add another packaging size for this product"
                         onClick={() => duplicateProduct(row.product_id, null)}>⧉</button>
                       <button className="btn-dl" onClick={() => deleteRow(row.id)}>×</button>
                     </td>
                   </tr>
+                  {tiersOpen && (
+                    <tr>
+                      <td colSpan={6} style={{ background: 'var(--panel-2)', padding: '14px 16px' }}>
+                        <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.04em', color: 'var(--muted)', marginBottom: 8 }}>
+                          Quantity-break tiers — £/litre by number of {pkg?.name || 'packs'} ordered
+                        </div>
+                        {tiers.length === 0 && (
+                          <p className="hint" style={{ marginBottom: 8 }}>
+                            No tiers — the flat £{(row.price_per_litre || 0).toFixed(4)}/L above applies to every quantity. Add a tier below to charge less as more is ordered.
+                          </p>
+                        )}
+                        {tiers.map((t, i) => {
+                          const tPpl = parseFloat(t.ppl) || 0
+                          const tPpp = vol > 0 ? tPpl * vol : 0
+                          return (
+                            <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 7, flexWrap: 'wrap' }}>
+                              <span style={{ fontSize: 12, color: 'var(--muted)' }}>From</span>
+                              <input className="mono" style={{ width: 56, textAlign: 'right' }} value={t.from ?? ''} placeholder="1"
+                                onChange={(e) => updateTierLocal(row.id, i, { from: e.target.value })}
+                                onBlur={() => commitTiers(row.id)} />
+                              <span style={{ fontSize: 12, color: 'var(--muted)' }}>to</span>
+                              <input className="mono" style={{ width: 56, textAlign: 'right' }} value={t.to ?? ''} placeholder="∞"
+                                onChange={(e) => updateTierLocal(row.id, i, { to: e.target.value })}
+                                onBlur={() => commitTiers(row.id)} />
+                              <span style={{ fontSize: 12, color: 'var(--muted)' }}>{pkg?.name || 'packs'} →</span>
+                              <span style={{ fontSize: 12, color: 'var(--muted)' }}>£</span>
+                              <input className="mono" style={{ width: 90, textAlign: 'right' }} value={t.ppl ?? ''} placeholder="0.0000"
+                                onChange={(e) => updateTierLocal(row.id, i, { ppl: e.target.value })}
+                                onBlur={() => commitTiers(row.id)} />
+                              <span style={{ fontSize: 12, color: 'var(--muted)' }}>/L</span>
+                              <span style={{ fontSize: 12, color: 'var(--muted)', minWidth: 110 }}>
+                                {tPpp > 0 ? `= £${tPpp.toFixed(2)} / pack` : ''}
+                              </span>
+                              <button className="btn-dl" onClick={() => deleteTier(row.id, i)} title="Remove tier">×</button>
+                            </div>
+                          )
+                        })}
+                        <button className="btn btn-g btn-sm" style={{ marginTop: 4 }} onClick={() => addTier(row.id)}>＋ Add tier</button>
+                        <p className="hint" style={{ marginTop: 8 }}>
+                          Leave <b>to</b> blank for the top band (e.g. “5 and above”). Bands should not overlap. Tiers show on the Price List and its PDF export.
+                        </p>
+                      </td>
+                    </tr>
+                  )}
+                  </Fragment>
                 )
               })}
 
@@ -386,7 +486,7 @@ export default function PricesPage() {
               <span className="muted" style={{ fontSize: 12 }}>{drafts.length} product{drafts.length !== 1 ? 's' : ''} added — rows with no price are ignored on save.</span>
             </div>
           )}
-          <p className="hint">Use <b>⤓ Fill products</b> to load every product in this customer's range that has no price yet — then just type the prices and click <b>Save filled prices</b>. Type in the product box to search by product name or range — no need to scroll. Products marked ★ belong to this customer's own range and appear at the top. Enter either £/litre or £/pack — the other calculates automatically. Use the <b>⧉</b> button beside a product to add another row for a different packaging size of the same product. Set a delivery charge for products that carry a mandatory delivery surcharge for this customer — it will auto-fill on the order page.</p>
+          <p className="hint">Use <b>⤓ Fill products</b> to load every product in this customer's range that has no price yet — then just type the prices and click <b>Save filled prices</b>. Type in the product box to search by product name or range — no need to scroll. Products marked ★ belong to this customer's own range and appear at the top. Enter either £/litre or £/pack — the other calculates automatically. Use the <b>⧉</b> button beside a product to add another row for a different packaging size of the same product. Use the <b>⇅</b> button to set quantity-break tiers, where the £/litre drops as more packs are ordered. Set a delivery charge for products that carry a mandatory delivery surcharge for this customer — it will auto-fill on the order page.</p>
         </>
       )}
       <ChangePassword />

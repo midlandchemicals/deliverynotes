@@ -424,6 +424,7 @@ export function generatePriceListPDF(entries, fallbackLh = {}) {
   FONT = registerFonts(doc)
   const W = 210, M = 16
   const f2 = (n) => (n || n === 0) ? `£${(Math.round(n * 100) / 100).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—'
+  const bandLabel = (t) => (t.to == null ? `${t.from}+` : (t.to === t.from ? `${t.from}` : `${t.from}-${t.to}`))
 
   entries.forEach((e, idx) => {
     if (idx > 0) doc.addPage()
@@ -454,18 +455,33 @@ export function generatePriceListPDF(entries, fallbackLh = {}) {
 
     doc.setFont(FONT, 'bold').setFontSize(14).setTextColor(30, 30, 30).text(e.customer.name, M, y)
     y += 3
+    if (e.rows.some((row) => (row.tiers || []).length)) {
+      y += 4
+      doc.setFont(FONT, 'italic').setFontSize(8).setTextColor(120, 120, 120)
+        .text('Tiered items show £/litre by number of packs ordered (e.g. "3-4" = 3 to 4 packs).', M, y)
+      y -= 1
+    }
 
     autoTable(doc, {
       startY: y + 2,
       margin: { left: M, right: M, bottom: 18 },
       head: [['Product', 'Range', 'Packaging', '£ / Litre', '£ / Pack']],
-      body: e.rows.map((row) => [
-        row.prod.name,
-        row.prod.category || '—',
-        row.pkg.name,
-        row.ppl ? `£${row.ppl.toFixed(4)}` : '—',
-        f2(row.ppp),
-      ]),
+      body: e.rows.map((row) => {
+        const tiers = row.tiers || []
+        if (tiers.length) {
+          // Quantity-break ladder: one line per band, aligned across both columns.
+          const pplCell = tiers.map((t) => `${bandLabel(t)}:  £${(t.ppl || 0).toFixed(4)}`).join('\n')
+          const pppCell = tiers.map((t) => (t.ppp != null ? f2(t.ppp) : '—')).join('\n')
+          return [row.prod.name, row.prod.category || '—', row.pkg.name, pplCell, pppCell]
+        }
+        return [
+          row.prod.name,
+          row.prod.category || '—',
+          row.pkg.name,
+          row.ppl ? `£${row.ppl.toFixed(4)}` : '—',
+          f2(row.ppp),
+        ]
+      }),
       styles: { font: FONT, fontSize: 9, cellPadding: 2, lineColor: [200, 200, 200], lineWidth: 0.2, textColor: [30, 30, 30] },
       headStyles: { fillColor: [r, g, b], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 8.5 },
       columnStyles: {

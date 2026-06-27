@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, Fragment } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import PricingGuard from '@/app/(app)/PricingGuard'
 import { generatePriceListPDF } from '@/lib/pdf'
@@ -9,6 +9,13 @@ function toast(msg) {
   if (!t) { t = document.createElement('div'); t.id = 'toast'; t.className = 'toast'; document.body.appendChild(t) }
   t.textContent = msg; t.classList.add('show')
   clearTimeout(t._t); t._t = setTimeout(() => t.classList.remove('show'), 2000)
+}
+
+// "1–2", "5+", "3" — a quantity band label from a tier
+export function bandLabel(t) {
+  if (t.to == null) return `${t.from}+`
+  if (t.to === t.from) return `${t.from}`
+  return `${t.from}–${t.to}`
 }
 
 const gridTh = { border: '1px solid var(--border)', padding: '7px 10px', background: 'var(--panel-2)', fontWeight: 600, fontSize: 12, textTransform: 'uppercase', letterSpacing: '.04em' }
@@ -30,7 +37,7 @@ export default function PriceListPage() {
       supabase.from('products').select('id, name, category').order('category').order('name'),
       supabase.from('packaging').select('id, name, volume').order('volume'),
       supabase.from('customer_product_prices')
-        .select('id, customer_id, product_id, packaging_id, price_per_litre')
+        .select('id, customer_id, product_id, packaging_id, price_per_litre, qty_tiers')
         .gt('price_per_litre', 0),
       supabase.from('letterheads').select('*').order('name'),
     ])
@@ -57,7 +64,19 @@ export default function PriceListPage() {
             const vol  = pkg?.volume || 0
             const ppl  = p.price_per_litre || 0
             const ppp  = vol > 0 ? ppl * vol : null
-            return { id: p.id, prod, pkg, vol, ppl, ppp }
+            const tiers = (Array.isArray(p.qty_tiers) ? p.qty_tiers : [])
+              .map((t) => {
+                const tppl = Number(t.ppl) || 0
+                return {
+                  from: t.from != null ? Number(t.from) : null,
+                  to: t.to != null && t.to !== '' ? Number(t.to) : null,
+                  ppl: tppl,
+                  ppp: vol > 0 ? tppl * vol : null,
+                }
+              })
+              .filter((t) => t.from != null && t.ppl > 0)
+              .sort((a, b) => a.from - b.from)
+            return { id: p.id, prod, pkg, vol, ppl, ppp, tiers }
           })
           .filter((r) => r.prod && r.pkg)
           .sort((a, b) => {
@@ -203,8 +222,10 @@ export default function PriceListPage() {
                 {e.rows.map((r, i) => {
                   const isEditing = editingId === r.id
                   const rowBg = i % 2 === 0 ? '#fff' : 'rgba(31,168,107,0.06)'
+                  const hasTiers = (r.tiers || []).length > 0
                   return (
-                    <tr key={r.id} style={{ background: rowBg }}>
+                    <Fragment key={r.id}>
+                    <tr style={{ background: rowBg }}>
                       <td style={gridTd}>{r.prod.name}</td>
                       <td style={{ ...gridTd, color: 'var(--muted)' }}>{r.prod.category || '—'}</td>
                       <td style={gridTd}>{r.pkg.name}</td>
@@ -243,6 +264,26 @@ export default function PriceListPage() {
                         )}
                       </td>
                     </tr>
+                    {hasTiers && (
+                      <tr style={{ background: rowBg }}>
+                        <td style={{ ...gridTd, borderTop: 'none', paddingTop: 0, paddingBottom: 9 }} colSpan={5}>
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+                            <span style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.04em', color: 'var(--accent)' }}>
+                              Qty breaks
+                            </span>
+                            {r.tiers.map((t, ti) => (
+                              <span key={ti} style={{
+                                fontSize: 12, background: 'rgba(31,168,107,0.12)', border: '1px solid rgba(31,168,107,0.35)',
+                                borderRadius: 6, padding: '2px 8px', fontFamily: 'monospace', color: 'var(--ink)',
+                              }}>
+                                <b>{bandLabel(t)} {r.pkg.name}</b>: £{t.ppl.toFixed(4)}/L{t.ppp != null ? ` · £${t.ppp.toFixed(2)}/pack` : ''}
+                              </span>
+                            ))}
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                    </Fragment>
                   )
                 })}
               </tbody>
