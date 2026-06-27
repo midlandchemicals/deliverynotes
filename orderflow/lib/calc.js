@@ -1,6 +1,14 @@
 // Pure calculation helpers shared across the app.
 import { lookupADR } from './adr'
 
+// Buyer price levels for three_tier_pricing customers. `col` is the DB column
+// on customer_product_prices; `key` is stored on the order's price_level.
+export const PRICE_LEVELS = [
+  { key: 'trade', label: 'Trade', col: 'price_trade' },
+  { key: 'buyer_group', label: 'Buyer group', col: 'price_buyer_group' },
+  { key: 'retail', label: 'Retail', col: 'price_retail' },
+]
+
 export function num(v) {
   const n = parseFloat(String(v ?? '').replace(/,/g, ''))
   return isNaN(n) ? 0 : n

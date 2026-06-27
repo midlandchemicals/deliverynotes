@@ -483,11 +483,19 @@ export function generatePriceListPDF(entries, fallbackLh = {}) {
       y -= 1
     }
 
+    const threeTier = !!e.customer?.three_tier_pricing
+    const money4 = (v) => (v != null ? `£${Number(v).toFixed(4)}` : '—')
     autoTable(doc, {
       startY: y + 2,
       margin: { left: M, right: M, bottom: 18 },
-      head: [['Product', 'Range', 'Packaging', '£ / Litre', '£ / Pack']],
+      head: threeTier
+        ? [['Product', 'Range', 'Packaging', 'Trade £/L', 'Buyer group £/L', 'Retail £/L']]
+        : [['Product', 'Range', 'Packaging', '£ / Litre', '£ / Pack']],
       body: e.rows.map((row) => {
+        if (threeTier) {
+          const lv = row.levels || {}
+          return [row.prod.name, row.prod.category || '—', row.pkg.name, money4(lv.trade), money4(lv.buyer_group), money4(lv.retail)]
+        }
         const tiers = row.tiers || []
         if (tiers.length) {
           // Quantity-break ladder: one line per band, aligned across both columns.
@@ -505,10 +513,9 @@ export function generatePriceListPDF(entries, fallbackLh = {}) {
       }),
       styles: { font: FONT, fontSize: 9, cellPadding: 2, lineColor: [200, 200, 200], lineWidth: 0.2, textColor: [30, 30, 30] },
       headStyles: { fillColor: [r, g, b], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 8.5 },
-      columnStyles: {
-        3: { halign: 'right', cellWidth: 26 },
-        4: { halign: 'right', cellWidth: 26, fontStyle: 'bold' },
-      },
+      columnStyles: threeTier
+        ? { 3: { halign: 'right', cellWidth: 24 }, 4: { halign: 'right', cellWidth: 28 }, 5: { halign: 'right', cellWidth: 24 } }
+        : { 3: { halign: 'right', cellWidth: 26 }, 4: { halign: 'right', cellWidth: 26, fontStyle: 'bold' } },
       alternateRowStyles: { fillColor: [240, 247, 244] },
     })
 

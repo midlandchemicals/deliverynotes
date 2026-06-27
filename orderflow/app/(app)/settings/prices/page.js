@@ -3,6 +3,7 @@ import { useEffect, useState, useMemo, useRef, Fragment } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import PricingGuard from '@/app/(app)/PricingGuard'
 import Combobox from '@/app/(app)/Combobox'
+import { PRICE_LEVELS } from '@/lib/calc'
 
 // Loose match between a product's range/category and a customer name, so a
 // customer called "CIS Industrial Services" matches products whose range is
@@ -36,11 +37,12 @@ export default function PricesPage() {
   const [drafts, setDrafts] = useState([]) // bulk-fill rows awaiting prices
   const dupSeq = useRef(0)                  // counter for unique duplicate-draft keys
   const [tiersRowId, setTiersRowId] = useState(null) // saved-row id whose qty tiers are open
+  const [level, setLevel] = useState('trade')        // active buyer level for 3-tier customers
 
   useEffect(() => {
     ;(async () => {
       const [c, p, k] = await Promise.all([
-        supabase.from('customers').select('id, name').order('name'),
+        supabase.from('customers').select('id, name, three_tier_pricing').order('name'),
         supabase.from('products').select('id, name, category').order('category').order('name'),
         supabase.from('packaging').select('id, name, volume').order('volume'),
       ])
@@ -58,7 +60,7 @@ export default function PricesPage() {
 
   async function loadPrices(cid) {
     const { data } = await supabase.from('customer_product_prices')
-      .select('id, product_id, packaging_id, price_per_litre, delivery_charge, qty_tiers, tier_basis')
+      .select('id, product_id, packaging_id, price_per_litre, delivery_charge, qty_tiers, tier_basis, price_trade, price_buyer_group, price_retail')
       .eq('customer_id', cid)
     setRows((data || []).map((r) => ({ ...r, qty_tiers: Array.isArray(r.qty_tiers) ? r.qty_tiers : [], tier_basis: r.tier_basis || 'line' })))
   }
@@ -67,11 +69,32 @@ export default function PricesPage() {
     return packaging.find((p) => p.id === packagingId)?.volume || 0
   }
 
-  // When £/L changes: update row, compute new ppp, save
+  // Which DB column the £/L inputs write to. For 3-tier customers it's the
+  // active buyer level's column; otherwise the plain price_per_litre.
+  function priceCol() {
+    return (PRICE_LEVELS.find((l) => l.key === level) || PRICE_LEVELS[0]).col
+  }
+  // The stored £/L to show for a row at the active level.
+  function rowPpl(row) {
+    if (isThreeTier) return parseFloat(row[priceCol()]) || 0
+    return row.price_per_litre || 0
+  }
+  // Patch that writes a £/L to the right column(s) for the active mode.
+  function pplPatch(ppl) {
+    if (isThreeTier) {
+      const patch = { [priceCol()]: ppl, updated_at: new Date().toISOString() }
+      if (level === 'trade') patch.price_per_litre = ppl // keep fallback synced to Trade
+      return patch
+    }
+    return { price_per_litre: ppl, updated_at: new Date().toISOString() }
+  }
+
+  // When £/L changes: update row, save to the active level's column
   async function handlePplChange(rowId, val) {
     const ppl = parseFloat(val) || 0
-    setRows((r) => r.map((x) => (x.id === rowId ? { ...x, price_per_litre: ppl } : x)))
-    await supabase.from('customer_product_prices').update({ price_per_litre: ppl, updated_at: new Date().toISOString() }).eq('id', rowId)
+    const patch = pplPatch(ppl)
+    setRows((r) => r.map((x) => (x.id === rowId ? { ...x, ...patch } : x)))
+    await supabase.from('customer_product_prices').update(patch).eq('id', rowId)
   }
 
   // When £/pack changes: compute ppl from volume, update row, save
@@ -79,8 +102,9 @@ export default function PricesPage() {
     const ppp = parseFloat(val) || 0
     const vol = pkgVol(packagingId)
     const ppl = vol > 0 ? ppp / vol : 0
-    setRows((r) => r.map((x) => (x.id === rowId ? { ...x, price_per_litre: ppl } : x)))
-    await supabase.from('customer_product_prices').update({ price_per_litre: ppl, updated_at: new Date().toISOString() }).eq('id', rowId)
+    const patch = pplPatch(ppl)
+    setRows((r) => r.map((x) => (x.id === rowId ? { ...x, ...patch } : x)))
+    await supabase.from('customer_product_prices').update(patch).eq('id', rowId)
   }
 
   async function handleDeliveryChange(rowId, val) {
@@ -154,9 +178,11 @@ export default function PricesPage() {
       return vol > 0 ? (parseFloat(newRow.ppp) || 0) / vol : 0
     })()
     const dc = parseFloat(newRow.dc) || 0
+    const insert = { customer_id: customerId, product_id: newRow.productId, packaging_id: newRow.packagingId, price_per_litre: ppl, delivery_charge: dc }
+    if (isThreeTier) insert[priceCol()] = ppl   // seed the active buyer level too
     const { data, error } = await supabase.from('customer_product_prices')
-      .insert({ customer_id: customerId, product_id: newRow.productId, packaging_id: newRow.packagingId, price_per_litre: ppl, delivery_charge: dc })
-      .select('id, product_id, packaging_id, price_per_litre, delivery_charge').single()
+      .insert(insert)
+      .select('id, product_id, packaging_id, price_per_litre, delivery_charge, price_trade, price_buyer_group, price_retail').single()
     if (error) { toast(error.message); return }
     setRows((r) => [...r, data])
     setAdding(false)
@@ -226,7 +252,9 @@ export default function PricesPage() {
     const payload = toSave.map((d) => {
       const vol = pkgVol(d.packagingId)
       const ppl = d.ppl ? (parseFloat(d.ppl) || 0) : (vol > 0 ? (parseFloat(d.ppp) || 0) / vol : 0)
-      return { customer_id: customerId, product_id: d.productId, packaging_id: d.packagingId, price_per_litre: ppl, delivery_charge: parseFloat(d.dc) || 0 }
+      const row = { customer_id: customerId, product_id: d.productId, packaging_id: d.packagingId, price_per_litre: ppl, delivery_charge: parseFloat(d.dc) || 0 }
+      if (isThreeTier) row[priceCol()] = ppl   // seed the active buyer level
+      return row
     })
     const { error } = await supabase.from('customer_product_prices').insert(payload)
     if (error) { toast(error.message); return }
@@ -258,6 +286,7 @@ export default function PricesPage() {
   }
 
   const selectedCustomer = customers.find((c) => c.id === customerId)
+  const isThreeTier = !!selectedCustomer?.three_tier_pricing
 
   // Searchable product options, with this customer's own range floated to the top.
   const productOptions = useMemo(() => {
@@ -290,13 +319,29 @@ export default function PricesPage() {
         </select>
       </div>
 
+      {customerId && isThreeTier && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16, flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 600 }}>Editing buyer level:</span>
+          <div className="theme-tog" style={{ background: 'var(--field-bg)' }}>
+            {PRICE_LEVELS.map((l) => (
+              <button key={l.key} className={level === l.key ? 'on' : ''} onClick={() => setLevel(l.key)}>{l.label}</button>
+            ))}
+          </div>
+          <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>
+            This customer has 3 buyer prices per product. Enter each level’s £/litre — switch levels and the same rows stay; only the price changes.
+          </span>
+        </div>
+      )}
+
       {customerId && (
         <>
           <table className="tbl">
             <thead><tr>
               <th>Product</th>
               <th>Packaging</th>
-              <th style={{ textAlign: 'right', width: '13%' }}>£ / Litre</th>
+              <th style={{ textAlign: 'right', width: '13%' }}>
+                {isThreeTier ? `${(PRICE_LEVELS.find((l) => l.key === level) || {}).label} £/L` : '£ / Litre'}
+              </th>
               <th style={{ textAlign: 'right', width: '13%' }}>£ / Pack</th>
               <th style={{ textAlign: 'right', width: '13%' }}>Delivery (£)</th>
               <th style={{ width: '4%' }}></th>
@@ -307,7 +352,7 @@ export default function PricesPage() {
               )}
               {rows.map((row) => {
                 const vol = pkgVol(row.packaging_id)
-                const ppl = row.price_per_litre || 0
+                const ppl = rowPpl(row)
                 const ppp = vol > 0 ? ppl * vol : 0
                 const prod = products.find((p) => p.id === row.product_id)
                 const pkg = packaging.find((p) => p.id === row.packaging_id)
@@ -322,7 +367,7 @@ export default function PricesPage() {
                       <input className="mono" style={{ textAlign: 'right' }}
                         value={ppl || ''}
                         placeholder="0.0000"
-                        onChange={(e) => setRows((r) => r.map((x) => (x.id === row.id ? { ...x, price_per_litre: e.target.value } : x)))}
+                        onChange={(e) => setRows((r) => r.map((x) => (x.id === row.id ? { ...x, ...(isThreeTier ? { [priceCol()]: e.target.value } : { price_per_litre: e.target.value }) } : x)))}
                         onBlur={(e) => handlePplChange(row.id, e.target.value)}
                       />
                     </td>
@@ -333,7 +378,7 @@ export default function PricesPage() {
                         onChange={(e) => setRows((r) => r.map((x) => {
                           if (x.id !== row.id) return x
                           const newPpl = vol > 0 ? (parseFloat(e.target.value) || 0) / vol : 0
-                          return { ...x, price_per_litre: newPpl }
+                          return { ...x, ...(isThreeTier ? { [priceCol()]: newPpl } : { price_per_litre: newPpl }) }
                         }))}
                         onBlur={(e) => handlePppChange(row.id, row.packaging_id, e.target.value)}
                       />
@@ -347,12 +392,14 @@ export default function PricesPage() {
                       />
                     </td>
                     <td style={{ whiteSpace: 'nowrap' }}>
-                      <button
-                        className={'btn btn-sm ' + (tiersOpen ? 'btn-a' : 'btn-g')}
-                        style={{ padding: '2px 7px', marginRight: 4 }}
-                        title="Quantity-break pricing (price per litre changes with packs ordered)"
-                        onClick={() => setTiersRowId(tiersOpen ? null : row.id)}
-                      >{tiersOpen ? 'Close' : (tiers.length ? `⇅ ${tiers.length}` : '⇅')}</button>
+                      {!isThreeTier && (
+                        <button
+                          className={'btn btn-sm ' + (tiersOpen ? 'btn-a' : 'btn-g')}
+                          style={{ padding: '2px 7px', marginRight: 4 }}
+                          title="Quantity-break pricing (price per litre changes with packs ordered)"
+                          onClick={() => setTiersRowId(tiersOpen ? null : row.id)}
+                        >{tiersOpen ? 'Close' : (tiers.length ? `⇅ ${tiers.length}` : '⇅')}</button>
+                      )}
                       <button className="btn btn-g btn-sm" style={{ padding: '2px 7px', marginRight: 4 }}
                         title="Add another packaging size for this product"
                         onClick={() => duplicateProduct(row.product_id, null)}>⧉</button>
