@@ -22,8 +22,10 @@ export default function OrderDetailPage() {
   const [lines, setLines] = useState([])
   const [dispatched, setDispatched] = useState([])
 
-  // pricing: { [productId]: pricePerLitre }
+  // pricing: { [productId::packagingId]: pricePerLitre } — base/fallback price
   const [prices, setPrices] = useState({})
+  // quantity-break tiers: { [productId::packagingId]: [{from,to,ppl}] }
+  const [priceTiers, setPriceTiers] = useState({})
   const [deliveryCharge, setDeliveryCharge] = useState('')
   const [labelPriceRaw, setLabelPriceRaw] = useState('')  // raw string while editing
   const labelPrice = parseFloat(labelPriceRaw) || 0
@@ -74,7 +76,7 @@ export default function OrderDetailPage() {
       if (o.data?.customer_id) {
         const [priceData, custData, tiersData] = await Promise.all([
           supabase.from('customer_product_prices')
-            .select('product_id, packaging_id, price_per_litre, delivery_charge').eq('customer_id', o.data.customer_id),
+            .select('product_id, packaging_id, price_per_litre, delivery_charge, qty_tiers').eq('customer_id', o.data.customer_id),
           supabase.from('customers').select('label_price, default_delivery_charge, free_delivery_above, default_letterhead_id').eq('id', o.data.customer_id).single(),
           supabase.from('customer_delivery_tiers').select('*').eq('customer_id', o.data.customer_id).order('pallets_from'),
         ])
@@ -89,6 +91,13 @@ export default function OrderDetailPage() {
         setAvailableByProduct(availMap)
         if (priceRows.length) {
           setPrices(Object.fromEntries(priceRows.map((r) => [`${r.product_id}::${r.packaging_id}`, r.price_per_litre])))
+          setPriceTiers(Object.fromEntries(priceRows.map((r) => [
+            `${r.product_id}::${r.packaging_id}`,
+            (Array.isArray(r.qty_tiers) ? r.qty_tiers : [])
+              .map((t) => ({ from: Number(t.from) || 0, to: t.to == null || t.to === '' ? null : Number(t.to), ppl: Number(t.ppl) || 0 }))
+              .filter((t) => t.ppl > 0)
+              .sort((a, b) => a.from - b.from),
+          ])))
           // Auto-fill delivery charge from products in this order
           const autoDelivery = priceRows.reduce((sum, r) => {
             const inOrder = orderLines.some((l) => l.productId === r.product_id && l.packagingId === r.packaging_id)
@@ -180,6 +189,17 @@ export default function OrderDetailPage() {
     )
   }
 
+  // Effective £/litre for a line, honouring quantity-break tiers.
+  // qty = number of packs on the line. Falls back to the base price.
+  function pplFor(productId, packagingId, qty) {
+    const key = `${productId}::${packagingId}`
+    const base = parseFloat(prices[key]) || 0
+    const tiers = priceTiers[key] || []
+    const q = parseFloat(qty) || 0
+    const hit = tiers.find((t) => q >= t.from && (t.to == null || q <= t.to))
+    return hit ? hit.ppl : base
+  }
+
   function printOfficeCopy(d) {
     const unpriced = lines.filter((l) => {
       const c = computeLine(l, products, packaging)
@@ -201,7 +221,7 @@ export default function OrderDetailPage() {
       lines, options: d.options,
       pallets: d.totals?.pallets || 0, batches,
     }
-    generateOfficeCopyPDF(doc_, lh, products, packaging, prices, parseFloat(deliveryCharge) || 0, labelTotal)
+    generateOfficeCopyPDF(doc_, lh, products, packaging, prices, parseFloat(deliveryCharge) || 0, labelTotal, priceTiers)
   }
 
   function printNote() {
@@ -250,7 +270,7 @@ ${items.map((it) => `  <li>${it.name}${it.pack ? ` — ${it.qty} x ${it.pack}` :
     if (!custFreeAbove && !custDeliveryTiers.length) return
     const subtotal = lines.reduce((sum, l) => {
       const c = computeLine(l, products, packaging)
-      const ppl = parseFloat(prices[`${c.product?.id}::${c.packaging?.id}`]) || 0
+      const ppl = pplFor(c.product?.id, c.packaging?.id, c.qty)
       return sum + ppl * (c.vol || 0) * c.qty
     }, 0)
     // Free-delivery threshold takes highest priority
@@ -267,7 +287,7 @@ ${items.map((it) => `  <li>${it.name}${it.pack ? ` — ${it.qty} x ${it.pack}` :
       if (tier != null) setDeliveryCharge(Number(tier.charge).toFixed(2))
       else setDeliveryCharge('')
     }
-  }, [custFreeAbove, custDeliveryTiers, pallets, noPallets, lines, prices])
+  }, [custFreeAbove, custDeliveryTiers, pallets, noPallets, lines, prices, priceTiers])
 
   function startDispatch() {
     const lh = letterheads[lhIndex]
@@ -321,7 +341,7 @@ ${items.map((it) => `  <li>${it.name}${it.pack ? ` — ${it.qty} x ${it.pack}` :
     const { totals } = generateDispatchPDF(docData, lh, products, packaging, prices)
     const linesSnap = lines.map((l, i) => {
       const c = computeLine(l, products, packaging)
-      const ppl = parseFloat(prices[`${c.product?.id}::${c.packaging?.id}`]) || 0
+      const ppl = pplFor(c.product?.id, c.packaging?.id, c.qty)
       const unitPrice = ppl * (c.vol || 0)
       return {
         productName: c.productName, pg: c.pg, un_number: c.un_number,
@@ -357,7 +377,7 @@ ${items.map((it) => `  <li>${it.name}${it.pack ? ` — ${it.qty} x ${it.pack}` :
 
   const orderTotal = lines.reduce((sum, l) => {
     const c = computeLine(l, products, packaging)
-    const ppl = parseFloat(prices[`${c.product?.id}::${c.packaging?.id}`]) || 0
+    const ppl = pplFor(c.product?.id, c.packaging?.id, c.qty)
     return sum + ppl * (c.vol || 0) * c.qty
   }, 0)
 
@@ -429,8 +449,10 @@ ${items.map((it) => `  <li>${it.name}${it.pack ? ` — ${it.qty} x ${it.pack}` :
                 const c = computeLine(l, products, packaging)
                 if (!c.product) return null
                 const priceKey = `${c.product.id}::${c.packaging?.id}`
-                const ppl = parseFloat(prices[priceKey]) || 0
-                const unitPrice = ppl * (c.vol || 0)
+                const ppl = parseFloat(prices[priceKey]) || 0     // base/list price (editable)
+                const effPpl = pplFor(c.product.id, c.packaging?.id, c.qty) // tiered price for this qty
+                const tierApplied = (priceTiers[priceKey] || []).length > 0 && effPpl !== ppl
+                const unitPrice = effPpl * (c.vol || 0)
                 const lineTotal = unitPrice * c.qty
                 return (
                   <tr key={i}>
@@ -456,6 +478,11 @@ ${items.map((it) => `  <li>${it.name}${it.pack ? ` — ${it.qty} x ${it.pack}` :
                           savePrice(c.product.id, c.packaging?.id, v)
                         }}
                       />
+                      {tierApplied && (
+                        <div style={{ fontSize: 10.5, color: 'var(--accent)', textAlign: 'right', marginTop: 2 }}>
+                          ⇅ qty {c.qty}: £{effPpl.toFixed(4)}/L
+                        </div>
+                      )}
                     </td>
                     <td className="mono" style={{ textAlign: 'right' }}>{unitPrice > 0 ? `£${unitPrice.toFixed(2)}` : '—'}</td>
                     <td className="mono" style={{ textAlign: 'right' }}>{c.qty}</td>

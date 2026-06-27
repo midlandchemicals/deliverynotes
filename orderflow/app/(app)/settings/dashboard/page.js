@@ -24,7 +24,7 @@ export default function DashboardPage() {
         supabase.from('orders').select('*').order('created_at', { ascending: false }),
         supabase.from('products').select('id, name, sg'),
         supabase.from('packaging').select('id, name, volume, tare'),
-        supabase.from('customer_product_prices').select('customer_id, product_id, packaging_id, price_per_litre, delivery_charge'),
+        supabase.from('customer_product_prices').select('customer_id, product_id, packaging_id, price_per_litre, delivery_charge, qty_tiers'),
         supabase.from('customers').select('id, name, default_letterhead_id'),
         supabase.from('letterheads').select('id, name, company, color'),
       ])
@@ -35,9 +35,25 @@ export default function DashboardPage() {
       const customers = custRes.data || []
       const letterheads = lhRes.data || []
 
-      // price lookup: `${customer}::${product}::${packaging}` -> ppl
+      // price lookup: `${customer}::${product}::${packaging}` -> ppl (base)
+      // tierMap: same key -> [{from,to,ppl}] quantity-break bands
       const priceMap = {}
-      for (const p of prices) priceMap[`${p.customer_id}::${p.product_id}::${p.packaging_id}`] = p.price_per_litre || 0
+      const tierMap = {}
+      for (const p of prices) {
+        const key = `${p.customer_id}::${p.product_id}::${p.packaging_id}`
+        priceMap[key] = p.price_per_litre || 0
+        tierMap[key] = (Array.isArray(p.qty_tiers) ? p.qty_tiers : [])
+          .map((t) => ({ from: Number(t.from) || 0, to: t.to == null || t.to === '' ? null : Number(t.to), ppl: Number(t.ppl) || 0 }))
+          .filter((t) => t.ppl > 0)
+          .sort((a, b) => a.from - b.from)
+      }
+      // Effective £/litre for a customer/product/packaging at a given pack qty,
+      // matching the order page: a tier band overrides the base when qty fits.
+      function pplFor(key, qty) {
+        const tiers = tierMap[key] || []
+        const hit = tiers.find((t) => qty >= t.from && (t.to == null || qty <= t.to))
+        return hit ? hit.ppl : (priceMap[key] || 0)
+      }
       const custName = Object.fromEntries(customers.map((c) => [c.id, c.name]))
       const custLh = Object.fromEntries(customers.map((c) => [c.id, c.default_letterhead_id || null]))
       const lhById = Object.fromEntries(letterheads.map((l) => [l.id, l]))
@@ -52,7 +68,7 @@ export default function DashboardPage() {
         for (const l of (o.lines || [])) {
           const c = computeLine(l, products, packaging)
           if (!c.product || !c.packaging) continue
-          const ppl = priceMap[`${o.customer_id}::${c.product.id}::${c.packaging.id}`] || 0
+          const ppl = pplFor(`${o.customer_id}::${c.product.id}::${c.packaging.id}`, c.qty)
           const lineVal = ppl * (c.vol || 0) * c.qty
           total += lineVal
           byProduct[c.product.id] = (byProduct[c.product.id] || 0) + lineVal
