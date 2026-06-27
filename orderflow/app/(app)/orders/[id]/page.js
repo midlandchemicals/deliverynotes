@@ -469,25 +469,16 @@ ${items.map((it) => `  <li>${it.name}${it.pack ? ` — ${it.qty} x ${it.pack}` :
                     <td>{c.packaging?.name || '—'}</td>
                     <td>
                       {tierApplied ? (
-                        // A quantity tier is in effect — show the APPLIED price as the
-                        // headline (so it matches the unit price), with the editable
-                        // list/base price demoted to a small field beneath it.
-                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2 }}>
+                        // A quantity tier is in effect — show ONLY the charged price.
+                        // The base/list price doesn't apply here, so we keep it off the
+                        // display (it's set in Price Entry, and shows inline again if an
+                        // order qty ever falls outside the tier bands). Base on hover.
+                        <div
+                          style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2 }}
+                          title={`Quantity-break tier for ${c.qty} packs. List price £${(parseFloat(prices[priceKey]) || 0).toFixed(4)}/L is not charged at this quantity.`}
+                        >
                           <span className="mono" style={{ fontWeight: 700, fontSize: 15, color: 'var(--accent)' }}>£{effPpl.toFixed(4)}</span>
-                          <span style={{ fontSize: 10.5, color: 'var(--accent)' }}>⇅ tier price · qty {c.qty}</span>
-                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, color: 'var(--muted)', marginTop: 1 }}>
-                            list £
-                            <input className="mono" style={{ width: 64, textAlign: 'right', fontSize: 11, padding: '2px 5px' }}
-                              value={prices[priceKey] ?? ''}
-                              placeholder="0.0000"
-                              onChange={(e) => setPrices((p) => ({ ...p, [priceKey]: e.target.value }))}
-                              onBlur={(e) => {
-                                const v = parseFloat(e.target.value) || 0
-                                setPrices((p) => ({ ...p, [priceKey]: v }))
-                                savePrice(c.product.id, c.packaging?.id, v)
-                              }}
-                            />
-                          </span>
+                          <span style={{ fontSize: 10.5, color: 'var(--accent)' }}>⇅ tier price · {c.qty} packs</span>
                         </div>
                       ) : (
                         <input className="mono" style={{ textAlign: 'right' }}
