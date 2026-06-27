@@ -11,7 +11,7 @@ export default function ThemeToggle() {
 
   // Read the theme the no-flash script already applied to <html>.
   useEffect(() => {
-    const current = document.documentElement.getAttribute('data-theme') || 'midnight'
+    const current = document.documentElement.getAttribute('data-theme') || 'ivory'
     setTheme(current)
   }, [])
 

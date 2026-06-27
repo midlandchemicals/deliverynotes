@@ -2,6 +2,7 @@
 import Link from 'next/link'
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import FactOfTheDay from './FactOfTheDay'
 
 function nameFromEmail(email) {
   if (!email) return ''
@@ -17,17 +18,20 @@ export default function HomePage() {
   }, [])
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: 'calc(100vh - 100px)', padding: '40px 20px' }}>
-      {name && (
-        <p style={{ color: 'var(--muted)', fontSize: 17, marginBottom: 8 }}>
-          Welcome back, <strong style={{ color: 'var(--ink)' }}>{name}</strong>
-        </p>
-      )}
-      <h1 style={{ fontSize: 30, fontWeight: 800, marginBottom: 40, color: 'var(--ink)', letterSpacing: '-.02em' }}>What would you like to do?</h1>
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '12px 20px 60px' }}>
+      <p style={{ fontSize: 34, fontWeight: 700, margin: '0 0 18px', color: 'var(--heading)', letterSpacing: '-.02em', textAlign: 'center', fontFamily: 'var(--font-display)', minHeight: 42 }}>
+        Welcome back{name ? <>, <span style={{ color: 'var(--accent)' }}>{name}</span></> : ''}
+      </p>
+
+      <div style={{ width: '100%', marginBottom: 30 }}>
+        <FactOfTheDay />
+      </div>
+
+      <h1 style={{ fontSize: 22, fontWeight: 700, marginBottom: 22, color: 'var(--ink)', letterSpacing: '-.01em', textAlign: 'center' }}>What would you like to do?</h1>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 260px)', gap: 24, alignItems: 'stretch' }}>
         <HomeCard href="/orders/new" icon="＋" title="New Order" desc="Create a new delivery note" accent />
         <HomeCard href="/orders"     icon="📋" title="Order Book" desc="View and manage all delivery notes" />
-        <HomeCard href="/settings/products" icon="⚙" title="Admin" desc="Products, pricing, customers & letterheads" />
+        <HomeCard href="/settings/dashboard" icon="⚙" title="Admin" desc="Products, pricing, customers & letterheads" />
       </div>
     </div>
   )
