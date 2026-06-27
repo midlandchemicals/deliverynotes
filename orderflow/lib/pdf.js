@@ -278,7 +278,9 @@ export function generateDispatchPDF(doc_, lh, products, packaging) {
 
 // Office copy — B&W, "FOR OFFICE USE ONLY" banner, pricing columns + VAT + grand total.
 // pricing key format: `${productId}::${packagingId}`
-export function generateOfficeCopyPDF(doc_, lh, products, packaging, pricing = {}, deliveryCharge = 0, labelTotal = 0) {
+// tiersByKey (optional), same key -> [{from,to,ppl}]: quantity-break prices that
+// override the base when the line's pack qty falls within a band.
+export function generateOfficeCopyPDF(doc_, lh, products, packaging, pricing = {}, deliveryCharge = 0, labelTotal = 0, tiersByKey = {}) {
   const BK = [20, 20, 20]
   const MU = [90, 90, 90]
   const f2 = (n) => `£${(Math.round(n * 100) / 100).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
@@ -350,7 +352,9 @@ export function generateOfficeCopyPDF(doc_, lh, products, packaging, pricing = {
   const lineData = doc_.lines.map((l, i) => {
     const c = computeLine(l, products, packaging)
     const key = `${c.product?.id}::${c.packaging?.id}`
-    const ppl = parseFloat(pricing[key]) || 0
+    const tiers = tiersByKey[key] || []
+    const hit = tiers.find((t) => c.qty >= t.from && (t.to == null || c.qty <= t.to))
+    const ppl = hit ? hit.ppl : (parseFloat(pricing[key]) || 0)
     const unitPrice = ppl * (c.vol || 0)
     const lineTotal = unitPrice * c.qty
     return { c, unitPrice, lineTotal, batch: doc_.batches?.[i] || '' }
