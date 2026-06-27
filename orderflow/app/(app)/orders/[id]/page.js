@@ -26,6 +26,8 @@ export default function OrderDetailPage() {
   const [prices, setPrices] = useState({})
   // quantity-break tiers: { [productId::packagingId]: [{from,to,ppl}] }
   const [priceTiers, setPriceTiers] = useState({})
+  // tier basis per price row: { [productId::packagingId]: 'line' | 'order' }
+  const [tierBasis, setTierBasis] = useState({})
   const [deliveryCharge, setDeliveryCharge] = useState('')
   const [labelPriceRaw, setLabelPriceRaw] = useState('')  // raw string while editing
   const labelPrice = parseFloat(labelPriceRaw) || 0
@@ -76,7 +78,7 @@ export default function OrderDetailPage() {
       if (o.data?.customer_id) {
         const [priceData, custData, tiersData] = await Promise.all([
           supabase.from('customer_product_prices')
-            .select('product_id, packaging_id, price_per_litre, delivery_charge, qty_tiers').eq('customer_id', o.data.customer_id),
+            .select('product_id, packaging_id, price_per_litre, delivery_charge, qty_tiers, tier_basis').eq('customer_id', o.data.customer_id),
           supabase.from('customers').select('label_price, default_delivery_charge, free_delivery_above, default_letterhead_id').eq('id', o.data.customer_id).single(),
           supabase.from('customer_delivery_tiers').select('*').eq('customer_id', o.data.customer_id).order('pallets_from'),
         ])
@@ -98,6 +100,7 @@ export default function OrderDetailPage() {
               .filter((t) => t.ppl > 0)
               .sort((a, b) => a.from - b.from),
           ])))
+          setTierBasis(Object.fromEntries(priceRows.map((r) => [`${r.product_id}::${r.packaging_id}`, r.tier_basis || 'line'])))
           // Auto-fill delivery charge from products in this order
           const autoDelivery = priceRows.reduce((sum, r) => {
             const inOrder = orderLines.some((l) => l.productId === r.product_id && l.packagingId === r.packaging_id)
@@ -189,13 +192,25 @@ export default function OrderDetailPage() {
     )
   }
 
+  // Combined pack qty across every line whose price row is in 'order' (combined)
+  // mode — this is the "mix of products" total that picks the band for them.
+  function combinedSchemeQty() {
+    return lines.reduce((sum, l) => {
+      const c = computeLine(l, products, packaging)
+      if (!c.product || !c.packaging) return sum
+      const key = `${c.product.id}::${c.packaging.id}`
+      return tierBasis[key] === 'order' ? sum + (c.qty || 0) : sum
+    }, 0)
+  }
+
   // Effective £/litre for a line, honouring quantity-break tiers.
-  // qty = number of packs on the line. Falls back to the base price.
-  function pplFor(productId, packagingId, qty) {
+  // lineQty = number of packs on this line. For 'order'-basis rows the band is
+  // chosen by the combined qty of all combined-mode products. Falls back to base.
+  function pplFor(productId, packagingId, lineQty) {
     const key = `${productId}::${packagingId}`
     const base = parseFloat(prices[key]) || 0
     const tiers = priceTiers[key] || []
-    const q = parseFloat(qty) || 0
+    const q = tierBasis[key] === 'order' ? combinedSchemeQty() : (parseFloat(lineQty) || 0)
     const hit = tiers.find((t) => q >= t.from && (t.to == null || q <= t.to))
     return hit ? hit.ppl : base
   }
@@ -221,7 +236,7 @@ export default function OrderDetailPage() {
       lines, options: d.options,
       pallets: d.totals?.pallets || 0, batches,
     }
-    generateOfficeCopyPDF(doc_, lh, products, packaging, prices, parseFloat(deliveryCharge) || 0, labelTotal, priceTiers)
+    generateOfficeCopyPDF(doc_, lh, products, packaging, prices, parseFloat(deliveryCharge) || 0, labelTotal, priceTiers, tierBasis)
   }
 
   function printNote() {
@@ -287,7 +302,7 @@ ${items.map((it) => `  <li>${it.name}${it.pack ? ` — ${it.qty} x ${it.pack}` :
       if (tier != null) setDeliveryCharge(Number(tier.charge).toFixed(2))
       else setDeliveryCharge('')
     }
-  }, [custFreeAbove, custDeliveryTiers, pallets, noPallets, lines, prices, priceTiers])
+  }, [custFreeAbove, custDeliveryTiers, pallets, noPallets, lines, prices, priceTiers, tierBasis])
 
   function startDispatch() {
     const lh = letterheads[lhIndex]
@@ -452,6 +467,8 @@ ${items.map((it) => `  <li>${it.name}${it.pack ? ` — ${it.qty} x ${it.pack}` :
                 const ppl = parseFloat(prices[priceKey]) || 0     // base/list price (editable)
                 const effPpl = pplFor(c.product.id, c.packaging?.id, c.qty) // tiered price for this qty
                 const tierApplied = (priceTiers[priceKey] || []).length > 0 && effPpl !== ppl
+                const isOrderBasis = tierBasis[priceKey] === 'order'
+                const bandQty = isOrderBasis ? combinedSchemeQty() : c.qty
                 const unitPrice = effPpl * (c.vol || 0)
                 const lineTotal = unitPrice * c.qty
                 return (
@@ -475,10 +492,10 @@ ${items.map((it) => `  <li>${it.name}${it.pack ? ` — ${it.qty} x ${it.pack}` :
                         // order qty ever falls outside the tier bands). Base on hover.
                         <div
                           style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2 }}
-                          title={`Quantity-break tier for ${c.qty} packs. List price £${(parseFloat(prices[priceKey]) || 0).toFixed(4)}/L is not charged at this quantity.`}
+                          title={`Quantity-break tier for ${bandQty} ${isOrderBasis ? 'combined packs on the order' : 'packs'}. List price £${(parseFloat(prices[priceKey]) || 0).toFixed(4)}/L is not charged at this quantity.`}
                         >
                           <span className="mono" style={{ fontWeight: 700, fontSize: 15, color: 'var(--accent)' }}>£{effPpl.toFixed(4)}</span>
-                          <span style={{ fontSize: 10.5, color: 'var(--accent)' }}>⇅ tier price · {c.qty} packs</span>
+                          <span style={{ fontSize: 10.5, color: 'var(--accent)' }}>⇅ tier price · {isOrderBasis ? `${bandQty} combined` : `${c.qty} packs`}</span>
                         </div>
                       ) : (
                         <input className="mono" style={{ textAlign: 'right' }}

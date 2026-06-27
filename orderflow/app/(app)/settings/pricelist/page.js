@@ -37,7 +37,7 @@ export default function PriceListPage() {
       supabase.from('products').select('id, name, category').order('category').order('name'),
       supabase.from('packaging').select('id, name, volume').order('volume'),
       supabase.from('customer_product_prices')
-        .select('id, customer_id, product_id, packaging_id, price_per_litre, qty_tiers')
+        .select('id, customer_id, product_id, packaging_id, price_per_litre, qty_tiers, tier_basis')
         .gt('price_per_litre', 0),
       supabase.from('letterheads').select('*').order('name'),
     ])
@@ -76,7 +76,7 @@ export default function PriceListPage() {
               })
               .filter((t) => t.from != null && t.ppl > 0)
               .sort((a, b) => a.from - b.from)
-            return { id: p.id, prod, pkg, vol, ppl, ppp, tiers }
+            return { id: p.id, prod, pkg, vol, ppl, ppp, tiers, basis: p.tier_basis || 'line' }
           })
           .filter((r) => r.prod && r.pkg)
           .sort((a, b) => {
@@ -269,14 +269,14 @@ export default function PriceListPage() {
                         <td style={{ ...gridTd, borderTop: 'none', paddingTop: 0, paddingBottom: 9 }} colSpan={5}>
                           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
                             <span style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.04em', color: 'var(--accent)' }}>
-                              Qty breaks
+                              {r.basis === 'order' ? 'Qty breaks (combined order)' : 'Qty breaks'}
                             </span>
                             {r.tiers.map((t, ti) => (
                               <span key={ti} style={{
                                 fontSize: 12, background: 'rgba(31,168,107,0.12)', border: '1px solid rgba(31,168,107,0.35)',
                                 borderRadius: 6, padding: '2px 8px', fontFamily: 'monospace', color: 'var(--ink)',
                               }}>
-                                <b>{bandLabel(t)} {r.pkg.name}</b>: £{t.ppl.toFixed(4)}/L{t.ppp != null ? ` · £${t.ppp.toFixed(2)}/pack` : ''}
+                                <b>{bandLabel(t)} {r.basis === 'order' ? 'combined' : r.pkg.name}</b>: £{t.ppl.toFixed(4)}/L{t.ppp != null ? ` · £${t.ppp.toFixed(2)}/pack` : ''}
                               </span>
                             ))}
                           </div>

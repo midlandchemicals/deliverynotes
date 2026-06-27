@@ -117,6 +117,10 @@ create table if not exists customer_product_prices (
   -- [{ "from": 1, "to": 2, "ppl": 1.34 }, { "from": 5, "to": null, "ppl": 1.18 }]
   -- `to` null means "and above". Base price_per_litre is the fallback.
   qty_tiers jsonb not null default '[]',
+  -- Which quantity decides the tier band:
+  --   'line'  → this product line's own pack qty (default)
+  --   'order' → combined pack qty of ALL 'order'-basis products on the order
+  tier_basis text not null default 'line',
   updated_at timestamptz default now(),
   unique(customer_id, product_id, packaging_id)
 );
@@ -219,6 +223,7 @@ insert into customers (name, details, deliver, contact_name, email, phone) value
 --
 -- Quantity-break price tiers on customer_product_prices (run once on existing databases):
 --   alter table customer_product_prices add column if not exists qty_tiers jsonb not null default '[]';
+--   alter table customer_product_prices add column if not exists tier_basis text not null default 'line';
 --
 -- Per-customer pricing table (run once on existing databases):
 --   drop table if exists customer_product_prices;
