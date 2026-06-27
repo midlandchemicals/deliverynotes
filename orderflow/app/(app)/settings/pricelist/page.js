@@ -221,7 +221,7 @@ export default function PriceListPage() {
               <tbody>
                 {e.rows.map((r, i) => {
                   const isEditing = editingId === r.id
-                  const rowBg = i % 2 === 0 ? '#fff' : 'rgba(31,168,107,0.06)'
+                  const rowBg = i % 2 === 0 ? 'var(--row)' : 'var(--row-alt)'
                   const hasTiers = (r.tiers || []).length > 0
                   return (
                     <Fragment key={r.id}>

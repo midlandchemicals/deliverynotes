@@ -404,7 +404,7 @@ export default function PricesPage() {
               {drafts.map((d) => {
                 const prod = products.find((p) => p.id === d.productId)
                 return (
-                  <tr key={'draft-' + d.key} style={{ background: '#fffaf0' }}>
+                  <tr key={'draft-' + d.key} style={{ background: 'var(--draft-bg)' }}>
                     <td>{prod ? (prod.category ? `${prod.name} (${prod.category})` : prod.name) : <span className="muted">—</span>}</td>
                     <td>
                       <select value={d.packagingId} onChange={(e) => updateDraft(d.key, { packagingId: e.target.value })}>

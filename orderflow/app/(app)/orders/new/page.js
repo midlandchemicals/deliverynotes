@@ -289,7 +289,7 @@ export default function NewOrderPage() {
                                 display: 'inline-flex', alignItems: 'center', gap: 6,
                                 padding: '7px 13px', borderRadius: 8, fontSize: 12, fontWeight: 700,
                                 cursor: 'pointer', border: '2px solid var(--accent)',
-                                background: 'var(--accent)', color: '#fff',
+                                background: 'var(--accent)', color: 'var(--on-accent)',
                                 transition: 'opacity 0.1s',
                               }}
                             >
@@ -328,7 +328,7 @@ export default function NewOrderPage() {
                                 onClick={() => confirmChip(product.id, pkg.id)}
                                 title="Add to order"
                                 style={{
-                                  padding: '6px 10px', background: 'var(--accent)', color: '#fff',
+                                  padding: '6px 10px', background: 'var(--accent)', color: 'var(--on-accent)',
                                   border: 'none', cursor: 'pointer', fontSize: 15, fontWeight: 900,
                                   borderRight: '1px solid rgba(0,0,0,0.1)',
                                 }}
@@ -349,22 +349,22 @@ export default function NewOrderPage() {
                               key={pkg.id}
                               onClick={() => startChip(product.id, pkg.id)}
                               onMouseEnter={(e) => {
-                                e.currentTarget.style.background = '#dfe6f2'
+                                e.currentTarget.style.background = 'var(--chip-bg-hover)'
                                 e.currentTarget.style.borderColor = 'var(--accent)'
-                                e.currentTarget.style.color = 'var(--accent-dark)'
+                                e.currentTarget.style.color = 'var(--accent)'
                               }}
                               onMouseLeave={(e) => {
-                                e.currentTarget.style.background = '#e9eef7'
-                                e.currentTarget.style.borderColor = '#b9c4d9'
+                                e.currentTarget.style.background = 'var(--chip-bg)'
+                                e.currentTarget.style.borderColor = 'var(--chip-border)'
                                 e.currentTarget.style.color = 'var(--ink)'
                               }}
                               style={{
                                 padding: '8px 16px', borderRadius: 9, fontSize: 12.5, fontWeight: 700,
                                 cursor: 'pointer',
-                                border: '1.5px solid #b9c4d9',
-                                background: '#e9eef7',
+                                border: '1.5px solid var(--chip-border)',
+                                background: 'var(--chip-bg)',
                                 color: 'var(--ink)',
-                                boxShadow: '0 1px 0 #c5cfe0, 0 2px 4px rgba(22,41,79,0.10)',
+                                boxShadow: 'var(--chip-shadow)',
                                 transition: 'background 0.12s, border-color 0.12s, color 0.12s',
                               }}
                             >
@@ -414,8 +414,8 @@ function StepBubble({ n, active, done, label }) {
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 5 }}>
       <div style={{
         width: 36, height: 36, borderRadius: '50%',
-        background: active || done ? 'var(--accent)' : 'var(--border)',
-        color: active || done ? '#fff' : 'var(--muted)',
+        background: active || done ? 'var(--accent)' : 'var(--panel-2)',
+        color: active || done ? 'var(--on-accent)' : 'var(--muted)',
         display: 'flex', alignItems: 'center', justifyContent: 'center',
         fontWeight: 700, fontSize: 15,
       }}>{done ? '✓' : n}</div>
