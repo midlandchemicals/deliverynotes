@@ -227,6 +227,18 @@ export default function CustomersPage() {
                             />
                           </div>
                           <p className="hint" style={{ marginTop: 6, maxWidth: 180 }}>Order subtotal at or above this → delivery auto-sets to £0. Leave blank or 0 to disable.</p>
+
+                          <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.04em', color: 'var(--muted)', margin: '16px 0 8px' }}>Delivery £ per pallet</div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <span style={{ color: 'var(--muted)', fontSize: 13 }}>£</span>
+                            <input className="mono" style={{ width: 90, textAlign: 'right' }}
+                              value={it.delivery_per_pallet || ''} placeholder="0.00"
+                              onChange={(e) => setRows((r) => r.map((x) => (x.id === it.id ? { ...x, delivery_per_pallet: e.target.value } : x)))}
+                              onBlur={(e) => update(it.id, { delivery_per_pallet: parseFloat(e.target.value) || 0 })}
+                            />
+                            <span style={{ color: 'var(--muted)', fontSize: 12 }}>× pallets</span>
+                          </div>
+                          <p className="hint" style={{ marginTop: 6, maxWidth: 180 }}>Charges this × the number of pallets on the order. Takes priority over the banded tiers. A product with a higher per-pallet rate raises it.</p>
                         </div>
 
                         {/* Pallet tiers */}

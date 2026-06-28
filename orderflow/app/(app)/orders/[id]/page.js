@@ -66,6 +66,8 @@ export default function OrderDetailPage() {
   const [availableByProduct, setAvailableByProduct] = useState({}) // productId -> [packagingId] from price list
   const [custDeliveryTiers, setCustDeliveryTiers] = useState([])
   const [custFreeAbove, setCustFreeAbove] = useState(0)
+  const [custPerPallet, setCustPerPallet] = useState(0)          // customer £/pallet base rate
+  const [perPalletByKey, setPerPalletByKey] = useState({})       // { key: £/pallet } per-product override
   const [unpricedItems, setUnpricedItems] = useState([]) // lines missing a price for this customer
   const [unpricedModal, setUnpricedModal] = useState(null) // currently open item
   const [unpricedPackPrice, setUnpricedPackPrice] = useState('')
@@ -97,8 +99,8 @@ export default function OrderDetailPage() {
       if (o.data?.customer_id) {
         const [priceData, custData, tiersData] = await Promise.all([
           supabase.from('customer_product_prices')
-            .select('product_id, packaging_id, price_per_litre, delivery_charge, qty_tiers, tier_basis, price_trade, price_buyer_group, price_retail, season_from, season_to, season_ppl').eq('customer_id', o.data.customer_id),
-          supabase.from('customers').select('label_price, default_delivery_charge, free_delivery_above, default_letterhead_id, three_tier_pricing').eq('id', o.data.customer_id).single(),
+            .select('product_id, packaging_id, price_per_litre, delivery_charge, delivery_per_pallet, qty_tiers, tier_basis, price_trade, price_buyer_group, price_retail, season_from, season_to, season_ppl').eq('customer_id', o.data.customer_id),
+          supabase.from('customers').select('label_price, default_delivery_charge, free_delivery_above, delivery_per_pallet, default_letterhead_id, three_tier_pricing').eq('id', o.data.customer_id).single(),
           supabase.from('customer_delivery_tiers').select('*').eq('customer_id', o.data.customer_id).order('pallets_from'),
         ])
         const priceRows = priceData.data || []
@@ -139,6 +141,10 @@ export default function OrderDetailPage() {
         } else if ((custData.data?.default_delivery_charge || 0) > 0) {
           setDeliveryCharge(Number(custData.data.default_delivery_charge).toFixed(2))
         }
+        setPerPalletByKey(Object.fromEntries(priceRows
+          .filter((r) => (r.delivery_per_pallet || 0) > 0)
+          .map((r) => [`${r.product_id}::${r.packaging_id}`, Number(r.delivery_per_pallet) || 0])))
+        setCustPerPallet(Number(custData.data?.delivery_per_pallet) || 0)
         setLabelPriceRaw(String(custData.data?.label_price || ''))
         setCustFreeAbove(custData.data?.free_delivery_above || 0)
         setCustDeliveryTiers(tiersData.data || [])
@@ -336,11 +342,23 @@ ${items.map((it) => `  <li>${it.name}${it.pack ? ` — ${it.qty} x ${it.pack}` :
     w.print()
   }
 
+  // Effective £/pallet rate for this order: the highest of the customer base
+  // rate and any per-product override among the order's lines.
+  function effectivePerPallet() {
+    let rate = custPerPallet || 0
+    for (const l of lines) {
+      const key = `${l.productId}::${l.packagingId}`
+      if (perPalletByKey[key] > rate) rate = perPalletByKey[key]
+    }
+    return rate
+  }
+
   // Step 1 — validate, then open the batch-number modal
   // Re-evaluate delivery charge whenever anything that affects it changes.
-  // Priority: free-delivery threshold (subtotal >= X → £0) > pallet tiers > leave as-is.
+  // Priority: free-delivery threshold (£0) > per-pallet rate (× pallets) > banded tiers.
   useEffect(() => {
-    if (!custFreeAbove && !custDeliveryTiers.length) return
+    const perPallet = effectivePerPallet()
+    if (!custFreeAbove && !custDeliveryTiers.length && perPallet <= 0) return
     const subtotal = lines.reduce((sum, l) => {
       const c = computeLine(l, products, packaging)
       const ppl = pplFor(c.product?.id, c.packaging?.id, c.qty)
@@ -349,6 +367,12 @@ ${items.map((it) => `  <li>${it.name}${it.pack ? ` — ${it.qty} x ${it.pack}` :
     // Free-delivery threshold takes highest priority
     if (custFreeAbove > 0 && subtotal >= custFreeAbove) {
       setDeliveryCharge('0.00')
+      return
+    }
+    // Per-pallet rate × number of pallets (wins over banded tiers when set)
+    if (!noPallets && perPallet > 0) {
+      const p = parseInt(pallets) || 0
+      setDeliveryCharge((perPallet * p).toFixed(2))
       return
     }
     // Pallet tier — runs even before pallet count is entered (p=0 matches a "0 to X" band)
@@ -360,7 +384,7 @@ ${items.map((it) => `  <li>${it.name}${it.pack ? ` — ${it.qty} x ${it.pack}` :
       if (tier != null) setDeliveryCharge(Number(tier.charge).toFixed(2))
       else setDeliveryCharge('')
     }
-  }, [custFreeAbove, custDeliveryTiers, pallets, noPallets, lines, prices, priceTiers, tierBasis])
+  }, [custFreeAbove, custDeliveryTiers, custPerPallet, perPalletByKey, pallets, noPallets, lines, prices, priceTiers, tierBasis])
 
   function startDispatch() {
     const lh = letterheads[lhIndex]
@@ -617,7 +641,9 @@ ${items.map((it) => `  <li>${it.name}${it.pack ? ` — ${it.qty} x ${it.pack}` :
                 <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
                   <span className="muted" style={{ fontSize: 12 }}>
                     Delivery charge
-                    {custDeliveryTiers.length > 0 && <span style={{ marginLeft: 5, color: 'var(--accent)', fontSize: 11 }}>⚡ auto from pallet tiers</span>}
+                    {effectivePerPallet() > 0
+                      ? <span style={{ marginLeft: 5, color: 'var(--accent)', fontSize: 11 }}>⚡ £{effectivePerPallet().toFixed(2)}/pallet × {parseInt(pallets) || 0}</span>
+                      : custDeliveryTiers.length > 0 && <span style={{ marginLeft: 5, color: 'var(--accent)', fontSize: 11 }}>⚡ auto from pallet tiers</span>}
                     {custFreeAbove > 0 && <span style={{ marginLeft: 5, color: 'var(--accent)', fontSize: 11 }}>· free above £{custFreeAbove}</span>}
                   </span>
                   <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>

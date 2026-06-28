@@ -19,6 +19,9 @@ create table if not exists customers (
   label_price numeric default 0,
   default_delivery_charge numeric default 0,
   free_delivery_above numeric default 0,
+  -- £ per pallet: when > 0, delivery = rate × number of pallets (takes priority
+  -- over the banded pallet tiers). A product's own per-pallet rate can override.
+  delivery_per_pallet numeric default 0,
   -- When true, each product carries three buyer prices (Trade / Buyer group /
   -- Retail) and the order picks which level applies.
   three_tier_pricing boolean not null default false,
@@ -117,6 +120,9 @@ create table if not exists customer_product_prices (
   packaging_id uuid references packaging(id)  on delete cascade,
   price_per_litre numeric not null default 0,
   delivery_charge numeric not null default 0,
+  -- Per-product £ per pallet (override). When an order includes this product,
+  -- the order's per-pallet delivery rate is the highest among its products.
+  delivery_per_pallet numeric not null default 0,
   -- Optional quantity break tiers: price per litre changes with packs ordered.
   -- [{ "from": 1, "to": 2, "ppl": 1.34 }, { "from": 5, "to": null, "ppl": 1.18 }]
   -- `to` null means "and above". Base price_per_litre is the fallback.
@@ -246,6 +252,10 @@ insert into customers (name, details, deliver, contact_name, email, phone) value
 --   alter table customer_product_prices add column if not exists price_buyer_group numeric;
 --   alter table customer_product_prices add column if not exists price_retail numeric;
 --   alter table orders add column if not exists price_level text;
+--
+-- Per-pallet delivery (run once on existing databases):
+--   alter table customers add column if not exists delivery_per_pallet numeric default 0;
+--   alter table customer_product_prices add column if not exists delivery_per_pallet numeric not null default 0;
 --
 -- Seasonal pricing (run once on existing databases):
 --   alter table customer_product_prices add column if not exists season_from text;
