@@ -18,13 +18,6 @@ function matchesCustomer(category, customerName) {
   return catTokens.some((ct) => custTokens.includes(ct))
 }
 
-const MONTH_OPTS = [
-  ['01', 'Jan'], ['02', 'Feb'], ['03', 'Mar'], ['04', 'Apr'], ['05', 'May'], ['06', 'Jun'],
-  ['07', 'Jul'], ['08', 'Aug'], ['09', 'Sep'], ['10', 'Oct'], ['11', 'Nov'], ['12', 'Dec'],
-]
-function mdMonth(md) { return (md || '').split('-')[0] || '' }
-function mdDay(md) { const d = (md || '').split('-')[1]; return d && d !== '00' ? String(parseInt(d)) : '' }
-
 function toast(msg) {
   let t = document.getElementById('toast')
   if (!t) { t = document.createElement('div'); t.id = 'toast'; t.className = 'toast'; document.body.appendChild(t) }
@@ -187,16 +180,6 @@ export default function PricesPage() {
   }
   function clearSeason(rowId) {
     saveSeason(rowId, { season_from: null, season_to: null, season_ppl: null })
-  }
-  // Update one part (month/day) of a row's MM-DD season field locally + persist.
-  function setSeasonMD(rowId, field, part, value) {
-    const row = rowById(rowId)
-    const cur = (row?.[field] || '--').split('-')
-    let mm = cur[0] || '', dd = cur[1] || ''
-    if (part === 'm') mm = value
-    if (part === 'd') dd = String(parseInt(value) || '').padStart(2, '0')
-    const md = (mm && dd && dd !== '00') ? `${mm}-${dd}` : (mm || dd ? `${mm || '01'}-${dd || '01'}` : null)
-    saveSeason(rowId, { [field]: md })
   }
 
   async function addRow() {
@@ -448,27 +431,15 @@ export default function PricesPage() {
                     <tr>
                       <td colSpan={6} style={{ background: 'var(--panel-2)', padding: '14px 16px' }}>
                         <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.04em', color: 'var(--muted)', marginBottom: 10 }}>
-                          Seasonal price — applies when the order is placed within this window (every year)
+                          Seasonal price — applies when the order is placed between these dates
                         </div>
                         <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
                           <span style={{ fontSize: 12, color: 'var(--muted)' }}>From</span>
-                          <select style={{ width: 'auto' }} value={mdMonth(row.season_from)}
-                            onChange={(e) => setSeasonMD(row.id, 'season_from', 'm', e.target.value)}>
-                            <option value="">month</option>
-                            {MONTH_OPTS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-                          </select>
-                          <input className="mono" style={{ width: 56, textAlign: 'right' }} placeholder="day"
-                            value={mdDay(row.season_from)}
-                            onChange={(e) => setSeasonMD(row.id, 'season_from', 'd', e.target.value)} />
+                          <input type="date" style={{ width: 'auto' }} value={row.season_from || ''}
+                            onChange={(e) => saveSeason(row.id, { season_from: e.target.value || null })} />
                           <span style={{ fontSize: 12, color: 'var(--muted)' }}>to</span>
-                          <select style={{ width: 'auto' }} value={mdMonth(row.season_to)}
-                            onChange={(e) => setSeasonMD(row.id, 'season_to', 'm', e.target.value)}>
-                            <option value="">month</option>
-                            {MONTH_OPTS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-                          </select>
-                          <input className="mono" style={{ width: 56, textAlign: 'right' }} placeholder="day"
-                            value={mdDay(row.season_to)}
-                            onChange={(e) => setSeasonMD(row.id, 'season_to', 'd', e.target.value)} />
+                          <input type="date" style={{ width: 'auto' }} value={row.season_to || ''}
+                            onChange={(e) => saveSeason(row.id, { season_to: e.target.value || null })} />
                           <span style={{ fontSize: 12, color: 'var(--muted)', marginLeft: 6 }}>price £</span>
                           <input className="mono" style={{ width: 90, textAlign: 'right' }} placeholder="0.0000"
                             value={row.season_ppl ?? ''}
@@ -480,7 +451,7 @@ export default function PricesPage() {
                           )}
                         </div>
                         <p className="hint" style={{ marginTop: 8 }}>
-                          The seasonal £/litre overrides the normal price (and any tiers/buyer levels) for orders placed in the window. A window from a later month to an earlier one (e.g. Nov → Feb) wraps across the new year.
+                          The seasonal £/litre overrides the normal price (and any tiers/buyer levels) for orders placed on or between these dates (inclusive).
                         </p>
                       </td>
                     </tr>

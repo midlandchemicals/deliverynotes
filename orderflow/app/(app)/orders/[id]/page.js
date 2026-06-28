@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import { computeLine, docTotals, fmt, prettyDate, splitContact, labelCount, PRICE_LEVELS, seasonalActive, mdLabel } from '@/lib/calc'
+import { computeLine, docTotals, fmt, prettyDate, splitContact, labelCount, PRICE_LEVELS, seasonalActive } from '@/lib/calc'
 import { generateDispatchPDF, generateOfficeCopyPDF, reprintPDF } from '@/lib/pdf'
 import PricingGuard, { usePricingCheck } from '@/app/(app)/PricingGuard'
 import { StatusBadge } from '../page'
@@ -561,10 +561,10 @@ ${items.map((it) => `  <li>${it.name}${it.pack ? ` — ${it.qty} x ${it.pack}` :
                         // Seasonal price is active for the order date — it wins.
                         <div
                           style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2 }}
-                          title={`Seasonal price ${mdLabel(season.from)}–${mdLabel(season.to)}. Normal price £${(parseFloat(prices[priceKey]) || 0).toFixed(4)}/L is not charged in this window.`}
+                          title={`Seasonal price ${prettyDate(season.from)} – ${prettyDate(season.to)}. Normal price £${(parseFloat(prices[priceKey]) || 0).toFixed(4)}/L is not charged in this window.`}
                         >
                           <span className="mono" style={{ fontWeight: 700, fontSize: 15, color: 'var(--accent)' }}>£{effPpl.toFixed(4)}</span>
-                          <span style={{ fontSize: 10.5, color: 'var(--accent)' }}>🗓 seasonal · {mdLabel(season.from)}–{mdLabel(season.to)}</span>
+                          <span style={{ fontSize: 10.5, color: 'var(--accent)' }}>🗓 seasonal · {prettyDate(season.from)} – {prettyDate(season.to)}</span>
                         </div>
                       ) : tierApplied ? (
                         // A quantity tier is in effect — show ONLY the charged price.

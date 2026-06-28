@@ -1,7 +1,7 @@
 'use client'
 import { useEffect, useState, Fragment } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { mdLabel } from '@/lib/calc'
+import { prettyDate } from '@/lib/calc'
 import PricingGuard from '@/app/(app)/PricingGuard'
 import { generatePriceListPDF } from '@/lib/pdf'
 
@@ -324,7 +324,7 @@ export default function PriceListPage() {
                             fontSize: 12, background: 'rgba(31,168,107,0.12)', border: '1px solid rgba(31,168,107,0.35)',
                             borderRadius: 6, padding: '2px 8px', fontFamily: 'monospace', color: 'var(--ink)',
                           }}>
-                            🗓 <b>Seasonal {mdLabel(r.season.from)}–{mdLabel(r.season.to)}</b>: £{r.season.ppl.toFixed(4)}/L{r.vol > 0 ? ` · £${(r.season.ppl * r.vol).toFixed(2)}/pack` : ''}
+                            🗓 <b>Seasonal {prettyDate(r.season.from)} – {prettyDate(r.season.to)}</b>: £{r.season.ppl.toFixed(4)}/L{r.vol > 0 ? ` · £${(r.season.ppl * r.vol).toFixed(2)}/pack` : ''}
                           </span>
                         </td>
                       </tr>
