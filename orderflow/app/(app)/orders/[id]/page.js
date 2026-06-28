@@ -342,23 +342,30 @@ ${items.map((it) => `  <li>${it.name}${it.pack ? ` — ${it.qty} x ${it.pack}` :
     w.print()
   }
 
-  // Effective £/pallet rate for this order: the highest of the customer base
-  // rate and any per-product override among the order's lines.
-  function effectivePerPallet() {
-    let rate = custPerPallet || 0
-    for (const l of lines) {
-      const key = `${l.productId}::${l.packagingId}`
-      if (perPalletByKey[key] > rate) rate = perPalletByKey[key]
-    }
-    return rate
+  // Per-pallet delivery, summed per product: each line is charged its own
+  // per-pallet rate (the product override, else the customer's base rate) ×
+  // the line's pack/IBC quantity. So products without their own rate fall back
+  // to the customer tab rate, and each product keeps its own.
+  function hasPerPalletPricing() {
+    if ((custPerPallet || 0) > 0) return true
+    return lines.some((l) => (perPalletByKey[`${l.productId}::${l.packagingId}`] || 0) > 0)
+  }
+  function perPalletDeliveryTotal() {
+    return lines.reduce((sum, l) => {
+      const c = computeLine(l, products, packaging)
+      if (!c.product || !c.packaging) return sum
+      const key = `${c.product.id}::${c.packaging.id}`
+      const rate = (perPalletByKey[key] || 0) > 0 ? perPalletByKey[key] : (custPerPallet || 0)
+      return sum + rate * (c.qty || 0)
+    }, 0)
   }
 
   // Step 1 — validate, then open the batch-number modal
   // Re-evaluate delivery charge whenever anything that affects it changes.
   // Priority: free-delivery threshold (£0) > per-pallet rate (× pallets) > banded tiers.
   useEffect(() => {
-    const perPallet = effectivePerPallet()
-    if (!custFreeAbove && !custDeliveryTiers.length && perPallet <= 0) return
+    const usePerPallet = hasPerPalletPricing()
+    if (!custFreeAbove && !custDeliveryTiers.length && !usePerPallet) return
     const subtotal = lines.reduce((sum, l) => {
       const c = computeLine(l, products, packaging)
       const ppl = pplFor(c.product?.id, c.packaging?.id, c.qty)
@@ -369,10 +376,9 @@ ${items.map((it) => `  <li>${it.name}${it.pack ? ` — ${it.qty} x ${it.pack}` :
       setDeliveryCharge('0.00')
       return
     }
-    // Per-pallet rate × number of pallets (wins over banded tiers when set)
-    if (!noPallets && perPallet > 0) {
-      const p = parseInt(pallets) || 0
-      setDeliveryCharge((perPallet * p).toFixed(2))
+    // Per-pallet rate, summed per product (wins over banded tiers when set)
+    if (!noPallets && usePerPallet) {
+      setDeliveryCharge(perPalletDeliveryTotal().toFixed(2))
       return
     }
     // Pallet tier — runs even before pallet count is entered (p=0 matches a "0 to X" band)
@@ -641,8 +647,8 @@ ${items.map((it) => `  <li>${it.name}${it.pack ? ` — ${it.qty} x ${it.pack}` :
                 <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
                   <span className="muted" style={{ fontSize: 12 }}>
                     Delivery charge
-                    {effectivePerPallet() > 0
-                      ? <span style={{ marginLeft: 5, color: 'var(--accent)', fontSize: 11 }}>⚡ £{effectivePerPallet().toFixed(2)}/pallet × {parseInt(pallets) || 0}</span>
+                    {hasPerPalletPricing()
+                      ? <span style={{ marginLeft: 5, color: 'var(--accent)', fontSize: 11 }}>⚡ per-pallet rate (per product)</span>
                       : custDeliveryTiers.length > 0 && <span style={{ marginLeft: 5, color: 'var(--accent)', fontSize: 11 }}>⚡ auto from pallet tiers</span>}
                     {custFreeAbove > 0 && <span style={{ marginLeft: 5, color: 'var(--accent)', fontSize: 11 }}>· free above £{custFreeAbove}</span>}
                   </span>
