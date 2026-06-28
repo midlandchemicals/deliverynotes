@@ -75,9 +75,11 @@ export default function PricesPage() {
     return (PRICE_LEVELS.find((l) => l.key === level) || PRICE_LEVELS[0]).col
   }
   // The stored £/L to show for a row at the active level.
+  // Raw stored value for the active level's £/L input. Returned as-is (not
+  // parsed) so partial entry like "1." keeps its decimal point while typing.
   function rowPpl(row) {
-    if (isThreeTier) return parseFloat(row[priceCol()]) || 0
-    return row.price_per_litre || 0
+    const v = isThreeTier ? row[priceCol()] : row.price_per_litre
+    return v == null ? '' : v
   }
   // Patch that writes a £/L to the right column(s) for the active mode.
   function pplPatch(ppl) {
