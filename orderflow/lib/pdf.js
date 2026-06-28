@@ -1,7 +1,7 @@
 'use client'
 import { jsPDF } from 'jspdf'
 import autoTable from 'jspdf-autotable'
-import { computeLine, docTotals, fmt, prettyDate, packSize } from '@/lib/calc'
+import { computeLine, docTotals, fmt, prettyDate, packSize, seasonalActive } from '@/lib/calc'
 import { registerFonts } from '@/lib/fonts'
 
 let FONT = 'helvetica'
@@ -282,7 +282,9 @@ export function generateDispatchPDF(doc_, lh, products, packaging) {
 // override the base when the qty falls within a band.
 // basisByKey (optional), same key -> 'line' | 'order': for 'order' rows the band
 // is chosen by the combined pack qty of all 'order'-basis lines on the order.
-export function generateOfficeCopyPDF(doc_, lh, products, packaging, pricing = {}, deliveryCharge = 0, labelTotal = 0, tiersByKey = {}, basisByKey = {}) {
+// seasonByKey (optional), same key -> {from,to,ppl}: when doc_.orderDate falls in
+// the recurring window the seasonal price overrides everything.
+export function generateOfficeCopyPDF(doc_, lh, products, packaging, pricing = {}, deliveryCharge = 0, labelTotal = 0, tiersByKey = {}, basisByKey = {}, seasonByKey = {}) {
   const BK = [20, 20, 20]
   const MU = [90, 90, 90]
   const f2 = (n) => `£${(Math.round(n * 100) / 100).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
@@ -365,7 +367,9 @@ export function generateOfficeCopyPDF(doc_, lh, products, packaging, pricing = {
     const tiers = tiersByKey[key] || []
     const q = basisByKey[key] === 'order' ? combinedQty : c.qty
     const hit = tiers.find((t) => q >= t.from && (t.to == null || q <= t.to))
-    const ppl = hit ? hit.ppl : (parseFloat(pricing[key]) || 0)
+    const s = seasonByKey[key]
+    const seasonPpl = s && seasonalActive(s.from, s.to, doc_.orderDate) ? s.ppl : null
+    const ppl = seasonPpl != null ? seasonPpl : (hit ? hit.ppl : (parseFloat(pricing[key]) || 0))
     const unitPrice = ppl * (c.vol || 0)
     const lineTotal = unitPrice * c.qty
     return { c, unitPrice, lineTotal, batch: doc_.batches?.[i] || '' }
