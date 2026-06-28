@@ -354,6 +354,9 @@ ${items.map((it) => `  <li>${it.name}${it.pack ? ` — ${it.qty} x ${it.pack}` :
     return lines.reduce((sum, l) => {
       const c = computeLine(l, products, packaging)
       if (!c.product || !c.packaging) return sum
+      // Only IBC-sized packs (>500 L, i.e. 600 L and 1000 L) count as 1 pallet
+      // each. Smaller packs don't add a per-pallet charge.
+      if ((c.vol || 0) <= 500) return sum
       const key = `${c.product.id}::${c.packaging.id}`
       const rate = (perPalletByKey[key] || 0) > 0 ? perPalletByKey[key] : (custPerPallet || 0)
       return sum + rate * (c.qty || 0)
