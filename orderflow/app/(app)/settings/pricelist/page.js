@@ -1,6 +1,7 @@
 'use client'
 import { useEffect, useState, Fragment } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { mdLabel } from '@/lib/calc'
 import PricingGuard from '@/app/(app)/PricingGuard'
 import { generatePriceListPDF } from '@/lib/pdf'
 
@@ -37,7 +38,7 @@ export default function PriceListPage() {
       supabase.from('products').select('id, name, category').order('category').order('name'),
       supabase.from('packaging').select('id, name, volume').order('volume'),
       supabase.from('customer_product_prices')
-        .select('id, customer_id, product_id, packaging_id, price_per_litre, qty_tiers, tier_basis, price_trade, price_buyer_group, price_retail')
+        .select('id, customer_id, product_id, packaging_id, price_per_litre, qty_tiers, tier_basis, price_trade, price_buyer_group, price_retail, season_from, season_to, season_ppl')
         .gt('price_per_litre', 0),
       supabase.from('letterheads').select('*').order('name'),
     ])
@@ -82,7 +83,10 @@ export default function PriceListPage() {
               buyer_group: p.price_buyer_group != null ? p.price_buyer_group : null,
               retail: p.price_retail != null ? p.price_retail : null,
             }
-            return { id: p.id, prod, pkg, vol, ppl, ppp, tiers, basis: p.tier_basis || 'line', levels }
+            const season = (p.season_from && p.season_to && p.season_ppl != null)
+              ? { from: p.season_from, to: p.season_to, ppl: Number(p.season_ppl) || 0 }
+              : null
+            return { id: p.id, prod, pkg, vol, ppl, ppp, tiers, basis: p.tier_basis || 'line', levels, season }
           })
           .filter((r) => r.prod && r.pkg)
           .sort((a, b) => {
@@ -310,6 +314,18 @@ export default function PriceListPage() {
                               </span>
                             ))}
                           </div>
+                        </td>
+                      </tr>
+                    )}
+                    {r.season && (
+                      <tr style={{ background: rowBg }}>
+                        <td style={{ ...gridTd, borderTop: 'none', paddingTop: 0, paddingBottom: 9 }} colSpan={5}>
+                          <span style={{
+                            fontSize: 12, background: 'rgba(31,168,107,0.12)', border: '1px solid rgba(31,168,107,0.35)',
+                            borderRadius: 6, padding: '2px 8px', fontFamily: 'monospace', color: 'var(--ink)',
+                          }}>
+                            🗓 <b>Seasonal {mdLabel(r.season.from)}–{mdLabel(r.season.to)}</b>: £{r.season.ppl.toFixed(4)}/L{r.vol > 0 ? ` · £${(r.season.ppl * r.vol).toFixed(2)}/pack` : ''}
+                          </span>
                         </td>
                       </tr>
                     )}

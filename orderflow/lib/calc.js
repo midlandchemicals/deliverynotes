@@ -9,6 +9,25 @@ export const PRICE_LEVELS = [
   { key: 'retail', label: 'Retail', col: 'price_retail' },
 ]
 
+const _MONTHS3 = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+
+// Is `dateStr` inside the recurring MM-DD season window? Windows may wrap the
+// year end (e.g. from '11-01' to '02-28').
+export function seasonalActive(fromMD, toMD, dateStr) {
+  if (!fromMD || !toMD || !dateStr) return false
+  const d = new Date(String(dateStr).length <= 10 ? dateStr + 'T00:00:00' : dateStr)
+  if (isNaN(d)) return false
+  const md = `${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  return fromMD <= toMD ? (md >= fromMD && md <= toMD) : (md >= fromMD || md <= toMD)
+}
+
+// 'MM-DD' -> '1 Jun' for display. Returns '' for blank/invalid.
+export function mdLabel(md) {
+  if (!md || !/^\d{2}-\d{2}$/.test(md)) return ''
+  const [m, d] = md.split('-').map(Number)
+  return `${d} ${_MONTHS3[(m || 1) - 1] || ''}`.trim()
+}
+
 export function num(v) {
   const n = parseFloat(String(v ?? '').replace(/,/g, ''))
   return isNaN(n) ? 0 : n

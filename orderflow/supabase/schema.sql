@@ -130,6 +130,12 @@ create table if not exists customer_product_prices (
   price_trade numeric,
   price_buyer_group numeric,
   price_retail numeric,
+  -- Seasonal price: when the order is placed within the recurring MM-DD window
+  -- (season_from..season_to, repeats yearly, may wrap year-end), season_ppl
+  -- overrides the normal/tier/level price. Null = no seasonal pricing.
+  season_from text,   -- 'MM-DD'
+  season_to text,     -- 'MM-DD'
+  season_ppl numeric,
   updated_at timestamptz default now(),
   unique(customer_id, product_id, packaging_id)
 );
@@ -240,6 +246,11 @@ insert into customers (name, details, deliver, contact_name, email, phone) value
 --   alter table customer_product_prices add column if not exists price_buyer_group numeric;
 --   alter table customer_product_prices add column if not exists price_retail numeric;
 --   alter table orders add column if not exists price_level text;
+--
+-- Seasonal pricing (run once on existing databases):
+--   alter table customer_product_prices add column if not exists season_from text;
+--   alter table customer_product_prices add column if not exists season_to text;
+--   alter table customer_product_prices add column if not exists season_ppl numeric;
 --
 -- Per-customer pricing table (run once on existing databases):
 --   drop table if exists customer_product_prices;

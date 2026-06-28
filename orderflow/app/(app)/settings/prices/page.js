@@ -18,6 +18,13 @@ function matchesCustomer(category, customerName) {
   return catTokens.some((ct) => custTokens.includes(ct))
 }
 
+const MONTH_OPTS = [
+  ['01', 'Jan'], ['02', 'Feb'], ['03', 'Mar'], ['04', 'Apr'], ['05', 'May'], ['06', 'Jun'],
+  ['07', 'Jul'], ['08', 'Aug'], ['09', 'Sep'], ['10', 'Oct'], ['11', 'Nov'], ['12', 'Dec'],
+]
+function mdMonth(md) { return (md || '').split('-')[0] || '' }
+function mdDay(md) { const d = (md || '').split('-')[1]; return d && d !== '00' ? String(parseInt(d)) : '' }
+
 function toast(msg) {
   let t = document.getElementById('toast')
   if (!t) { t = document.createElement('div'); t.id = 'toast'; t.className = 'toast'; document.body.appendChild(t) }
@@ -37,6 +44,7 @@ export default function PricesPage() {
   const [drafts, setDrafts] = useState([]) // bulk-fill rows awaiting prices
   const dupSeq = useRef(0)                  // counter for unique duplicate-draft keys
   const [tiersRowId, setTiersRowId] = useState(null) // saved-row id whose qty tiers are open
+  const [seasonRowId, setSeasonRowId] = useState(null) // saved-row id whose seasonal panel is open
   const [level, setLevel] = useState('trade')        // active buyer level for 3-tier customers
 
   useEffect(() => {
@@ -60,7 +68,7 @@ export default function PricesPage() {
 
   async function loadPrices(cid) {
     const { data } = await supabase.from('customer_product_prices')
-      .select('id, product_id, packaging_id, price_per_litre, delivery_charge, qty_tiers, tier_basis, price_trade, price_buyer_group, price_retail')
+      .select('id, product_id, packaging_id, price_per_litre, delivery_charge, qty_tiers, tier_basis, price_trade, price_buyer_group, price_retail, season_from, season_to, season_ppl')
       .eq('customer_id', cid)
     setRows((data || []).map((r) => ({ ...r, qty_tiers: Array.isArray(r.qty_tiers) ? r.qty_tiers : [], tier_basis: r.tier_basis || 'line' })))
   }
@@ -169,6 +177,26 @@ export default function PricesPage() {
     setRows((r) => r.map((x) => (x.id === rowId ? { ...x, tier_basis: basis } : x)))
     await supabase.from('customer_product_prices')
       .update({ tier_basis: basis, updated_at: new Date().toISOString() }).eq('id', rowId)
+  }
+
+  // Persist a seasonal-pricing patch (any of season_from/season_to/season_ppl).
+  async function saveSeason(rowId, patch) {
+    setRows((r) => r.map((x) => (x.id === rowId ? { ...x, ...patch } : x)))
+    await supabase.from('customer_product_prices')
+      .update({ ...patch, updated_at: new Date().toISOString() }).eq('id', rowId)
+  }
+  function clearSeason(rowId) {
+    saveSeason(rowId, { season_from: null, season_to: null, season_ppl: null })
+  }
+  // Update one part (month/day) of a row's MM-DD season field locally + persist.
+  function setSeasonMD(rowId, field, part, value) {
+    const row = rowById(rowId)
+    const cur = (row?.[field] || '--').split('-')
+    let mm = cur[0] || '', dd = cur[1] || ''
+    if (part === 'm') mm = value
+    if (part === 'd') dd = String(parseInt(value) || '').padStart(2, '0')
+    const md = (mm && dd && dd !== '00') ? `${mm}-${dd}` : (mm || dd ? `${mm || '01'}-${dd || '01'}` : null)
+    saveSeason(rowId, { [field]: md })
   }
 
   async function addRow() {
@@ -360,6 +388,8 @@ export default function PricesPage() {
                 const pkg = packaging.find((p) => p.id === row.packaging_id)
                 const tiers = row.qty_tiers || []
                 const tiersOpen = tiersRowId === row.id
+                const seasonOpen = seasonRowId === row.id
+                const hasSeason = !!(row.season_from && row.season_to && row.season_ppl != null)
                 return (
                   <Fragment key={row.id}>
                   <tr>
@@ -402,12 +432,59 @@ export default function PricesPage() {
                           onClick={() => setTiersRowId(tiersOpen ? null : row.id)}
                         >{tiersOpen ? 'Close' : (tiers.length ? `⇅ ${tiers.length}` : '⇅')}</button>
                       )}
+                      <button
+                        className={'btn btn-sm ' + (seasonOpen ? 'btn-a' : 'btn-g')}
+                        style={{ padding: '2px 7px', marginRight: 4 }}
+                        title="Seasonal pricing (reduced price between certain dates each year)"
+                        onClick={() => setSeasonRowId(seasonOpen ? null : row.id)}
+                      >{seasonOpen ? 'Close' : (hasSeason ? '🗓 ✓' : '🗓')}</button>
                       <button className="btn btn-g btn-sm" style={{ padding: '2px 7px', marginRight: 4 }}
                         title="Add another packaging size for this product"
                         onClick={() => duplicateProduct(row.product_id, null)}>⧉</button>
                       <button className="btn-dl" onClick={() => deleteRow(row.id)}>×</button>
                     </td>
                   </tr>
+                  {seasonOpen && (
+                    <tr>
+                      <td colSpan={6} style={{ background: 'var(--panel-2)', padding: '14px 16px' }}>
+                        <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.04em', color: 'var(--muted)', marginBottom: 10 }}>
+                          Seasonal price — applies when the order is placed within this window (every year)
+                        </div>
+                        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                          <span style={{ fontSize: 12, color: 'var(--muted)' }}>From</span>
+                          <select style={{ width: 'auto' }} value={mdMonth(row.season_from)}
+                            onChange={(e) => setSeasonMD(row.id, 'season_from', 'm', e.target.value)}>
+                            <option value="">month</option>
+                            {MONTH_OPTS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                          </select>
+                          <input className="mono" style={{ width: 56, textAlign: 'right' }} placeholder="day"
+                            value={mdDay(row.season_from)}
+                            onChange={(e) => setSeasonMD(row.id, 'season_from', 'd', e.target.value)} />
+                          <span style={{ fontSize: 12, color: 'var(--muted)' }}>to</span>
+                          <select style={{ width: 'auto' }} value={mdMonth(row.season_to)}
+                            onChange={(e) => setSeasonMD(row.id, 'season_to', 'm', e.target.value)}>
+                            <option value="">month</option>
+                            {MONTH_OPTS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                          </select>
+                          <input className="mono" style={{ width: 56, textAlign: 'right' }} placeholder="day"
+                            value={mdDay(row.season_to)}
+                            onChange={(e) => setSeasonMD(row.id, 'season_to', 'd', e.target.value)} />
+                          <span style={{ fontSize: 12, color: 'var(--muted)', marginLeft: 6 }}>price £</span>
+                          <input className="mono" style={{ width: 90, textAlign: 'right' }} placeholder="0.0000"
+                            value={row.season_ppl ?? ''}
+                            onChange={(e) => setRows((r) => r.map((x) => (x.id === row.id ? { ...x, season_ppl: e.target.value } : x)))}
+                            onBlur={(e) => saveSeason(row.id, { season_ppl: e.target.value === '' ? null : (parseFloat(e.target.value) || 0) })} />
+                          <span style={{ fontSize: 12, color: 'var(--muted)' }}>/L</span>
+                          {hasSeason && (
+                            <button className="btn btn-g btn-sm" style={{ marginLeft: 8 }} onClick={() => clearSeason(row.id)}>Clear</button>
+                          )}
+                        </div>
+                        <p className="hint" style={{ marginTop: 8 }}>
+                          The seasonal £/litre overrides the normal price (and any tiers/buyer levels) for orders placed in the window. A window from a later month to an earlier one (e.g. Nov → Feb) wraps across the new year.
+                        </p>
+                      </td>
+                    </tr>
+                  )}
                   {tiersOpen && (
                     <tr>
                       <td colSpan={6} style={{ background: 'var(--panel-2)', padding: '14px 16px' }}>

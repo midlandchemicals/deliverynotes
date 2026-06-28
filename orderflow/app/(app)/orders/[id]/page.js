@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import { computeLine, docTotals, fmt, prettyDate, splitContact, labelCount, PRICE_LEVELS } from '@/lib/calc'
+import { computeLine, docTotals, fmt, prettyDate, splitContact, labelCount, PRICE_LEVELS, seasonalActive, mdLabel } from '@/lib/calc'
 import { generateDispatchPDF, generateOfficeCopyPDF, reprintPDF } from '@/lib/pdf'
 import PricingGuard, { usePricingCheck } from '@/app/(app)/PricingGuard'
 import { StatusBadge } from '../page'
@@ -41,6 +41,8 @@ export default function OrderDetailPage() {
   const [priceTiers, setPriceTiers] = useState({})
   // tier basis per price row: { [productId::packagingId]: 'line' | 'order' }
   const [tierBasis, setTierBasis] = useState({})
+  // seasonal pricing: { [productId::packagingId]: { from, to, ppl } }
+  const [seasonMap, setSeasonMap] = useState({})
   // 3-tier buyer pricing
   const [customerThreeTier, setCustomerThreeTier] = useState(false)
   const [priceLevel, setPriceLevel] = useState('trade')
@@ -95,7 +97,7 @@ export default function OrderDetailPage() {
       if (o.data?.customer_id) {
         const [priceData, custData, tiersData] = await Promise.all([
           supabase.from('customer_product_prices')
-            .select('product_id, packaging_id, price_per_litre, delivery_charge, qty_tiers, tier_basis, price_trade, price_buyer_group, price_retail').eq('customer_id', o.data.customer_id),
+            .select('product_id, packaging_id, price_per_litre, delivery_charge, qty_tiers, tier_basis, price_trade, price_buyer_group, price_retail, season_from, season_to, season_ppl').eq('customer_id', o.data.customer_id),
           supabase.from('customers').select('label_price, default_delivery_charge, free_delivery_above, default_letterhead_id, three_tier_pricing').eq('id', o.data.customer_id).single(),
           supabase.from('customer_delivery_tiers').select('*').eq('customer_id', o.data.customer_id).order('pallets_from'),
         ])
@@ -123,6 +125,9 @@ export default function OrderDetailPage() {
               .sort((a, b) => a.from - b.from),
           ])))
           setTierBasis(Object.fromEntries(priceRows.map((r) => [`${r.product_id}::${r.packaging_id}`, r.tier_basis || 'line'])))
+          setSeasonMap(Object.fromEntries(priceRows
+            .filter((r) => r.season_from && r.season_to && r.season_ppl != null)
+            .map((r) => [`${r.product_id}::${r.packaging_id}`, { from: r.season_from, to: r.season_to, ppl: Number(r.season_ppl) || 0 }])))
           // Auto-fill delivery charge from products in this order
           const autoDelivery = priceRows.reduce((sum, r) => {
             const inOrder = orderLines.some((l) => l.productId === r.product_id && l.packagingId === r.packaging_id)
@@ -247,11 +252,20 @@ export default function OrderDetailPage() {
     }, 0)
   }
 
-  // Effective £/litre for a line, honouring quantity-break tiers.
-  // lineQty = number of packs on this line. For 'order'-basis rows the band is
-  // chosen by the combined qty of all combined-mode products. Falls back to base.
+  // Active seasonal £/litre for a price row, if the order's placement date falls
+  // inside its recurring window. Returns null when no seasonal price applies.
+  function seasonalPpl(key) {
+    const s = seasonMap[key]
+    if (!s) return null
+    return seasonalActive(s.from, s.to, order?.order_date) ? s.ppl : null
+  }
+
+  // Effective £/litre for a line. Seasonal price wins; otherwise quantity-break
+  // tiers (line or combined basis); otherwise the base/level price.
   function pplFor(productId, packagingId, lineQty) {
     const key = `${productId}::${packagingId}`
+    const season = seasonalPpl(key)
+    if (season != null) return season
     const base = parseFloat(prices[key]) || 0
     const tiers = priceTiers[key] || []
     const q = tierBasis[key] === 'order' ? combinedSchemeQty() : (parseFloat(lineQty) || 0)
@@ -280,7 +294,7 @@ export default function OrderDetailPage() {
       lines, options: d.options,
       pallets: d.totals?.pallets || 0, batches,
     }
-    generateOfficeCopyPDF(doc_, lh, products, packaging, prices, parseFloat(deliveryCharge) || 0, labelTotal, priceTiers, tierBasis)
+    generateOfficeCopyPDF(doc_, lh, products, packaging, prices, parseFloat(deliveryCharge) || 0, labelTotal, priceTiers, tierBasis, seasonMap)
   }
 
   function printNote() {
@@ -521,8 +535,10 @@ ${items.map((it) => `  <li>${it.name}${it.pack ? ` — ${it.qty} x ${it.pack}` :
                 if (!c.product) return null
                 const priceKey = `${c.product.id}::${c.packaging?.id}`
                 const ppl = parseFloat(prices[priceKey]) || 0     // base/list price (editable)
-                const effPpl = pplFor(c.product.id, c.packaging?.id, c.qty) // tiered price for this qty
-                const tierApplied = (priceTiers[priceKey] || []).length > 0 && effPpl !== ppl
+                const effPpl = pplFor(c.product.id, c.packaging?.id, c.qty) // resolved price
+                const season = seasonMap[priceKey]
+                const seasonApplied = seasonalPpl(priceKey) != null
+                const tierApplied = !seasonApplied && (priceTiers[priceKey] || []).length > 0 && effPpl !== ppl
                 const isOrderBasis = tierBasis[priceKey] === 'order'
                 const bandQty = isOrderBasis ? combinedSchemeQty() : c.qty
                 const unitPrice = effPpl * (c.vol || 0)
@@ -541,7 +557,16 @@ ${items.map((it) => `  <li>${it.name}${it.pack ? ` — ${it.qty} x ${it.pack}` :
                     </td>
                     <td>{c.packaging?.name || '—'}</td>
                     <td>
-                      {tierApplied ? (
+                      {seasonApplied ? (
+                        // Seasonal price is active for the order date — it wins.
+                        <div
+                          style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2 }}
+                          title={`Seasonal price ${mdLabel(season.from)}–${mdLabel(season.to)}. Normal price £${(parseFloat(prices[priceKey]) || 0).toFixed(4)}/L is not charged in this window.`}
+                        >
+                          <span className="mono" style={{ fontWeight: 700, fontSize: 15, color: 'var(--accent)' }}>£{effPpl.toFixed(4)}</span>
+                          <span style={{ fontSize: 10.5, color: 'var(--accent)' }}>🗓 seasonal · {mdLabel(season.from)}–{mdLabel(season.to)}</span>
+                        </div>
+                      ) : tierApplied ? (
                         // A quantity tier is in effect — show ONLY the charged price.
                         // The base/list price doesn't apply here, so we keep it off the
                         // display (it's set in Price Entry, and shows inline again if an

@@ -1,7 +1,7 @@
 'use client'
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { computeLine, PRICE_LEVELS } from '@/lib/calc'
+import { computeLine, PRICE_LEVELS, seasonalActive } from '@/lib/calc'
 import PricingGuard from '@/app/(app)/PricingGuard'
 
 const VAT_RATE = 0.20
@@ -24,7 +24,7 @@ export default function DashboardPage() {
         supabase.from('orders').select('*').order('created_at', { ascending: false }),
         supabase.from('products').select('id, name, sg'),
         supabase.from('packaging').select('id, name, volume, tare'),
-        supabase.from('customer_product_prices').select('customer_id, product_id, packaging_id, price_per_litre, delivery_charge, qty_tiers, tier_basis, price_trade, price_buyer_group, price_retail'),
+        supabase.from('customer_product_prices').select('customer_id, product_id, packaging_id, price_per_litre, delivery_charge, qty_tiers, tier_basis, price_trade, price_buyer_group, price_retail, season_from, season_to, season_ppl'),
         supabase.from('customers').select('id, name, default_letterhead_id, three_tier_pricing'),
         supabase.from('letterheads').select('id, name, company, color'),
         supabase.from('dispatch_notes').select('order_id, doc_date, created_at, totals, lines_snapshot').order('created_at', { ascending: false }),
@@ -50,11 +50,14 @@ export default function DashboardPage() {
       const tierMap = {}
       const basisMap = {}
       const levelMap = {}   // key -> { trade, buyer_group, retail }
+      const seasonMap = {}  // key -> { from, to, ppl } | null
       for (const p of prices) {
         const key = `${p.customer_id}::${p.product_id}::${p.packaging_id}`
         priceMap[key] = p.price_per_litre || 0
         basisMap[key] = p.tier_basis || 'line'
         levelMap[key] = { trade: p.price_trade, buyer_group: p.price_buyer_group, retail: p.price_retail }
+        seasonMap[key] = (p.season_from && p.season_to && p.season_ppl != null)
+          ? { from: p.season_from, to: p.season_to, ppl: Number(p.season_ppl) || 0 } : null
         tierMap[key] = (Array.isArray(p.qty_tiers) ? p.qty_tiers : [])
           .map((t) => ({ from: Number(t.from) || 0, to: t.to == null || t.to === '' ? null : Number(t.to), ppl: Number(t.ppl) || 0 }))
           .filter((t) => t.ppl > 0)
@@ -111,9 +114,13 @@ export default function DashboardPage() {
           if (!c.product || !c.packaging) continue
           const key = `${o.customer_id}::${c.product.id}::${c.packaging.id}`
           const q = basisMap[key] === 'order' ? combined : c.qty
-          // 3-tier customers price by buyer level; others use quantity tiers.
+          // Seasonal price wins; else 3-tier buyer level; else quantity tiers.
+          const s = seasonMap[key]
+          const seasonP = s && seasonalActive(s.from, s.to, o.order_date) ? s.ppl : null
           const lvlPrice = threeTier ? levelMap[key]?.[lvlCol] : null
-          const ppl = threeTier ? (lvlPrice != null ? lvlPrice : (priceMap[key] || 0)) : pplFor(key, q)
+          const ppl = seasonP != null
+            ? seasonP
+            : threeTier ? (lvlPrice != null ? lvlPrice : (priceMap[key] || 0)) : pplFor(key, q)
           const lineVal = ppl * (c.vol || 0) * c.qty
           total += lineVal
           byName[c.productName] = (byName[c.productName] || 0) + lineVal
