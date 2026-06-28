@@ -130,11 +130,11 @@ create table if not exists customer_product_prices (
   price_trade numeric,
   price_buyer_group numeric,
   price_retail numeric,
-  -- Seasonal price: when the order is placed within the recurring MM-DD window
-  -- (season_from..season_to, repeats yearly, may wrap year-end), season_ppl
-  -- overrides the normal/tier/level price. Null = no seasonal pricing.
-  season_from text,   -- 'MM-DD'
-  season_to text,     -- 'MM-DD'
+  -- Seasonal price: when the order is placed within the date window
+  -- (season_from..season_to, specific dates incl. year), season_ppl overrides
+  -- the normal/tier/level price. Null = no seasonal pricing.
+  season_from text,   -- 'YYYY-MM-DD'
+  season_to text,     -- 'YYYY-MM-DD'
   season_ppl numeric,
   updated_at timestamptz default now(),
   unique(customer_id, product_id, packaging_id)
