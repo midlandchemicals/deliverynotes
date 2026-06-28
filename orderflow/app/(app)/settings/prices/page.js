@@ -61,7 +61,7 @@ export default function PricesPage() {
 
   async function loadPrices(cid) {
     const { data } = await supabase.from('customer_product_prices')
-      .select('id, product_id, packaging_id, price_per_litre, delivery_charge, qty_tiers, tier_basis, price_trade, price_buyer_group, price_retail, season_from, season_to, season_ppl')
+      .select('id, product_id, packaging_id, price_per_litre, delivery_charge, delivery_per_pallet, qty_tiers, tier_basis, price_trade, price_buyer_group, price_retail, season_from, season_to, season_ppl')
       .eq('customer_id', cid)
     setRows((data || []).map((r) => ({ ...r, qty_tiers: Array.isArray(r.qty_tiers) ? r.qty_tiers : [], tier_basis: r.tier_basis || 'line' })))
   }
@@ -108,6 +108,12 @@ export default function PricesPage() {
     const patch = pplPatch(ppl)
     setRows((r) => r.map((x) => (x.id === rowId ? { ...x, ...patch } : x)))
     await supabase.from('customer_product_prices').update(patch).eq('id', rowId)
+  }
+
+  async function handlePerPalletChange(rowId, val) {
+    const v = parseFloat(val) || 0
+    setRows((r) => r.map((x) => (x.id === rowId ? { ...x, delivery_per_pallet: v } : x)))
+    await supabase.from('customer_product_prices').update({ delivery_per_pallet: v, updated_at: new Date().toISOString() }).eq('id', rowId)
   }
 
   async function handleDeliveryChange(rowId, val) {
@@ -356,7 +362,7 @@ export default function PricesPage() {
                 {isThreeTier ? `${(PRICE_LEVELS.find((l) => l.key === level) || {}).label} £/L` : '£ / Litre'}
               </th>
               <th style={{ textAlign: 'right', width: '13%' }}>£ / Pack</th>
-              <th style={{ textAlign: 'right', width: '13%' }}>Delivery (£)</th>
+              <th style={{ textAlign: 'right', width: '13%' }}>Delivery £<br /><span style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>flat / per pallet</span></th>
               <th style={{ width: '4%' }}></th>
             </tr></thead>
             <tbody>
@@ -405,6 +411,17 @@ export default function PricesPage() {
                         onChange={(e) => setRows((r) => r.map((x) => (x.id === row.id ? { ...x, delivery_charge: e.target.value } : x)))}
                         onBlur={(e) => handleDeliveryChange(row.id, e.target.value)}
                       />
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 4, marginTop: 3 }}>
+                        <span style={{ fontSize: 10, color: 'var(--muted)' }}>£</span>
+                        <input className="mono" style={{ textAlign: 'right', width: 62, fontSize: 11, padding: '3px 5px' }}
+                          title="Delivery £ per pallet — raises the order's per-pallet rate when this product is ordered"
+                          value={row.delivery_per_pallet > 0 ? row.delivery_per_pallet : ''}
+                          placeholder="/pallet"
+                          onChange={(e) => setRows((r) => r.map((x) => (x.id === row.id ? { ...x, delivery_per_pallet: e.target.value } : x)))}
+                          onBlur={(e) => handlePerPalletChange(row.id, e.target.value)}
+                        />
+                        <span style={{ fontSize: 10, color: 'var(--muted)' }}>/plt</span>
+                      </div>
                     </td>
                     <td style={{ whiteSpace: 'nowrap' }}>
                       {!isThreeTier && (
