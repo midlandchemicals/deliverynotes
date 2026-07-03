@@ -21,25 +21,28 @@ function AddressListEditor({ list, kind, withContact, onChange }) {
     onChange(next.length ? next : [withContact ? { label: '', text: '', contact: { name: '', email: '', phone: '' } } : { label: '', text: '' }])
   }
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
       {list.map((e, i) => (
-        <div key={i} style={{ border: '1px solid var(--border)', borderRadius: 8, padding: 6 }}>
-          <div style={{ display: 'flex', gap: 6, marginBottom: 4, alignItems: 'center' }}>
-            <input style={{ flex: 1, fontSize: 12 }} placeholder={i === 0 ? 'Label (e.g. Main / Head Office)' : 'Label'}
+        <div key={i} style={{ border: '1px solid var(--border)', borderRadius: 10, padding: 11, background: 'var(--panel)' }}>
+          <div style={{ display: 'flex', gap: 6, marginBottom: 7, alignItems: 'center' }}>
+            <input style={{ flex: 1, fontSize: 12.5 }} placeholder={i === 0 ? 'Label (e.g. Main / Head Office)' : 'Label'}
               value={e.label || ''} onChange={(ev) => setEntry(i, { label: ev.target.value })} />
-            {list.length > 1 && <button className="btn-dl" onClick={() => removeEntry(i)}>×</button>}
+            {list.length > 1 && <button className="btn-dl" onClick={() => removeEntry(i)} title="Remove this address">×</button>}
           </div>
-          <textarea style={{ minHeight: 64 }} value={e.text || ''} onChange={(ev) => setEntry(i, { text: ev.target.value })} />
+          <textarea style={{ minHeight: 72, fontSize: 12.5 }} placeholder="Address…" value={e.text || ''} onChange={(ev) => setEntry(i, { text: ev.target.value })} />
           {withContact && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 5 }}>
-              <input style={{ fontSize: 12 }} placeholder="Contact name" value={e.contact?.name || ''} onChange={(ev) => setContact(i, { name: ev.target.value })} />
-              <input style={{ fontSize: 12 }} placeholder="Email" value={e.contact?.email || ''} onChange={(ev) => setContact(i, { email: ev.target.value })} />
-              <input style={{ fontSize: 12 }} placeholder="Telephone" value={e.contact?.phone || ''} onChange={(ev) => setContact(i, { phone: ev.target.value })} />
+            <div style={{ marginTop: 9 }}>
+              <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted)', marginBottom: 5 }}>Contact for this address</div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 7 }}>
+                <input style={{ fontSize: 12.5 }} placeholder="Name" value={e.contact?.name || ''} onChange={(ev) => setContact(i, { name: ev.target.value })} />
+                <input style={{ fontSize: 12.5 }} placeholder="Email" value={e.contact?.email || ''} onChange={(ev) => setContact(i, { email: ev.target.value })} />
+                <input style={{ fontSize: 12.5 }} placeholder="Telephone" value={e.contact?.phone || ''} onChange={(ev) => setContact(i, { phone: ev.target.value })} />
+              </div>
             </div>
           )}
         </div>
       ))}
-      <button className="addrow" style={{ fontSize: 12, padding: '5px 8px' }} onClick={addEntry}>+ Add {kind} address</button>
+      <button className="addrow" style={{ fontSize: 12.5, padding: '7px 10px' }} onClick={addEntry}>+ Add {kind} address</button>
     </div>
   )
 }
@@ -126,32 +129,29 @@ export default function CustomersPage() {
       <div className="ttl"><h2>Address Book</h2></div>
       <table className="tbl">
         <thead><tr>
-          <th style={{ width: '13%' }}>Name</th>
-          <th style={{ width: '24%' }}>Invoice addresses</th>
-          <th style={{ width: '28%' }}>Delivery addresses (each with its own contact)</th>
-          <th style={{ width: '7%' }}>£/label</th>
-          <th style={{ width: '7%' }}>Flat del. £</th>
-          <th style={{ width: '11%' }}>Default letterhead</th>
-          <th style={{ width: '6%' }}>3-tier price</th>
-          <th style={{ width: '8%' }}>Del. rules</th>
-          <th style={{ width: '2%' }}></th>
+          <th style={{ width: '16%' }}>Name</th>
+          <th style={{ width: '30%' }}>Invoice addresses</th>
+          <th style={{ width: '38%' }}>Delivery addresses (each with its own contact)</th>
+          <th style={{ width: '12%' }}>Pricing &amp; delivery</th>
+          <th style={{ width: '4%' }}></th>
         </tr></thead>
         <tbody>
           {rows.map((it) => {
             const tiersOpen = expandedTiersId === it.id
             const tiers = tierRows[it.id] || []
+            const hasSettings = (it.free_delivery_above > 0) || (it.delivery_per_pallet > 0) || (it.default_delivery_charge > 0) || (it.label_price > 0) || it.default_letterhead_id || it.three_tier_pricing || tiers.length
             return (
               <React.Fragment key={it.id}>
                 <tr>
-                  <td><input value={it.name} onChange={(e) => update(it.id, { name: e.target.value })} /></td>
-                  <td>
+                  <td style={{ verticalAlign: 'top' }}><input value={it.name} onChange={(e) => update(it.id, { name: e.target.value })} /></td>
+                  <td style={{ verticalAlign: 'top' }}>
                     <AddressListEditor
                       list={addrList(it.invoice_addresses, it.details)}
                       kind="invoice"
                       onChange={(list) => update(it.id, { invoice_addresses: list, details: list[0]?.text || '' })}
                     />
                   </td>
-                  <td>
+                  <td style={{ verticalAlign: 'top' }}>
                     <AddressListEditor
                       list={deliveryAddrList(it)}
                       kind="delivery"
@@ -165,117 +165,105 @@ export default function CustomersPage() {
                       })}
                     />
                   </td>
-                  <td>
-                    <input className="mono" style={{ textAlign: 'right' }}
-                      value={it.label_price ?? ''} placeholder="0.00"
-                      onChange={(e) => setRows((r) => r.map((x) => (x.id === it.id ? { ...x, label_price: e.target.value } : x)))}
-                      onBlur={(e) => update(it.id, { label_price: parseFloat(e.target.value) || 0 })} />
-                  </td>
-                  <td>
-                    <input className="mono" style={{ textAlign: 'right' }}
-                      value={it.default_delivery_charge ?? ''} placeholder="0.00"
-                      onChange={(e) => setRows((r) => r.map((x) => (x.id === it.id ? { ...x, default_delivery_charge: e.target.value } : x)))}
-                      onBlur={(e) => update(it.id, { default_delivery_charge: parseFloat(e.target.value) || 0 })} />
-                  </td>
-                  <td>
-                    <select
-                      value={it.default_letterhead_id || ''}
-                      onChange={(e) => update(it.id, { default_letterhead_id: e.target.value || null })}
-                      style={{ fontSize: 12, padding: '4px 6px', width: '100%' }}
-                    >
-                      <option value="">— default —</option>
-                      {letterheads.map((l) => (
-                        <option key={l.id} value={l.id}>{l.name}</option>
-                      ))}
-                    </select>
-                  </td>
-                  <td style={{ textAlign: 'center' }}>
-                    <input
-                      type="checkbox"
-                      checked={!!it.three_tier_pricing}
-                      onChange={(e) => update(it.id, { three_tier_pricing: e.target.checked })}
-                      style={{ width: 'auto', height: 16, accentColor: 'var(--accent)' }}
-                      title="Trade / Buyer group / Retail pricing for this customer"
-                    />
-                  </td>
-                  <td>
+                  <td style={{ verticalAlign: 'top' }}>
                     <button
                       className={'btn btn-sm ' + (tiersOpen ? 'btn-a' : 'btn-g')}
-                      style={{ width: '100%', fontSize: 11 }}
+                      style={{ width: '100%', fontSize: 11.5 }}
                       onClick={() => toggleTiers(it.id)}
                     >
-                      {tiersOpen ? 'Close' : tiers.length || (it.free_delivery_above > 0) ? '⚡ Edit' : '+ Set up'}
+                      {tiersOpen ? 'Close' : (hasSettings ? '⚙ Edit' : '＋ Set up')}
                     </button>
                   </td>
-                  <td><button className="btn-dl" onClick={() => remove(it.id)}>×</button></td>
+                  <td style={{ verticalAlign: 'top' }}><button className="btn-dl" onClick={() => remove(it.id)}>×</button></td>
                 </tr>
 
                 {tiersOpen && (
                   <tr style={{ background: 'var(--panel-2)' }}>
-                    <td colSpan={9} style={{ padding: '14px 18px' }}>
-                      <div style={{ display: 'flex', gap: 32, flexWrap: 'wrap', alignItems: 'flex-start' }}>
+                    <td colSpan={5} style={{ padding: '18px 20px' }}>
 
-                        {/* Free delivery threshold */}
-                        <div>
-                          <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.04em', color: 'var(--muted)', marginBottom: 8 }}>Free delivery above order value</div>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                            <span style={{ color: 'var(--muted)', fontSize: 13 }}>£</span>
-                            <input className="mono" style={{ width: 90, textAlign: 'right' }}
-                              value={it.free_delivery_above || ''} placeholder="0.00"
-                              onChange={(e) => setRows((r) => r.map((x) => (x.id === it.id ? { ...x, free_delivery_above: e.target.value } : x)))}
-                              onBlur={(e) => update(it.id, { free_delivery_above: parseFloat(e.target.value) || 0 })}
-                            />
-                          </div>
-                          <p className="hint" style={{ marginTop: 6, maxWidth: 180 }}>Order subtotal at or above this → delivery auto-sets to £0. Leave blank or 0 to disable.</p>
-
-                          <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.04em', color: 'var(--muted)', margin: '16px 0 8px' }}>Delivery £ per pallet</div>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                            <span style={{ color: 'var(--muted)', fontSize: 13 }}>£</span>
-                            <input className="mono" style={{ width: 90, textAlign: 'right' }}
-                              value={it.delivery_per_pallet || ''} placeholder="0.00"
-                              onChange={(e) => setRows((r) => r.map((x) => (x.id === it.id ? { ...x, delivery_per_pallet: e.target.value } : x)))}
-                              onBlur={(e) => update(it.id, { delivery_per_pallet: parseFloat(e.target.value) || 0 })}
-                            />
-                            <span style={{ color: 'var(--muted)', fontSize: 12 }}>× pallets</span>
-                          </div>
-                          <p className="hint" style={{ marginTop: 6, maxWidth: 180 }}>Charges this × the number of pallets on the order. Takes priority over the banded tiers. A product with a higher per-pallet rate raises it.</p>
+                      {/* Defaults */}
+                      <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted)', marginBottom: 12 }}>Pricing &amp; delivery defaults</div>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: '14px 20px', maxWidth: 900, marginBottom: 8 }}>
+                        <div className="field" style={{ marginBottom: 0 }}>
+                          <label>Label price (£/label)</label>
+                          <input className="mono" style={{ textAlign: 'right' }}
+                            value={it.label_price ?? ''} placeholder="0.00"
+                            onChange={(e) => setRows((r) => r.map((x) => (x.id === it.id ? { ...x, label_price: e.target.value } : x)))}
+                            onBlur={(e) => update(it.id, { label_price: parseFloat(e.target.value) || 0 })} />
                         </div>
-
-                        {/* Pallet tiers */}
-                        <div style={{ flex: 1, minWidth: 280 }}>
-                          <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.04em', color: 'var(--muted)', marginBottom: 8 }}>Pallet-based delivery tiers</div>
-                          {tiers.length === 0 && (
-                            <p className="hint" style={{ marginBottom: 8 }}>No tiers set — add one below.</p>
-                          )}
-                          {tiers.map((tier) => (
-                            <div key={tier.id} style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 6, flexWrap: 'wrap' }}>
-                              <span style={{ fontSize: 12, color: 'var(--muted)', minWidth: 40 }}>Pallets</span>
-                              <input className="mono" style={{ width: 52, textAlign: 'center' }}
-                                value={tier.pallets_from}
-                                onChange={(e) => updateTierLocal(it.id, tier.id, { pallets_from: e.target.value })}
-                                onBlur={(e) => saveTier(it.id, tier.id, { pallets_from: e.target.value !== '' ? (parseInt(e.target.value) || 0) : 1 })}
-                              />
-                              <span style={{ fontSize: 12, color: 'var(--muted)' }}>to</span>
-                              <input className="mono" style={{ width: 52, textAlign: 'center' }}
-                                value={tier.pallets_to ?? ''}
-                                placeholder="∞"
-                                onChange={(e) => updateTierLocal(it.id, tier.id, { pallets_to: e.target.value })}
-                                onBlur={(e) => saveTier(it.id, tier.id, { pallets_to: e.target.value ? parseInt(e.target.value) : null })}
-                              />
-                              <span style={{ fontSize: 12, color: 'var(--muted)' }}>= £</span>
-                              <input className="mono" style={{ width: 72, textAlign: 'right' }}
-                                value={tier.charge}
-                                onChange={(e) => updateTierLocal(it.id, tier.id, { charge: e.target.value })}
-                                onBlur={(e) => saveTier(it.id, tier.id, { charge: parseFloat(e.target.value) || 0 })}
-                              />
-                              <button className="btn-dl" onClick={() => deleteTier(it.id, tier.id)}>×</button>
-                            </div>
-                          ))}
-                          <button className="addrow" style={{ fontSize: 12, marginTop: 4 }} onClick={() => addTier(it.id)}>+ Add tier</button>
-                          <p className="hint" style={{ marginTop: 8, maxWidth: 320 }}>Leave "to" blank (∞) for the top tier. The "to" value is exclusive — e.g. "0 to 1" applies when pallets &lt; 1 (i.e. no full pallet). When pallet count is entered on an order, the matching tier auto-fills the delivery charge (unless the free-delivery threshold is met).</p>
+                        <div className="field" style={{ marginBottom: 0 }}>
+                          <label>Flat delivery (£)</label>
+                          <input className="mono" style={{ textAlign: 'right' }}
+                            value={it.default_delivery_charge ?? ''} placeholder="0.00"
+                            onChange={(e) => setRows((r) => r.map((x) => (x.id === it.id ? { ...x, default_delivery_charge: e.target.value } : x)))}
+                            onBlur={(e) => update(it.id, { default_delivery_charge: parseFloat(e.target.value) || 0 })} />
                         </div>
-
+                        <div className="field" style={{ marginBottom: 0 }}>
+                          <label>Default letterhead</label>
+                          <select value={it.default_letterhead_id || ''}
+                            onChange={(e) => update(it.id, { default_letterhead_id: e.target.value || null })}>
+                            <option value="">— default —</option>
+                            {letterheads.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
+                          </select>
+                        </div>
+                        <div className="field" style={{ marginBottom: 0 }}>
+                          <label>Buyer pricing</label>
+                          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, textTransform: 'none', letterSpacing: 0, fontWeight: 500, fontSize: 13, color: 'var(--ink)', margin: '4px 0 0', cursor: 'pointer' }}>
+                            <input type="checkbox" checked={!!it.three_tier_pricing}
+                              onChange={(e) => update(it.id, { three_tier_pricing: e.target.checked })}
+                              style={{ width: 'auto', height: 16, accentColor: 'var(--accent)' }} />
+                            3-tier (Trade / Buyer / Retail)
+                          </label>
+                        </div>
+                        <div className="field" style={{ marginBottom: 0 }}>
+                          <label>Free delivery above (£)</label>
+                          <input className="mono" style={{ textAlign: 'right' }}
+                            value={it.free_delivery_above || ''} placeholder="0.00 = off"
+                            onChange={(e) => setRows((r) => r.map((x) => (x.id === it.id ? { ...x, free_delivery_above: e.target.value } : x)))}
+                            onBlur={(e) => update(it.id, { free_delivery_above: parseFloat(e.target.value) || 0 })} />
+                        </div>
+                        <div className="field" style={{ marginBottom: 0 }}>
+                          <label>Delivery £ per pallet</label>
+                          <input className="mono" style={{ textAlign: 'right' }}
+                            value={it.delivery_per_pallet || ''} placeholder="0.00"
+                            onChange={(e) => setRows((r) => r.map((x) => (x.id === it.id ? { ...x, delivery_per_pallet: e.target.value } : x)))}
+                            onBlur={(e) => update(it.id, { delivery_per_pallet: parseFloat(e.target.value) || 0 })} />
+                        </div>
                       </div>
+                      <p className="hint" style={{ marginTop: 0, marginBottom: 18 }}>
+                        <b>Free delivery above</b>: order subtotal ≥ this → delivery £0. <b>£ per pallet</b>: charges rate × pallets (per IBC), and takes priority over the banded tiers below.
+                      </p>
+
+                      {/* Pallet tiers */}
+                      <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted)', marginBottom: 8 }}>Pallet-based delivery tiers <span style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>(optional — fixed charge per band)</span></div>
+                      {tiers.length === 0 && (
+                        <p className="hint" style={{ marginBottom: 8, marginTop: 0 }}>No tiers set — add one below, or use “£ per pallet” above instead.</p>
+                      )}
+                      {tiers.map((tier) => (
+                        <div key={tier.id} style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 6, flexWrap: 'wrap' }}>
+                          <span style={{ fontSize: 12, color: 'var(--muted)', minWidth: 40 }}>Pallets</span>
+                          <input className="mono" style={{ width: 52, textAlign: 'center' }}
+                            value={tier.pallets_from}
+                            onChange={(e) => updateTierLocal(it.id, tier.id, { pallets_from: e.target.value })}
+                            onBlur={(e) => saveTier(it.id, tier.id, { pallets_from: e.target.value !== '' ? (parseInt(e.target.value) || 0) : 1 })}
+                          />
+                          <span style={{ fontSize: 12, color: 'var(--muted)' }}>to</span>
+                          <input className="mono" style={{ width: 52, textAlign: 'center' }}
+                            value={tier.pallets_to ?? ''}
+                            placeholder="∞"
+                            onChange={(e) => updateTierLocal(it.id, tier.id, { pallets_to: e.target.value })}
+                            onBlur={(e) => saveTier(it.id, tier.id, { pallets_to: e.target.value ? parseInt(e.target.value) : null })}
+                          />
+                          <span style={{ fontSize: 12, color: 'var(--muted)' }}>= £</span>
+                          <input className="mono" style={{ width: 72, textAlign: 'right' }}
+                            value={tier.charge}
+                            onChange={(e) => updateTierLocal(it.id, tier.id, { charge: e.target.value })}
+                            onBlur={(e) => saveTier(it.id, tier.id, { charge: parseFloat(e.target.value) || 0 })}
+                          />
+                          <button className="btn-dl" onClick={() => deleteTier(it.id, tier.id)}>×</button>
+                        </div>
+                      ))}
+                      <button className="addrow" style={{ fontSize: 12, marginTop: 4 }} onClick={() => addTier(it.id)}>+ Add tier</button>
                     </td>
                   </tr>
                 )}
