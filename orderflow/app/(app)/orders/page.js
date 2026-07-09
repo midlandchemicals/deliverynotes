@@ -56,6 +56,9 @@ export default function OrdersPage() {
   async function remove(e, order) {
     e.stopPropagation()
     if (!confirm(`Delete delivery note ${order.order_no}? This cannot be undone.`)) return
+    // Remove any generated delivery notes for this order too, so they don't
+    // linger in the Delivery Notes library after the order is gone.
+    await supabase.from('dispatch_notes').delete().eq('order_id', order.id)
     await supabase.from('orders').delete().eq('id', order.id)
     setOrders((list) => list.filter((x) => x.id !== order.id))
   }

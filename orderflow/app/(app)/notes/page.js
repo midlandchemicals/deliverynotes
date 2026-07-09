@@ -38,8 +38,10 @@ export default function DeliveryNotesPage() {
         supabase.from('orders').select('id, customer_snapshot'),
       ])
       if (dnRes.error) setErr(dnRes.error.message)
+      const liveOrders = new Set((ordRes.data || []).map((o) => o.id))
       setNameByOrder(Object.fromEntries((ordRes.data || []).map((o) => [o.id, o.customer_snapshot?.name || ''])))
-      setNotes(dnRes.data || [])
+      // Only show notes whose order still exists (hide notes for deleted orders)
+      setNotes((dnRes.data || []).filter((n) => n.order_id && liveOrders.has(n.order_id)))
     })()
   }, [])
 
