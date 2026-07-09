@@ -133,6 +133,7 @@ export default function CustomersPage() {
   const [letterheads, setLetterheads] = useState([])
   const [expandedTiersId, setExpandedTiersId] = useState(null)
   const [tierRows, setTierRows] = useState({}) // { [customerId]: [{id, pallets_from, pallets_to, charge}] }
+  const [q, setQ] = useState('')
 
   useEffect(() => { load() }, [])
 
@@ -160,7 +161,9 @@ export default function CustomersPage() {
       .insert({ name: 'New customer', details: '', deliver: '', contact_name: '', email: '', phone: '',
                 invoice_addresses: [], delivery_addresses: [], default_delivery_charge: 0, free_delivery_above: 0 })
       .select('*').single()
-    setRows((r) => [...r, data])
+    setRows((r) => [data, ...r])
+    setQ('')
+    setExpandedTiersId(data.id)  // open the new customer straight away
   }
 
   async function remove(id) {
@@ -209,39 +212,75 @@ export default function CustomersPage() {
 
   if (rows === null) return <div className="card"><div className="empty">Loading…</div></div>
 
+  const filtered = rows.filter((it) => !q || (it.name || '').toLowerCase().includes(q.toLowerCase()))
+
+  function customerSummary(it) {
+    const inv = addrList(it.invoice_addresses, it.details).filter((a) => a.text).length
+    const del = deliveryAddrList(it).filter((a) => a.text).length
+    const bits = []
+    if (del) bits.push(`${del} delivery address${del !== 1 ? 'es' : ''}`)
+    if (it.delivery_per_pallet > 0) bits.push(`£${Number(it.delivery_per_pallet).toFixed(2)}/pallet`)
+    else if ((tierRows[it.id] || []).length) bits.push('pallet tiers')
+    else if (it.default_delivery_charge > 0) bits.push(`£${Number(it.default_delivery_charge).toFixed(2)} delivery`)
+    if (it.three_tier_pricing) bits.push('3-tier pricing')
+    return bits.join(' · ') || (inv ? 'address on file' : 'no addresses yet')
+  }
+
   return (
-    <div className="card">
-      <div className="ttl"><h2>Address Book</h2></div>
-      <table className="tbl">
-        <thead><tr>
-          <th style={{ width: '16%' }}>Name</th>
-          <th style={{ width: '30%' }}>Invoice addresses</th>
-          <th style={{ width: '38%' }}>Delivery addresses (each with its own contact)</th>
-          <th style={{ width: '12%' }}>Pricing &amp; delivery</th>
-          <th style={{ width: '4%' }}></th>
-        </tr></thead>
-        <tbody>
-          {rows.map((it) => {
-            const tiersOpen = expandedTiersId === it.id
-            const tiers = tierRows[it.id] || []
-            const hasSettings = (it.free_delivery_above > 0) || (it.delivery_per_pallet > 0) || (it.default_delivery_charge > 0) || (it.label_price > 0) || it.default_letterhead_id || it.three_tier_pricing || tiers.length
-            return (
-              <React.Fragment key={it.id}>
-                <tr>
-                  <td style={{ verticalAlign: 'top' }}>
-                    <input value={it.name}
-                      onChange={(e) => updateLocal(it.id, { name: e.target.value })}
-                      onBlur={(e) => update(it.id, { name: e.target.value })} />
-                  </td>
-                  <td style={{ verticalAlign: 'top' }}>
+    <div>
+      <div className="card">
+        <div className="ttl">
+          <h2>Address Book <span className="muted" style={{ fontWeight: 400, fontSize: 13 }}>({rows.length})</span></h2>
+          <button className="btn btn-a btn-sm" onClick={add}>＋ Add customer</button>
+        </div>
+        <div className="filters" style={{ marginBottom: 0 }}>
+          <input placeholder="Search customer by name…" value={q} onChange={(e) => setQ(e.target.value)} style={{ maxWidth: 380 }} autoFocus />
+          {q && <span className="muted" style={{ fontSize: 12.5 }}>{filtered.length} match{filtered.length !== 1 ? 'es' : ''}</span>}
+        </div>
+      </div>
+
+      {filtered.length === 0 && (
+        <div className="card"><div className="empty">{q ? `No customer matches “${q}”.` : 'No customers yet — add one above.'}</div></div>
+      )}
+
+      {filtered.map((it) => {
+        const open = expandedTiersId === it.id
+        const tiers = tierRows[it.id] || []
+        return (
+          <div key={it.id} className="card" style={{ marginBottom: 10, padding: open ? 22 : '12px 16px', border: open ? '1.5px solid var(--accent)' : undefined }}>
+            {/* Collapsed header row */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontWeight: 700, color: 'var(--heading)', fontSize: 14.5, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{it.name || '(unnamed)'}</div>
+                {!open && <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{customerSummary(it)}</div>}
+              </div>
+              <button className={'btn btn-sm ' + (open ? 'btn-a' : 'btn-g')} style={{ flexShrink: 0 }} onClick={() => toggleTiers(it.id)}>
+                {open ? 'Close' : 'Edit'}
+              </button>
+              <button className="btn-dl" style={{ flexShrink: 0 }} onClick={() => remove(it.id)} title="Delete customer">×</button>
+            </div>
+
+            {open && (
+              <div style={{ marginTop: 18, borderTop: '1px solid var(--line)', paddingTop: 18 }}>
+                <div className="field" style={{ maxWidth: 380, marginBottom: 18 }}>
+                  <label>Customer name</label>
+                  <input value={it.name}
+                    onChange={(e) => updateLocal(it.id, { name: e.target.value })}
+                    onBlur={(e) => update(it.id, { name: e.target.value })} />
+                </div>
+
+                <div className="row c2" style={{ marginBottom: 4 }}>
+                  <div>
+                    <label>Invoice addresses</label>
                     <AddressListEditor
                       list={addrList(it.invoice_addresses, it.details)}
                       kind="invoice"
                       onChange={(list) => updateLocal(it.id, { invoice_addresses: list, details: list[0]?.text || '' })}
                       onCommit={(list) => update(it.id, { invoice_addresses: list, details: list[0]?.text || '' })}
                     />
-                  </td>
-                  <td style={{ verticalAlign: 'top' }}>
+                  </div>
+                  <div>
+                    <label>Delivery addresses (each with its own contact)</label>
                     <AddressListEditor
                       list={deliveryAddrList(it)}
                       kind="delivery"
@@ -261,23 +300,10 @@ export default function CustomersPage() {
                         phone: list[0]?.contact?.phone || '',
                       })}
                     />
-                  </td>
-                  <td style={{ verticalAlign: 'top' }}>
-                    <button
-                      className={'btn btn-sm ' + (tiersOpen ? 'btn-a' : 'btn-g')}
-                      style={{ width: '100%', fontSize: 11.5 }}
-                      onClick={() => toggleTiers(it.id)}
-                    >
-                      {tiersOpen ? 'Close' : (hasSettings ? '⚙ Edit' : '＋ Set up')}
-                    </button>
-                  </td>
-                  <td style={{ verticalAlign: 'top' }}><button className="btn-dl" onClick={() => remove(it.id)}>×</button></td>
-                </tr>
+                  </div>
+                </div>
 
-                {tiersOpen && (
-                  <tr style={{ background: 'var(--panel-2)' }}>
-                    <td colSpan={5} style={{ padding: '18px 20px' }}>
-
+                <div style={{ marginTop: 20, paddingTop: 18, borderTop: '1px solid var(--line)' }}>
                       {/* Defaults */}
                       <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted)', marginBottom: 12 }}>Pricing &amp; delivery defaults</div>
                       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: '14px 20px', maxWidth: 900, marginBottom: 8 }}>
@@ -361,16 +387,12 @@ export default function CustomersPage() {
                         </div>
                       ))}
                       <button className="addrow" style={{ fontSize: 12, marginTop: 4 }} onClick={() => addTier(it.id)}>+ Add tier</button>
-                    </td>
-                  </tr>
-                )}
-              </React.Fragment>
-            )
-          })}
-        </tbody>
-      </table>
-      <button className="addrow" onClick={add}>+ Add customer</button>
-      <p className="hint">Add several invoice or delivery addresses per customer. Use <b>Del. rules</b> to set pallet-based delivery tiers or a free-delivery order threshold — both are optional and work independently per customer.</p>
+                </div>
+              </div>
+            )}
+          </div>
+        )
+      })}
     </div>
   )
 }
