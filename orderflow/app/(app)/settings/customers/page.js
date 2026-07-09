@@ -1,6 +1,7 @@
 'use client'
 import React, { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { splitContact } from '@/lib/calc'
 
 function addrList(arr, legacy) {
   if (Array.isArray(arr) && arr.length) return arr
@@ -12,37 +13,116 @@ function deliveryAddrList(c) {
   return [{ label: '', text: c.deliver || '', contact: { name: c.contact_name || '', email: c.email || '', phone: c.phone || '' } }]
 }
 
-function AddressListEditor({ list, kind, withContact, onChange }) {
+// Address editor: collapsed one-line cards, one address expanded at a time.
+// onChange = update local state only (no DB write); onCommit = persist.
+// Smart paste: drop a whole block from an email into the paste box and the
+// contact details (name / email / phone) are picked out automatically.
+function AddressListEditor({ list, kind, withContact, onChange, onCommit }) {
+  const blank = () => (withContact ? { label: '', text: '', contact: { name: '', email: '', phone: '' } } : { label: '', text: '' })
+  // Auto-open the only entry when it's still empty (fresh customer)
+  const [openIdx, setOpenIdx] = useState(list.length === 1 && !list[0]?.text ? 0 : null)
+
   function setEntry(i, patch) { onChange(list.map((e, idx) => (idx === i ? { ...e, ...patch } : e))) }
   function setContact(i, patch) { onChange(list.map((e, idx) => (idx === i ? { ...e, contact: { ...(e.contact || {}), ...patch } } : e))) }
-  function addEntry() { onChange([...list, withContact ? { label: '', text: '', contact: { name: '', email: '', phone: '' } } : { label: '', text: '' }]) }
+  const commit = () => onCommit(list)
+
+  function addEntry() {
+    const next = [...list, blank()]
+    onChange(next)
+    setOpenIdx(next.length - 1)
+  }
   function removeEntry(i) {
     const next = list.filter((_, idx) => idx !== i)
-    onChange(next.length ? next : [withContact ? { label: '', text: '', contact: { name: '', email: '', phone: '' } } : { label: '', text: '' }])
+    const final = next.length ? next : [blank()]
+    onChange(final)
+    onCommit(final)
+    setOpenIdx(null)
   }
+
+  // Parse a pasted block: contact lines become the contact, the rest the address.
+  function smartPaste(i, raw) {
+    if (!raw || !raw.trim()) return
+    let next
+    if (withContact) {
+      const { address, contact } = splitContact(raw)
+      next = list.map((e, idx) => (idx === i ? {
+        ...e,
+        text: address || raw.trim(),
+        contact: {
+          name: contact.name || e.contact?.name || '',
+          email: contact.email || e.contact?.email || '',
+          phone: contact.phone || e.contact?.phone || '',
+        },
+      } : e))
+    } else {
+      next = list.map((e, idx) => (idx === i ? { ...e, text: raw.trim() } : e))
+    }
+    onChange(next)
+    onCommit(next)
+  }
+
+  const firstLine = (t) => String(t || '').split('\n').map((l) => l.trim()).filter(Boolean)[0] || ''
+
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-      {list.map((e, i) => (
-        <div key={i} style={{ border: '1px solid var(--border)', borderRadius: 10, padding: 11, background: 'var(--panel)' }}>
-          <div style={{ display: 'flex', gap: 6, marginBottom: 7, alignItems: 'center' }}>
-            <input style={{ flex: 1, fontSize: 12.5 }} placeholder={i === 0 ? 'Label (e.g. Main / Head Office)' : 'Label'}
-              value={e.label || ''} onChange={(ev) => setEntry(i, { label: ev.target.value })} />
-            {list.length > 1 && <button className="btn-dl" onClick={() => removeEntry(i)} title="Remove this address">×</button>}
-          </div>
-          <textarea style={{ minHeight: 72, fontSize: 12.5 }} placeholder="Address…" value={e.text || ''} onChange={(ev) => setEntry(i, { text: ev.target.value })} />
-          {withContact && (
-            <div style={{ marginTop: 9 }}>
-              <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted)', marginBottom: 5 }}>Contact for this address</div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 7 }}>
-                <input style={{ fontSize: 12.5 }} placeholder="Name" value={e.contact?.name || ''} onChange={(ev) => setContact(i, { name: ev.target.value })} />
-                <input style={{ fontSize: 12.5 }} placeholder="Email" value={e.contact?.email || ''} onChange={(ev) => setContact(i, { email: ev.target.value })} />
-                <input style={{ fontSize: 12.5 }} placeholder="Telephone" value={e.contact?.phone || ''} onChange={(ev) => setContact(i, { phone: ev.target.value })} />
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+      {list.map((e, i) => {
+        const open = openIdx === i
+        if (!open) {
+          // Collapsed: one compact line
+          return (
+            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 11px', border: '1px solid var(--border)', borderRadius: 9, background: 'var(--panel)' }}>
+              <div style={{ flex: 1, minWidth: 0, fontSize: 12.5, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                <b style={{ color: 'var(--heading)' }}>{e.label || firstLine(e.text) || `Address ${i + 1}`}</b>
+                {e.label && firstLine(e.text) ? <span style={{ color: 'var(--muted)' }}> · {firstLine(e.text)}</span> : null}
+                {withContact && e.contact?.name ? <span style={{ color: 'var(--faint)' }}> · {e.contact.name}</span> : null}
+                {!firstLine(e.text) && <span style={{ color: 'var(--faint)' }}> (empty)</span>}
               </div>
+              <button className="btn btn-g btn-sm" style={{ padding: '3px 10px', fontSize: 11.5 }} onClick={() => setOpenIdx(i)}>Edit</button>
+              {list.length > 1 && <button className="btn-dl" style={{ width: 26, height: 28, fontSize: 13 }} onClick={() => removeEntry(i)} title="Remove this address">×</button>}
             </div>
-          )}
-        </div>
-      ))}
-      <button className="addrow" style={{ fontSize: 12.5, padding: '7px 10px' }} onClick={addEntry}>+ Add {kind} address</button>
+          )
+        }
+        // Expanded editor
+        return (
+          <div key={i} style={{ border: '1.5px solid var(--accent)', borderRadius: 10, padding: 12, background: 'var(--panel)' }}>
+            <textarea
+              placeholder={withContact
+                ? '✨ Paste the full address block from an email here — name, email & phone are picked out automatically'
+                : '✨ Paste the full address block here'}
+              style={{ minHeight: 46, fontSize: 12, background: 'var(--accent-soft)', border: '1px dashed var(--accent)', marginBottom: 9 }}
+              defaultValue=""
+              onPaste={(ev) => {
+                ev.preventDefault()
+                smartPaste(i, ev.clipboardData.getData('text'))
+                ev.target.value = ''
+              }}
+            />
+            <div style={{ display: 'flex', gap: 6, marginBottom: 7, alignItems: 'center' }}>
+              <input style={{ flex: 1, fontSize: 12.5 }} placeholder="Label (e.g. Main / Head Office)"
+                value={e.label || ''} onChange={(ev) => setEntry(i, { label: ev.target.value })} onBlur={commit} />
+            </div>
+            <textarea style={{ minHeight: 72, fontSize: 12.5 }} placeholder="Address…" value={e.text || ''}
+              onChange={(ev) => setEntry(i, { text: ev.target.value })} onBlur={commit} />
+            {withContact && (
+              <div style={{ marginTop: 9 }}>
+                <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted)', marginBottom: 5 }}>Contact for this address</div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 7 }}>
+                  <input style={{ fontSize: 12.5 }} placeholder="Name" value={e.contact?.name || ''} onChange={(ev) => setContact(i, { name: ev.target.value })} onBlur={commit} />
+                  <input style={{ fontSize: 12.5 }} placeholder="Email" value={e.contact?.email || ''} onChange={(ev) => setContact(i, { email: ev.target.value })} onBlur={commit} />
+                  <input style={{ fontSize: 12.5 }} placeholder="Telephone" value={e.contact?.phone || ''} onChange={(ev) => setContact(i, { phone: ev.target.value })} onBlur={commit} />
+                </div>
+              </div>
+            )}
+            <div style={{ display: 'flex', gap: 8, marginTop: 10, alignItems: 'center' }}>
+              <button className="btn btn-a btn-sm" onClick={() => { commit(); setOpenIdx(null) }}>Done</button>
+              {list.length > 1 && (
+                <button className="btn btn-g btn-sm" onClick={() => removeEntry(i)}>Remove</button>
+              )}
+            </div>
+          </div>
+        )
+      })}
+      <button className="addrow" style={{ fontSize: 12.5, padding: '7px 10px', marginTop: 2 }} onClick={addEntry}>+ Add {kind} address</button>
     </div>
   )
 }
@@ -68,6 +148,11 @@ export default function CustomersPage() {
   async function update(id, patch) {
     setRows((r) => r.map((x) => (x.id === id ? { ...x, ...patch } : x)))
     await supabase.from('customers').update(patch).eq('id', id)
+  }
+
+  // Local-only update while typing — persisted on blur / Done via update()
+  function updateLocal(id, patch) {
+    setRows((r) => r.map((x) => (x.id === id ? { ...x, ...patch } : x)))
   }
 
   async function add() {
@@ -143,12 +228,17 @@ export default function CustomersPage() {
             return (
               <React.Fragment key={it.id}>
                 <tr>
-                  <td style={{ verticalAlign: 'top' }}><input value={it.name} onChange={(e) => update(it.id, { name: e.target.value })} /></td>
+                  <td style={{ verticalAlign: 'top' }}>
+                    <input value={it.name}
+                      onChange={(e) => updateLocal(it.id, { name: e.target.value })}
+                      onBlur={(e) => update(it.id, { name: e.target.value })} />
+                  </td>
                   <td style={{ verticalAlign: 'top' }}>
                     <AddressListEditor
                       list={addrList(it.invoice_addresses, it.details)}
                       kind="invoice"
-                      onChange={(list) => update(it.id, { invoice_addresses: list, details: list[0]?.text || '' })}
+                      onChange={(list) => updateLocal(it.id, { invoice_addresses: list, details: list[0]?.text || '' })}
+                      onCommit={(list) => update(it.id, { invoice_addresses: list, details: list[0]?.text || '' })}
                     />
                   </td>
                   <td style={{ verticalAlign: 'top' }}>
@@ -156,7 +246,14 @@ export default function CustomersPage() {
                       list={deliveryAddrList(it)}
                       kind="delivery"
                       withContact
-                      onChange={(list) => update(it.id, {
+                      onChange={(list) => updateLocal(it.id, {
+                        delivery_addresses: list,
+                        deliver: list[0]?.text || '',
+                        contact_name: list[0]?.contact?.name || '',
+                        email: list[0]?.contact?.email || '',
+                        phone: list[0]?.contact?.phone || '',
+                      })}
+                      onCommit={(list) => update(it.id, {
                         delivery_addresses: list,
                         deliver: list[0]?.text || '',
                         contact_name: list[0]?.contact?.name || '',
