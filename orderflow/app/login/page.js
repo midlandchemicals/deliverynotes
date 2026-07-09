@@ -24,7 +24,10 @@ export default function LoginPage() {
   return (
     <div className="auth-wrap">
       <form className="auth-card" onSubmit={signIn}>
-        <div className="brand">Order<b>Flow</b></div>
+        <div className="brand">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/logo.png" alt="Midland Chemicals" />
+        </div>
         <p className="sub">Sign in to the dispatch system.</p>
         <div className="row">
           <div className="field">
