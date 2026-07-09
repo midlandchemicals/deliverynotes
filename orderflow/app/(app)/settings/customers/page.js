@@ -209,10 +209,12 @@ export default function CustomersPage() {
     if (!impData) return
     const d = impData.delivery || {}, i = impData.invoice || {}
     const c = (x) => ({ name: x?.name || '', email: x?.email || '', phone: x?.phone || '' })
+    const fl = (t) => String(t || '').split('\n').map((s) => s.trim()).filter(Boolean)[0] || ''
 
-    const delEntry = { label: '', text: (d.address || d.name || '').trim(), contact: c(d.contact) }
+    const delText = (d.address || d.name || '').trim()
+    const delEntry = { label: (d.name || fl(delText)).trim(), text: delText, contact: c(d.contact) }  // first line → label
     const invText = (i.address && i.address.trim()) ? i.address.trim() : cust.name  // blank invoice → company name
-    const invEntry = { label: '', text: invText, contact: c(i.contact) }
+    const invEntry = { label: (i.name || fl(invText)).trim(), text: invText, contact: c(i.contact) }
 
     const curDel = deliveryAddrList(cust).filter((a) => a.text)
     const curInv = addrList(cust.invoice_addresses, cust.details).filter((a) => a.text)
