@@ -270,7 +270,7 @@ export default function CustomersPage() {
                 </div>
 
                 <div className="row c2" style={{ marginBottom: 4 }}>
-                  <div>
+                  <div style={{ minWidth: 0 }}>
                     <label>Invoice addresses</label>
                     <AddressListEditor
                       list={addrList(it.invoice_addresses, it.details)}
@@ -279,7 +279,7 @@ export default function CustomersPage() {
                       onCommit={(list) => update(it.id, { invoice_addresses: list, details: list[0]?.text || '' })}
                     />
                   </div>
-                  <div>
+                  <div style={{ minWidth: 0 }}>
                     <label>Delivery addresses (each with its own contact)</label>
                     <AddressListEditor
                       list={deliveryAddrList(it)}
