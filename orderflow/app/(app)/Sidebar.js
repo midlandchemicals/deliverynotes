@@ -41,6 +41,7 @@ const MAIN_LINKS = [
   ['/', 'Dashboard', 'dashboard'],
   ['/orders/new', 'New Order', 'plus'],
   ['/orders', 'Order Book', 'list'],
+  ['/notes', 'Delivery Notes', 'doc'],
 ]
 
 const CATALOGUE_LINKS = [
