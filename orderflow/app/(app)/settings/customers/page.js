@@ -2,6 +2,7 @@
 import React, { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { splitContact } from '@/lib/calc'
+import Combobox from '@/app/(app)/Combobox'
 
 function addrList(arr, legacy) {
   if (Array.isArray(arr) && arr.length) return arr
@@ -134,6 +135,12 @@ export default function CustomersPage() {
   const [expandedTiersId, setExpandedTiersId] = useState(null)
   const [tierRows, setTierRows] = useState({}) // { [customerId]: [{id, pallets_from, pallets_to, charge}] }
   const [q, setQ] = useState('')
+  // Screenshot import
+  const [impCustId, setImpCustId] = useState('')
+  const [impBusy, setImpBusy] = useState(false)
+  const [impErr, setImpErr] = useState('')
+  const [impMsg, setImpMsg] = useState('')
+  const [impData, setImpData] = useState(null) // { delivery:{name,address,contact}, invoice:{...} }
 
   useEffect(() => { load() }, [])
 
@@ -154,6 +161,71 @@ export default function CustomersPage() {
   // Local-only update while typing — persisted on blur / Done via update()
   function updateLocal(id, patch) {
     setRows((r) => r.map((x) => (x.id === id ? { ...x, ...patch } : x)))
+  }
+
+  // Paste a delivery-note screenshot → read it with Claude vision → preview
+  function handleImportPaste(e) {
+    const items = e.clipboardData?.items || []
+    const imgItem = [...items].find((it) => it.type && it.type.startsWith('image/'))
+    if (!imgItem) return
+    e.preventDefault()
+    const file = imgItem.getAsFile()
+    if (!file) return
+    setImpBusy(true); setImpErr(''); setImpMsg(''); setImpData(null)
+    const reader = new FileReader()
+    reader.onload = async () => {
+      try {
+        const b64 = String(reader.result).split(',')[1]
+        const res = await fetch('/api/extract-address', {
+          method: 'POST', headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ image: b64, mediaType: file.type }),
+        })
+        const json = await res.json()
+        if (!res.ok || json.error) { setImpErr(json.error || 'Extraction failed'); setImpBusy(false); return }
+        setImpData(json.result)
+      } catch (err) { setImpErr('Upload failed: ' + (err?.message || '')) }
+      setImpBusy(false)
+    }
+    reader.readAsDataURL(file)
+  }
+
+  function setImpField(side, path, value) {
+    setImpData((d) => {
+      const next = JSON.parse(JSON.stringify(d))
+      if (path.length === 1) next[side][path[0]] = value
+      else next[side][path[0]][path[1]] = value
+      return next
+    })
+  }
+
+  // Append the extracted addresses to the selected customer
+  async function applyImport() {
+    const cust = rows.find((r) => r.id === impCustId)
+    if (!cust) { setImpErr('Choose a customer first.'); return }
+    if (!impData) return
+    const d = impData.delivery || {}, i = impData.invoice || {}
+    const c = (x) => ({ name: x?.name || '', email: x?.email || '', phone: x?.phone || '' })
+
+    const delEntry = { label: '', text: (d.address || d.name || '').trim(), contact: c(d.contact) }
+    const invText = (i.address && i.address.trim()) ? i.address.trim() : cust.name  // blank invoice → company name
+    const invEntry = { label: '', text: invText, contact: c(i.contact) }
+
+    const curDel = deliveryAddrList(cust).filter((a) => a.text)
+    const curInv = addrList(cust.invoice_addresses, cust.details).filter((a) => a.text)
+    const nextDel = delEntry.text ? [...curDel, delEntry] : curDel
+    const nextInv = [...curInv, invEntry]
+
+    await update(cust.id, {
+      delivery_addresses: nextDel,
+      deliver: nextDel[0]?.text || '',
+      contact_name: nextDel[0]?.contact?.name || '',
+      email: nextDel[0]?.contact?.email || '',
+      phone: nextDel[0]?.contact?.phone || '',
+      invoice_addresses: nextInv,
+      details: nextInv[0]?.text || '',
+    })
+    setImpData(null)
+    setImpMsg(`Added to ${cust.name}. Paste the next screenshot when ready.`)
   }
 
   async function add() {
@@ -226,8 +298,72 @@ export default function CustomersPage() {
     return bits.join(' · ') || (inv ? 'address on file' : 'no addresses yet')
   }
 
+  const impCust = rows.find((r) => r.id === impCustId)
+
   return (
     <div>
+      {/* Screenshot import */}
+      <div className="card">
+        <div className="ttl" style={{ marginBottom: 12 }}>
+          <h2>📷 Import from a delivery-note screenshot</h2>
+        </div>
+        <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap', marginBottom: 12 }}>
+          <div style={{ minWidth: 260, flex: '0 1 320px' }}>
+            <label style={{ marginBottom: 4 }}>Add to customer</label>
+            <Combobox
+              options={rows.map((r) => ({ id: r.id, label: r.name }))}
+              value={impCustId}
+              onSelect={(id) => { setImpCustId(id); setImpMsg('') }}
+              placeholder="Search customer…"
+            />
+          </div>
+        </div>
+        <textarea
+          onPaste={handleImportPaste}
+          value=""
+          readOnly
+          placeholder={impBusy ? '⏳ Reading the screenshot…' : '📋 Click here and press Ctrl+V to paste a delivery-note screenshot. It will read the delivery & invoice addresses automatically.'}
+          style={{
+            width: '100%', minHeight: 64, cursor: 'text', resize: 'none',
+            background: 'var(--accent-soft)', border: '1.5px dashed var(--accent)',
+            color: 'var(--muted)', fontSize: 13,
+          }}
+        />
+        {impErr && <p style={{ color: 'var(--bad)', fontSize: 12.5, marginTop: 8 }}>{impErr}</p>}
+        {impMsg && <p style={{ color: 'var(--accent)', fontSize: 12.5, marginTop: 8 }}>{impMsg}</p>}
+
+        {impData && (
+          <div style={{ marginTop: 14, borderTop: '1px solid var(--line)', paddingTop: 14 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted)', marginBottom: 10 }}>
+              Check &amp; edit before adding{impCust ? ` to ${impCust.name}` : ''}
+            </div>
+            <div className="row c2">
+              {[['delivery', 'Delivery address'], ['invoice', 'Invoice address']].map(([side, title]) => (
+                <div key={side} style={{ minWidth: 0 }}>
+                  <label>{title}</label>
+                  <input style={{ fontSize: 12.5, marginBottom: 6 }} placeholder="Name (first line)"
+                    value={impData[side]?.name || ''} onChange={(e) => setImpField(side, ['name'], e.target.value)} />
+                  <textarea style={{ minHeight: 84, fontSize: 12.5 }} placeholder={side === 'invoice' ? 'Leave blank to use the company name' : 'Address…'}
+                    value={impData[side]?.address || ''} onChange={(e) => setImpField(side, ['address'], e.target.value)} />
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(110px, 1fr))', gap: 6, marginTop: 6 }}>
+                    <input style={{ fontSize: 12 }} placeholder="Contact name" value={impData[side]?.contact?.name || ''} onChange={(e) => setImpField(side, ['contact', 'name'], e.target.value)} />
+                    <input style={{ fontSize: 12 }} placeholder="Email" value={impData[side]?.contact?.email || ''} onChange={(e) => setImpField(side, ['contact', 'email'], e.target.value)} />
+                    <input style={{ fontSize: 12 }} placeholder="Phone" value={impData[side]?.contact?.phone || ''} onChange={(e) => setImpField(side, ['contact', 'phone'], e.target.value)} />
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div style={{ display: 'flex', gap: 8, marginTop: 12, alignItems: 'center' }}>
+              <button className="btn btn-a btn-sm" onClick={applyImport} disabled={!impCustId}>
+                {impCustId ? `＋ Add to ${impCust?.name || 'customer'}` : 'Pick a customer above'}
+              </button>
+              <button className="btn btn-g btn-sm" onClick={() => { setImpData(null); setImpMsg('') }}>Discard</button>
+            </div>
+          </div>
+        )}
+        <p className="hint">Pick the customer, then paste (Ctrl+V) a screenshot of their delivery note. The delivery and invoice addresses (plus contact name/email/phone) are read automatically — check them and click add. If the invoice box was blank, it fills with the company name.</p>
+      </div>
+
       <div className="card">
         <div className="ttl">
           <h2>Address Book <span className="muted" style={{ fontWeight: 400, fontSize: 13 }}>({rows.length})</span></h2>
