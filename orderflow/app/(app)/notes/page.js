@@ -24,17 +24,33 @@ export default function DeliveryNotesPage() {
   const [notes, setNotes] = useState(null)
   const [nameByOrder, setNameByOrder] = useState({})
   const [q, setQ] = useState('')
+  const [err, setErr] = useState('')
+  const [openingId, setOpeningId] = useState(null)
 
   useEffect(() => {
     (async () => {
+      // Light columns only — letterhead_snapshot / lines_snapshot can be large
+      // (embedded logos), so we fetch those per-note only when opening the PDF.
       const [dnRes, ordRes] = await Promise.all([
-        supabase.from('dispatch_notes').select('*').order('created_at', { ascending: false }),
+        supabase.from('dispatch_notes')
+          .select('id, doc_no, doc_date, order_id, customer, created_at')
+          .order('created_at', { ascending: false }),
         supabase.from('orders').select('id, customer_snapshot'),
       ])
+      if (dnRes.error) setErr(dnRes.error.message)
       setNameByOrder(Object.fromEntries((ordRes.data || []).map((o) => [o.id, o.customer_snapshot?.name || ''])))
       setNotes(dnRes.data || [])
     })()
   }, [])
+
+  // Fetch the full note (with snapshots) and reopen its PDF
+  async function openNote(n) {
+    setOpeningId(n.id)
+    const { data, error } = await supabase.from('dispatch_notes').select('*').eq('id', n.id).single()
+    setOpeningId(null)
+    if (error || !data) { alert('Could not open this delivery note: ' + (error?.message || 'not found')); return }
+    reprintPDF(data)
+  }
 
   const custName = (n) => nameByOrder[n.order_id] || firstLine(n.customer) || '—'
 
@@ -70,7 +86,9 @@ export default function DeliveryNotesPage() {
         </div>
       </div>
 
-      {notes === null ? (
+      {err ? (
+        <div className="card"><div className="empty" style={{ color: 'var(--bad)' }}>Couldn’t load delivery notes: {err}</div></div>
+      ) : notes === null ? (
         <div className="card"><div className="empty">Loading…</div></div>
       ) : groups.length === 0 ? (
         <div className="card"><div className="empty">{q ? `No delivery note matches “${q}”.` : 'No delivery notes generated yet.'}</div></div>
@@ -86,7 +104,7 @@ export default function DeliveryNotesPage() {
                 key={n.id}
                 className="mini-table-row"
                 style={{ gridTemplateColumns: '120px 1fr 150px auto', cursor: 'pointer' }}
-                onClick={() => reprintPDF(n)}
+                onClick={() => openNote(n)}
                 title="Reopen this delivery note PDF"
               >
                 <span className="mono" style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--heading)' }}>{n.doc_no}</span>
@@ -96,7 +114,7 @@ export default function DeliveryNotesPage() {
                   {n.order_id && (
                     <Link href={`/orders/${n.order_id}`} onClick={(e) => e.stopPropagation()} className="btn btn-g btn-sm" style={{ padding: '4px 10px' }}>Order</Link>
                   )}
-                  <span className="btn btn-a btn-sm" style={{ padding: '4px 12px' }}>⬇ PDF</span>
+                  <span className="btn btn-a btn-sm" style={{ padding: '4px 12px' }}>{openingId === n.id ? '…' : '⬇ PDF'}</span>
                 </span>
               </div>
             ))}
