@@ -79,7 +79,11 @@ function AddressListEditor({ list, kind, withContact, onChange, onCommit }) {
                 {!firstLine(e.text) && <span style={{ color: 'var(--faint)' }}> (empty)</span>}
               </div>
               <button className="btn btn-g btn-sm" style={{ padding: '3px 10px', fontSize: 11.5 }} onClick={() => setOpenIdx(i)}>Edit</button>
-              {list.length > 1 && <button className="btn-dl" style={{ width: 26, height: 28, fontSize: 13 }} onClick={() => removeEntry(i)} title="Remove this address">×</button>}
+              {list.length > 1 && (
+                <button className="btn-dl" style={{ width: 30, height: 28, fontSize: 13 }}
+                  onClick={() => { if (confirm('Delete this address?')) removeEntry(i) }}
+                  title="Delete this address">🗑</button>
+              )}
             </div>
           )
         }
