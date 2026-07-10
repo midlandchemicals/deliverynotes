@@ -406,12 +406,13 @@ export function generateOfficeCopyPDF(doc_, lh, products, packaging, pricing = {
     { label: 'Subtotal',              val: f2(subtotal),   bold: false },
     ...(labels > 0   ? [{ label: 'Labels',   val: f2(labels),   bold: false }] : []),
     ...(delivery > 0 ? [{ label: 'Delivery', val: f2(delivery), bold: false }] : []),
+    { label: 'Total (ex VAT)',        val: f2(subtotal + labels + delivery), semi: true },
     { label: 'VAT (20%)',             val: f2(vat),        bold: false },
     { label: 'Grand total',           val: f2(grandTotal), bold: true  },
   ]
   if (ty + totRows.length * 7 > 270) { doc.addPage(); ty = 20 }
-  totRows.forEach(({ label, val, bold }) => {
-    doc.setFont(FONT, bold ? 'bold' : 'normal').setFontSize(bold ? 13 : 11).setTextColor(...BK)
+  totRows.forEach(({ label, val, bold, semi }) => {
+    doc.setFont(FONT, (bold || semi) ? 'bold' : 'normal').setFontSize(bold ? 13 : 11).setTextColor(...BK)
     if (bold) doc.setDrawColor(180, 180, 180).setLineWidth(0.3).line(tx, ty - 4, W - M, ty - 4)
     doc.text(label, tx, ty); doc.text(val, W - M, ty, { align: 'right' })
     ty += bold ? 7 : 6
