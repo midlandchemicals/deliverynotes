@@ -319,7 +319,7 @@ export default function PricesPage() {
   }, [products, selectedCustomer])
 
   return (
-    <PricingGuard>
+    <PricingGuard fallback={<div className="card"><div className="empty">This page is only available to admin logins.</div></div>}>
     <div className="card">
       <div className="ttl">
         <h2>Customer Prices</h2>

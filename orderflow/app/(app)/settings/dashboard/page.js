@@ -189,7 +189,7 @@ export default function DashboardPage() {
   }, [])
 
   return (
-    <PricingGuard>
+    <PricingGuard fallback={<div className="card"><div className="empty">This page is only available to admin logins.</div></div>}>
       {data === null ? (
         <div className="card"><div className="empty">Crunching the numbers…</div></div>
       ) : (
