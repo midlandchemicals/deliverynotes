@@ -25,7 +25,10 @@ function AddressListEditor({ list, kind, withContact, onChange, onCommit }) {
 
   function setEntry(i, patch) { onChange(list.map((e, idx) => (idx === i ? { ...e, ...patch } : e))) }
   function setContact(i, patch) { onChange(list.map((e, idx) => (idx === i ? { ...e, contact: { ...(e.contact || {}), ...patch } } : e))) }
-  const commit = () => onCommit(list)
+  const firstLineOf = (t) => String(t || '').split('\n').map((l) => l.trim()).filter(Boolean)[0] || ''
+  // Persist, backfilling any empty label with the first line of its address so
+  // every card is titled by its head-office / first line automatically.
+  const commit = () => onCommit(list.map((e) => (e.label && e.label.trim() ? e : { ...e, label: firstLineOf(e.text) })))
 
   function addEntry() {
     const next = [...list, blank()]
@@ -74,7 +77,7 @@ function AddressListEditor({ list, kind, withContact, onChange, onCommit }) {
             <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 11px', border: '1px solid var(--border)', borderRadius: 9, background: 'var(--panel)' }}>
               <div style={{ flex: 1, minWidth: 0, fontSize: 12.5, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                 <b style={{ color: 'var(--heading)' }}>{e.label || firstLine(e.text) || `Address ${i + 1}`}</b>
-                {e.label && firstLine(e.text) ? <span style={{ color: 'var(--muted)' }}> · {firstLine(e.text)}</span> : null}
+                {e.label && firstLine(e.text) && e.label.trim() !== firstLine(e.text) ? <span style={{ color: 'var(--muted)' }}> · {firstLine(e.text)}</span> : null}
                 {withContact && e.contact?.name ? <span style={{ color: 'var(--faint)' }}> · {e.contact.name}</span> : null}
                 {!firstLine(e.text) && <span style={{ color: 'var(--faint)' }}> (empty)</span>}
               </div>
@@ -104,7 +107,7 @@ function AddressListEditor({ list, kind, withContact, onChange, onCommit }) {
             />
             <div style={{ display: 'flex', gap: 6, marginBottom: 7, alignItems: 'center' }}>
               <input style={{ flex: 1, fontSize: 12.5 }} placeholder="Label (e.g. Main / Head Office)"
-                value={e.label || ''} onChange={(ev) => setEntry(i, { label: ev.target.value })} onBlur={commit} />
+                value={e.label || firstLine(e.text)} onChange={(ev) => setEntry(i, { label: ev.target.value })} onBlur={commit} />
             </div>
             <textarea style={{ minHeight: 72, fontSize: 12.5 }} placeholder="Address…" value={e.text || ''}
               onChange={(ev) => setEntry(i, { text: ev.target.value })} onBlur={commit} />
@@ -209,10 +212,12 @@ export default function CustomersPage() {
     if (!impData) return
     const d = impData.delivery || {}, i = impData.invoice || {}
     const c = (x) => ({ name: x?.name || '', email: x?.email || '', phone: x?.phone || '' })
+    const fl = (t) => String(t || '').split('\n').map((s) => s.trim()).filter(Boolean)[0] || ''
 
-    const delEntry = { label: '', text: (d.address || d.name || '').trim(), contact: c(d.contact) }
+    const delText = (d.address || d.name || '').trim()
+    const delEntry = { label: (d.name || fl(delText)).trim(), text: delText, contact: c(d.contact) }  // first line → label
     const invText = (i.address && i.address.trim()) ? i.address.trim() : cust.name  // blank invoice → company name
-    const invEntry = { label: '', text: invText, contact: c(i.contact) }
+    const invEntry = { label: (i.name || fl(invText)).trim(), text: invText, contact: c(i.contact) }
 
     const curDel = deliveryAddrList(cust).filter((a) => a.text)
     const curInv = addrList(cust.invoice_addresses, cust.details).filter((a) => a.text)
@@ -397,7 +402,9 @@ export default function CustomersPage() {
               <button className={'btn btn-sm ' + (open ? 'btn-a' : 'btn-g')} style={{ flexShrink: 0 }} onClick={() => toggleTiers(it.id)}>
                 {open ? 'Close' : 'Edit'}
               </button>
-              <button className="btn-dl" style={{ flexShrink: 0 }} onClick={() => remove(it.id)} title="Delete customer">×</button>
+              <button className="btn-dl" style={{ flexShrink: 0, width: 34, height: 30, fontSize: 14 }}
+                onClick={() => { if (confirm(`Delete customer “${it.name}”? This cannot be undone.`)) remove(it.id) }}
+                title="Delete customer">🗑</button>
             </div>
 
             {open && (
