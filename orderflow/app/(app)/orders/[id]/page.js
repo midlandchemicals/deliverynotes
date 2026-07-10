@@ -300,7 +300,10 @@ export default function OrderDetailPage() {
       lines, options: d.options,
       pallets: d.totals?.pallets || 0, batches,
     }
-    generateOfficeCopyPDF(doc_, lh, products, packaging, prices, parseFloat(deliveryCharge) || 0, labelTotal, priceTiers, tierBasis, seasonMap)
+    // Use the delivery charge stored ON this note (its snapshot), not the live
+    // field — the live field may have changed since the note was generated.
+    const snapDelivery = Number(d.totals?.delivery_charge || 0)
+    generateOfficeCopyPDF(doc_, lh, products, packaging, prices, snapDelivery, labelTotal, priceTiers, tierBasis, seasonMap)
   }
 
   function printNote() {
@@ -473,6 +476,22 @@ ${items.map((it) => `  <li>${it.name}${it.pack ? ` — ${it.qty} x ${it.pack}` :
     setBatchModal(null)
     setBusy(false)
     toast('Delivery note generated')
+  }
+
+  // Remove a generated delivery-note copy (e.g. a mistaken regenerate). Deletes
+  // it from this order and from the Delivery Notes library.
+  async function deleteDispatchNote(d) {
+    const when = d.created_at ? new Date(d.created_at).toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true }) : ''
+    if (!confirm(`Delete this delivery-note copy${when ? ` (generated ${when})` : ''}? It will be removed from this order and the Delivery Notes library. This cannot be undone.`)) return
+    await supabase.from('dispatch_notes').delete().eq('id', d.id)
+    const next = dispatched.filter((x) => x.id !== d.id)
+    setDispatched(next)
+    // If that was the last copy, drop the order back out of "generated" status
+    if (next.length === 0) {
+      await supabase.from('orders').update({ status: 'In progress' }).eq('id', id)
+      setOrder((o) => ({ ...o, status: 'In progress' }))
+    }
+    toast('Delivery note deleted')
   }
 
   const { guard: pricingGuard, ModalUI: PricingModal } = usePricingCheck()
@@ -766,22 +785,38 @@ ${items.map((it) => `  <li>${it.name}${it.pack ? ` — ${it.qty} x ${it.pack}` :
       {dispatched.length > 0 && (
         <div className="card">
           <div className="ttl"><h2>Delivery notes on this order</h2></div>
-          {dispatched.map((d) => (
-            <div key={d.id} className="list-row">
-              <div>
-                <div className="ono">{d.doc_no}</div>
-                <div className="meta">
-                  {prettyDate(d.doc_date)} · gross {fmt(d.totals?.gross || 0)} kg
-                  {d.totals?.pallets > 0 ? ` · ${d.totals.pallets} pallet(s)` : ''}
-                  {` · ${d.letterhead_snapshot?.name}`}
+          {dispatched.length > 1 && (
+            <p className="hint" style={{ marginTop: 0, marginBottom: 12 }}>
+              You’ve generated this note {dispatched.length} times. They share the same number ({dispatched[0].doc_no}) — use the time and totals below to tell them apart, and delete any mistaken copies.
+            </p>
+          )}
+          {dispatched.map((d, idx) => {
+            // Notes are newest-first; number them oldest = #1 so the label is stable
+            const copyNo = dispatched.length - idx
+            const gen = d.created_at ? new Date(d.created_at).toLocaleTimeString('en-GB', { hour: 'numeric', minute: '2-digit', hour12: true }) : ''
+            const delivery = Number(d.totals?.delivery_charge || 0)
+            return (
+              <div key={d.id} className="list-row">
+                <div>
+                  <div className="ono">
+                    {d.doc_no}
+                    {dispatched.length > 1 && <span className="muted" style={{ fontWeight: 400, fontSize: 12, marginLeft: 8 }}>copy {copyNo} of {dispatched.length}{idx === 0 ? ' · latest' : ''}</span>}
+                  </div>
+                  <div className="meta">
+                    {prettyDate(d.doc_date)}{gen ? ` · generated ${gen}` : ''} · gross {fmt(d.totals?.gross || 0)} kg
+                    {d.totals?.pallets > 0 ? ` · ${d.totals.pallets} pallet(s)` : ''}
+                    {delivery > 0 ? ` · delivery £${delivery.toFixed(2)}` : ' · no delivery charge'}
+                    {` · ${d.letterhead_snapshot?.name}`}
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <button className="btn btn-g btn-sm" onClick={() => reprintPDF(d)}>Re-download PDF</button>
+                  <button className="btn btn-g btn-sm" onClick={() => pricingGuard(() => printOfficeCopy(d))}>Print office copy</button>
+                  <button className="btn-dl" style={{ width: 34, height: 30, fontSize: 14, flexShrink: 0 }} onClick={() => deleteDispatchNote(d)} title="Delete this copy">🗑</button>
                 </div>
               </div>
-              <div style={{ display: 'flex', gap: 6 }}>
-                <button className="btn btn-g btn-sm" onClick={() => reprintPDF(d)}>Re-download PDF</button>
-                <button className="btn btn-g btn-sm" onClick={() => pricingGuard(() => printOfficeCopy(d))}>Print office copy</button>
-              </div>
-            </div>
-          ))}
+            )
+          })}
         </div>
       )}
 
