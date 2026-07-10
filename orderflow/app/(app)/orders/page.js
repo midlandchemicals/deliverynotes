@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { prettyDate } from '@/lib/calc'
+import { ok } from '@/lib/notify'
 
 const STATUSES = ['All', 'New', 'In progress', 'Delivery Note Generated']
 
@@ -33,11 +34,19 @@ export default function OrdersPage() {
   const [filter, setFilter] = useState('All')
   const [q, setQ] = useState('')
   const [lhTab, setLhTab] = useState(undefined)    // undefined = not yet chosen; null = default company
+  const [olderMonths, setOlderMonths] = useState([]) // [{key:'2026-03', label:'March 2026', count}]
+  const [loadedMonths, setLoadedMonths] = useState({}) // key -> true once fetched
+  const [loadingMonth, setLoadingMonth] = useState(null)
 
   useEffect(() => {
     (async () => {
-      const [o, p, c, lh] = await Promise.all([
-        supabase.from('orders').select('*').order('created_at', { ascending: false }),
+      // Only the last 3 months load up front — older months appear as buttons
+      // and fetch on click, so the page stays fast as history grows.
+      const cd = new Date(); cd.setMonth(cd.getMonth() - 3)
+      const cutoff = cd.toISOString()
+      const [o, older, p, c, lh] = await Promise.all([
+        supabase.from('orders').select('*').gte('created_at', cutoff).order('created_at', { ascending: false }),
+        supabase.from('orders').select('created_at').lt('created_at', cutoff).order('created_at', { ascending: false }),
         supabase.from('products').select('id,name'),
         supabase.from('customers').select('id, default_letterhead_id'),
         supabase.from('letterheads').select('id, name, company, color').order('name'),
@@ -50,16 +59,46 @@ export default function OrdersPage() {
       }
       setCustLhMap(map)
       setOrders(o.data || [])
+      // Bucket older orders into months (dates-only query — tiny payload)
+      const buckets = {}
+      for (const row of (older.data || [])) {
+        const d = new Date(row.created_at)
+        const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+        buckets[key] = (buckets[key] || 0) + 1
+      }
+      setOlderMonths(Object.entries(buckets).map(([key, count]) => {
+        const [y, m] = key.split('-')
+        const label = new Date(+y, +m - 1, 1).toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })
+        return { key, label, count }
+      }))
     })()
   }, [])
+
+  async function loadMonth(mKey) {
+    if (loadedMonths[mKey] || loadingMonth) return
+    setLoadingMonth(mKey)
+    const [y, m] = mKey.split('-').map(Number)
+    const from = new Date(y, m - 1, 1).toISOString()
+    const to = new Date(y, m, 1).toISOString()
+    const { data } = await supabase.from('orders').select('*')
+      .gte('created_at', from).lt('created_at', to)
+      .order('created_at', { ascending: false })
+    setOrders((cur) => {
+      const have = new Set(cur.map((x) => x.id))
+      return [...cur, ...(data || []).filter((x) => !have.has(x.id))]
+        .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+    })
+    setLoadedMonths((lm) => ({ ...lm, [mKey]: true }))
+    setLoadingMonth(null)
+  }
 
   async function remove(e, order) {
     e.stopPropagation()
     if (!confirm(`Delete delivery note ${order.order_no}? This cannot be undone.`)) return
     // Remove any generated delivery notes for this order too, so they don't
     // linger in the Delivery Notes library after the order is gone.
-    await supabase.from('dispatch_notes').delete().eq('order_id', order.id)
-    await supabase.from('orders').delete().eq('id', order.id)
+    if (!ok(await supabase.from('dispatch_notes').delete().eq('order_id', order.id), 'deleting its delivery notes')) return
+    if (!ok(await supabase.from('orders').delete().eq('id', order.id), 'deleting the order')) return
     setOrders((list) => list.filter((x) => x.id !== order.id))
   }
 
@@ -192,6 +231,22 @@ export default function OrdersPage() {
               </div>
             </div>
           ))
+        )}
+
+        {/* Older history — loads on demand so the page opens fast */}
+        {olderMonths.filter((m) => !loadedMonths[m.key]).length > 0 && (
+          <div style={{ marginTop: 22, borderTop: '1px solid var(--border)', paddingTop: 16 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted)', marginBottom: 10 }}>
+              Older orders — click a month to load it
+            </div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+              {olderMonths.filter((m) => !loadedMonths[m.key]).map((m) => (
+                <button key={m.key} className="btn btn-g btn-sm" onClick={() => loadMonth(m.key)} disabled={loadingMonth === m.key}>
+                  {loadingMonth === m.key ? 'Loading…' : `${m.label} (${m.count})`}
+                </button>
+              ))}
+            </div>
+          </div>
         )}
       </div>
     </div>

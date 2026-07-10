@@ -3,6 +3,8 @@
 // needs ANTHROPIC_API_KEY in the environment.
 export const runtime = 'nodejs'
 
+import { createClient } from '@/lib/supabase/server'
+
 const SCHEMA = {
   type: 'object',
   additionalProperties: false,
@@ -53,6 +55,11 @@ Rules:
 Return only the structured fields.`
 
 export async function POST(req) {
+  // Only logged-in users may call this — it spends Anthropic API credits.
+  const supabase = createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return Response.json({ error: 'Not signed in' }, { status: 401 })
+
   const key = process.env.ANTHROPIC_API_KEY
   if (!key) {
     return Response.json({ error: 'ANTHROPIC_API_KEY is not set on the server. Add it in Vercel → Settings → Environment Variables.' }, { status: 500 })

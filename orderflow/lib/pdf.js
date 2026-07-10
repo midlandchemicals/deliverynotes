@@ -1,7 +1,7 @@
 'use client'
 import { jsPDF } from 'jspdf'
 import autoTable from 'jspdf-autotable'
-import { computeLine, docTotals, fmt, prettyDate, packSize, seasonalActive } from '@/lib/calc'
+import { computeLine, docTotals, fmt, ukDate, packSize, resolveLinePpl, VAT_RATE, VAT_LABEL } from '@/lib/calc'
 import { registerFonts } from '@/lib/fonts'
 
 let FONT = 'helvetica'
@@ -130,6 +130,12 @@ function dnFilename(dateStr, docNo, customerName) {
   return `${dd}${mm}${yy}_${safeNo}_${safeName}.pdf`
 }
 
+// dd/mm/yy — compact form for tight table cells (batch column)
+function ukShort(d) {
+  const s = ukDate(d)
+  return /^\d{2}\/\d{2}\/\d{4}$/.test(s) ? s.slice(0, 6) + s.slice(8) : s
+}
+
 function contactPdfLines(c) {
   if (!c) return []
   const out = []
@@ -170,10 +176,10 @@ function renderDeliveryNote(doc, doc_, lh, products, packaging) {
   doc.setFont(FONT, 'normal').setFontSize(10).setTextColor(40, 40, 40)
   doc.text(`No.           ${doc_.docNo || ''}`, W - M, 28, { align: 'right' })
   if (doc_.orderDate) {
-    doc.text(`Date ordered  ${prettyDate(doc_.orderDate)}`, W - M, 34, { align: 'right' })
-    doc.text(`Note date     ${prettyDate(doc_.date)}`, W - M, 40, { align: 'right' })
+    doc.text(`Date ordered  ${ukDate(doc_.orderDate)}`, W - M, 34, { align: 'right' })
+    doc.text(`Note date     ${ukDate(doc_.date)}`, W - M, 40, { align: 'right' })
   } else {
-    doc.text(`Date  ${prettyDate(doc_.date)}`, W - M, 34, { align: 'right' })
+    doc.text(`Date  ${ukDate(doc_.date)}`, W - M, 34, { align: 'right' })
   }
 
   const headerBottom = doc_.orderDate ? 44 : 38
@@ -209,7 +215,9 @@ function renderDeliveryNote(doc, doc_, lh, products, packaging) {
     head: [['Batch', 'Qty', 'Product', 'UN / PG', 'Net (kg)', 'Gross (kg)']],
     body: doc_.lines.map((l, i) => {
       const c = computeLine(l, products, packaging)
-      return [(doc_.batches && doc_.batches[i]) || '', c.packQty, c.productName, c.hazardShort, fmt(c.net), fmt(c.gross)]
+      const batch = (doc_.batches && doc_.batches[i]) || ''
+      const mfg = (doc_.mfgDates && doc_.mfgDates[i]) || ''
+      return [batch + (mfg ? `\nMfg ${ukShort(mfg)}` : ''), c.packQty, c.productName, c.hazardShort, fmt(c.net), fmt(c.gross)]
     }),
     styles: { font: FONT, fontSize: 9, cellPadding: 1.6, lineColor: [210, 220, 215], lineWidth: 0.15 },
     headStyles: { fillColor: [r, g, b], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 8 },
@@ -322,10 +330,10 @@ export function generateOfficeCopyPDF(doc_, lh, products, packaging, pricing = {
   doc.setFont(FONT, 'normal').setFontSize(10).setTextColor(...MU)
   doc.text(`No.           ${doc_.docNo || ''}`, W - M, titleY + 9, { align: 'right' })
   if (doc_.orderDate) {
-    doc.text(`Date ordered  ${prettyDate(doc_.orderDate)}`, W - M, titleY + 15, { align: 'right' })
-    doc.text(`Note date     ${prettyDate(doc_.date)}`, W - M, titleY + 21, { align: 'right' })
+    doc.text(`Date ordered  ${ukDate(doc_.orderDate)}`, W - M, titleY + 15, { align: 'right' })
+    doc.text(`Note date     ${ukDate(doc_.date)}`, W - M, titleY + 21, { align: 'right' })
   } else {
-    doc.text(`Date  ${prettyDate(doc_.date)}`, W - M, titleY + 15, { align: 'right' })
+    doc.text(`Date  ${ukDate(doc_.date)}`, W - M, titleY + 15, { align: 'right' })
   }
 
   const barY = Math.max(y + addrLines.length * 3.4 + 5, doc_.orderDate ? titleY + 25 : titleY + 18)
@@ -364,20 +372,20 @@ export function generateOfficeCopyPDF(doc_, lh, products, packaging, pricing = {
   const lineData = doc_.lines.map((l, i) => {
     const c = computeLine(l, products, packaging)
     const key = `${c.product?.id}::${c.packaging?.id}`
-    const tiers = tiersByKey[key] || []
-    const q = basisByKey[key] === 'order' ? combinedQty : c.qty
-    const hit = tiers.find((t) => q >= t.from && (t.to == null || q <= t.to))
-    const s = seasonByKey[key]
-    const seasonPpl = s && seasonalActive(s.from, s.to, doc_.orderDate) ? s.ppl : null
-    const ppl = seasonPpl != null ? seasonPpl : (hit ? hit.ppl : (parseFloat(pricing[key]) || 0))
+    const ppl = resolveLinePpl({
+      base: pricing[key], tiers: tiersByKey[key] || [], basis: basisByKey[key],
+      season: seasonByKey[key] || null, orderDate: doc_.orderDate,
+      lineQty: c.qty, combinedQty,
+    })
     const unitPrice = ppl * (c.vol || 0)
     const lineTotal = unitPrice * c.qty
-    return { c, unitPrice, lineTotal, batch: doc_.batches?.[i] || '' }
+    const mfg = doc_.mfgDates?.[i] || ''
+    return { c, unitPrice, lineTotal, batch: (doc_.batches?.[i] || '') + (mfg ? `\nMfg ${ukShort(mfg)}` : '') }
   })
   const subtotal = lineData.reduce((s, d) => s + d.lineTotal, 0)
   const delivery = parseFloat(deliveryCharge) || 0
   const labels = parseFloat(labelTotal) || 0
-  const vat = Math.round((subtotal + labels + delivery) * 0.20 * 100) / 100
+  const vat = Math.round((subtotal + labels + delivery) * VAT_RATE * 100) / 100
   const grandTotal = subtotal + labels + delivery + vat
 
   autoTable(doc, {
@@ -407,7 +415,7 @@ export function generateOfficeCopyPDF(doc_, lh, products, packaging, pricing = {
     ...(labels > 0   ? [{ label: 'Labels',   val: f2(labels),   bold: false }] : []),
     ...(delivery > 0 ? [{ label: 'Delivery', val: f2(delivery), bold: false }] : []),
     { label: 'Total (ex VAT)',        val: f2(subtotal + labels + delivery), semi: true },
-    { label: 'VAT (20%)',             val: f2(vat),        bold: false },
+    { label: VAT_LABEL,               val: f2(vat),        bold: false },
     { label: 'Grand total',           val: f2(grandTotal), bold: true  },
   ]
   if (ty + totRows.length * 7 > 270) { doc.addPage(); ty = 20 }
@@ -467,7 +475,7 @@ export function generatePriceListPDF(entries, fallbackLh = {}) {
     doc.setFont(FONT, 'bold').setFontSize(13).setTextColor(r, g, b).text(lh.company || '', M, y + 2)
     doc.setFont(FONT, 'bold').setFontSize(20).setTextColor(40, 40, 40).text('PRICE LIST', W - M, y + 2, { align: 'right' })
     doc.setFont(FONT, 'normal').setFontSize(9).setTextColor(120, 120, 120)
-      .text(prettyDate(new Date().toISOString().slice(0, 10)), W - M, y + 8, { align: 'right' })
+      .text(ukDate(new Date().toISOString().slice(0, 10)), W - M, y + 8, { align: 'right' })
     y += 8
 
     doc.setFillColor(r, g, b).rect(M, y, W - 2 * M, 1.2, 'F')
@@ -534,10 +542,19 @@ export function generatePriceListPDF(entries, fallbackLh = {}) {
 }
 
 // Reprint from stored snapshot — two copies in one PDF.
-export function reprintPDF(d) {
+// Newer notes store a slim letterhead snapshot (no embedded logo, just the
+// letterhead id) to keep the database small — fetch the logo on demand.
+export async function reprintPDF(d) {
+  const lh = { ...(d.letterhead_snapshot || {}) }
+  if (!lh.logo && lh.id) {
+    try {
+      const { createClient } = await import('@/lib/supabase/client')
+      const { data } = await createClient().from('letterheads').select('logo').eq('id', lh.id).single()
+      if (data?.logo) lh.logo = data.logo
+    } catch (e) { /* letterhead deleted — print without the logo */ }
+  }
   import('jspdf').then(({ jsPDF }) => import('jspdf-autotable').then((mod) => {
     const autoTable = mod.default
-    const lh = d.letterhead_snapshot || {}
     const [r, g, b] = hexToRgb(lh.color)
     const doc = new jsPDF({ unit: 'mm', format: 'a4' })
     FONT = registerFonts(doc)
@@ -564,7 +581,7 @@ export function reprintPDF(d) {
         .text('DELIVERY NOTE', W - M, 20, { align: 'right' })
       doc.setFont(FONT, 'normal').setFontSize(10).setTextColor(40, 40, 40)
       doc.text(`No.   ${d.doc_no}`, W - M, 28, { align: 'right' })
-      doc.text(`Date  ${d.doc_date || ''}`, W - M, 34, { align: 'right' })
+      doc.text(`Date  ${ukDate(d.doc_date)}`, W - M, 34, { align: 'right' })
       const barY = Math.max(y + 7 + addrLines.length * 3.4 + 5, 38)
       doc.setFillColor(r, g, b).rect(M, barY, W - 2 * M, 1.2, 'F')
       let cy = barY + 7
@@ -600,7 +617,7 @@ export function reprintPDF(d) {
             const m = s.packDesc.match(/^\s*(\d+(?:\.\d+)?)\s*[×x]\s*(.+)$/)
             packQty = m ? `${m[1]}x${packSize(m[2]) || m[2].trim()}` : s.packDesc.replace('×', 'x')
           }
-          return [s.batch || '', packQty || '', s.productName, hazardShort, n2(s.net), n2(s.gross)]
+          return [(s.batch || '') + (s.mfg_date ? `\nMfg ${ukShort(s.mfg_date)}` : ''), packQty || '', s.productName, hazardShort, n2(s.net), n2(s.gross)]
         }),
         styles: { font: FONT, fontSize: 9, cellPadding: 1.6, lineColor: [210, 220, 215], lineWidth: 0.15 },
         headStyles: { fillColor: [r, g, b], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 8 },

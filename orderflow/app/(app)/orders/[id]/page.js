@@ -2,8 +2,9 @@
 import { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import { computeLine, docTotals, fmt, prettyDate, splitContact, labelCount, PRICE_LEVELS, seasonalActive } from '@/lib/calc'
+import { computeLine, docTotals, fmt, prettyDate, splitContact, labelCount, PRICE_LEVELS, seasonalActive, resolveLinePpl, parseTiers, VAT_RATE, VAT_LABEL } from '@/lib/calc'
 import { generateDispatchPDF, generateOfficeCopyPDF, reprintPDF } from '@/lib/pdf'
+import { toast, ok } from '@/lib/notify'
 import PricingGuard, { usePricingCheck } from '@/app/(app)/PricingGuard'
 import { StatusBadge } from '../page'
 import LineEditor from '../LineEditor'
@@ -34,6 +35,9 @@ export default function OrderDetailPage() {
   const [letterheads, setLetterheads] = useState([])
   const [lines, setLines] = useState([])
   const [dispatched, setDispatched] = useState([])
+  // Once a delivery note exists the order is frozen against accidental edits;
+  // the ✏️ button unlocks it deliberately.
+  const [editLocked, setEditLocked] = useState(false)
 
   // pricing: { [productId::packagingId]: pricePerLitre } — base/fallback price
   const [prices, setPrices] = useState({})
@@ -95,6 +99,7 @@ export default function OrderDetailPage() {
 
       const existing = await supabase.from('dispatch_notes').select('*').eq('order_id', id).order('created_at', { ascending: false })
       setDispatched(existing.data || [])
+      setEditLocked((existing.data || []).length > 0)
 
       if (o.data?.customer_id) {
         const [priceData, custData, tiersData] = await Promise.all([
@@ -120,11 +125,7 @@ export default function OrderDetailPage() {
         if (priceRows.length) {
           setPrices(buildPriceMap(priceRows, initialLevel, threeTier))
           setPriceTiers(Object.fromEntries(priceRows.map((r) => [
-            `${r.product_id}::${r.packaging_id}`,
-            (Array.isArray(r.qty_tiers) ? r.qty_tiers : [])
-              .map((t) => ({ from: Number(t.from) || 0, to: t.to == null || t.to === '' ? null : Number(t.to), ppl: Number(t.ppl) || 0 }))
-              .filter((t) => t.ppl > 0)
-              .sort((a, b) => a.from - b.from),
+            `${r.product_id}::${r.packaging_id}`, parseTiers(r.qty_tiers),
           ])))
           setTierBasis(Object.fromEntries(priceRows.map((r) => [`${r.product_id}::${r.packaging_id}`, r.tier_basis || 'line'])))
           setSeasonMap(Object.fromEntries(priceRows
@@ -193,12 +194,12 @@ export default function OrderDetailPage() {
   }, [id])
 
   async function setStatus(status) {
-    await supabase.from('orders').update({ status }).eq('id', id)
+    if (!ok(await supabase.from('orders').update({ status }).eq('id', id), 'updating status')) return
     setOrder({ ...order, status })
   }
 
   async function saveLines() {
-    await supabase.from('orders').update({ lines }).eq('id', id)
+    if (!ok(await supabase.from('orders').update({ lines }).eq('id', id), 'saving products')) return
     setOrder({ ...order, lines })
     toast('Products saved')
   }
@@ -241,10 +242,10 @@ export default function OrderDetailPage() {
 
   async function savePrice(productId, packagingId, price) {
     if (!order?.customer_id) return
-    await supabase.from('customer_product_prices').upsert(
+    ok(await supabase.from('customer_product_prices').upsert(
       { customer_id: order.customer_id, product_id: productId, packaging_id: packagingId, ...priceUpsertCols(price), updated_at: new Date().toISOString() },
       { onConflict: 'customer_id,product_id,packaging_id', ignoreDuplicates: false }
-    )
+    ), 'saving price')
   }
 
   // Combined pack qty across every line whose price row is in 'order' (combined)
@@ -266,17 +267,14 @@ export default function OrderDetailPage() {
     return seasonalActive(s.from, s.to, order?.order_date) ? s.ppl : null
   }
 
-  // Effective £/litre for a line. Seasonal price wins; otherwise quantity-break
-  // tiers (line or combined basis); otherwise the base/level price.
+  // Effective £/litre for a line — shared resolver (seasonal > tiers > base).
   function pplFor(productId, packagingId, lineQty) {
     const key = `${productId}::${packagingId}`
-    const season = seasonalPpl(key)
-    if (season != null) return season
-    const base = parseFloat(prices[key]) || 0
-    const tiers = priceTiers[key] || []
-    const q = tierBasis[key] === 'order' ? combinedSchemeQty() : (parseFloat(lineQty) || 0)
-    const hit = tiers.find((t) => q >= t.from && (t.to == null || q <= t.to))
-    return hit ? hit.ppl : base
+    return resolveLinePpl({
+      base: prices[key], tiers: priceTiers[key] || [], basis: tierBasis[key],
+      season: seasonMap[key] || null, orderDate: order?.order_date,
+      lineQty, combinedQty: combinedSchemeQty(),
+    })
   }
 
   function printOfficeCopy(d) {
@@ -291,6 +289,7 @@ export default function OrderDetailPage() {
     }
     const lh = letterheads[lhIndex]
     const batches = (d.lines_snapshot || []).map((s) => s.batch || '')
+    const mfgDates = (d.lines_snapshot || []).map((s) => s.mfg_date || '')
     const doc_ = {
       docNo: d.doc_no, date: d.doc_date,
       orderDate: order.order_date || null,
@@ -298,12 +297,13 @@ export default function OrderDetailPage() {
       contact: d.totals?.contact,
       customerName: order.customer_snapshot?.name || '',
       lines, options: d.options,
-      pallets: d.totals?.pallets || 0, batches,
+      pallets: d.totals?.pallets || 0, batches, mfgDates,
     }
-    // Use the delivery charge stored ON this note (its snapshot), not the live
-    // field — the live field may have changed since the note was generated.
+    // Use the charges stored ON this note (its snapshot), not the live fields —
+    // they may have changed since the note was generated.
     const snapDelivery = Number(d.totals?.delivery_charge || 0)
-    generateOfficeCopyPDF(doc_, lh, products, packaging, prices, snapDelivery, labelTotal, priceTiers, tierBasis, seasonMap)
+    const snapLabels = d.totals?.label_total != null ? Number(d.totals.label_total) : labelTotal
+    generateOfficeCopyPDF(doc_, lh, products, packaging, prices, snapDelivery, snapLabels, priceTiers, tierBasis, seasonMap)
   }
 
   function printNote() {
@@ -419,7 +419,7 @@ ${items.map((it) => `  <li>${it.name}${it.pack ? ` — ${it.qty} x ${it.pack}` :
     }
     const rows = lines.map((l) => {
       const c = computeLine(l, products, packaging)
-      return { name: c.packaging?.name ? `${c.productName} — ${c.qty} x ${c.packaging.name}` : c.productName, batch: '', na: false }
+      return { name: c.packaging?.name ? `${c.productName} — ${c.qty} x ${c.packaging.name}` : c.productName, batch: '', na: false, mfg: '' }
     })
     setBatchModal(rows)
   }
@@ -437,6 +437,7 @@ ${items.map((it) => `  <li>${it.name}${it.pack ? ` — ${it.qty} x ${it.pack}` :
     const docNo = order.order_no
     const contact = orderContact(order)
     const batches = batchModal.map((r) => (r.na ? 'N/A' : r.batch.trim()))
+    const mfgDates = batchModal.map((r) => (r.na ? '' : (r.mfg || '')))
     const docData = {
       type: 'Delivery Note', docNo, date: docDate,
       orderDate: order.order_date || null,
@@ -444,7 +445,7 @@ ${items.map((it) => `  <li>${it.name}${it.pack ? ` — ${it.qty} x ${it.pack}` :
       deliver: splitContact(order.customer_snapshot?.deliver || '').address,
       contact,
       customerName: order.customer_snapshot?.name || '',
-      lines, options, pallets: noPallets ? 0 : pallets, showHazard, batches,
+      lines, options, pallets: noPallets ? 0 : pallets, showHazard, batches, mfgDates,
       deliveryCharge: parseFloat(deliveryCharge) || 0,
     }
     const { totals } = generateDispatchPDF(docData, lh, products, packaging, prices)
@@ -456,21 +457,33 @@ ${items.map((it) => `  <li>${it.name}${it.pack ? ` — ${it.qty} x ${it.pack}` :
         productName: c.productName, pg: c.pg, un_number: c.un_number,
         hazard: c.hazard, psn: c.psn, packDesc: c.packDesc, packQty: c.packQty,
         adr_transport_cat: c.product?.adr_transport_cat || '', batch: batches[i],
+        mfg_date: mfgDates[i] || '',
         vol: c.totalVol, net: c.net, gross: c.gross,
         price_per_litre: ppl, unit_price: unitPrice, line_total: unitPrice * c.qty,
       }
     })
     const orderTotal = linesSnap.reduce((s, l) => s + (l.line_total || 0), 0)
     const { data: { user } } = await supabase.auth.getUser()
-    await supabase.from('dispatch_notes').insert({
+    // Slim letterhead snapshot — keep everything needed to reprint EXCEPT the
+    // logo image, which is fetched by id at reprint time (keeps the DB small).
+    const lhSnap = { id: lh.id, name: lh.name, company: lh.company, color: lh.color, address: lh.address, footer: lh.footer }
+    const inserted = await supabase.from('dispatch_notes').insert({
       doc_no: docNo, doc_type: 'Delivery Note', doc_date: docDate, order_id: id,
-      letterhead_snapshot: lh, customer: invoiceTo, deliver: docData.deliver,
-      lines_snapshot: linesSnap, totals: { ...totals, contact, order_total: orderTotal, delivery_charge: parseFloat(deliveryCharge) || 0 }, options, created_by: user?.id || null,
+      letterhead_snapshot: lhSnap, customer: invoiceTo, deliver: docData.deliver,
+      lines_snapshot: linesSnap,
+      totals: {
+        ...totals, contact, order_total: orderTotal,
+        delivery_charge: parseFloat(deliveryCharge) || 0,
+        label_total: labelTotal || 0,
+      },
+      options, created_by: user?.id || null,
     })
-    await supabase.from('orders').update({ status: 'Delivery Note Generated' }).eq('id', id)
+    if (!ok(inserted, 'saving the delivery note record')) { setBusy(false); return }
+    ok(await supabase.from('orders').update({ status: 'Delivery Note Generated' }).eq('id', id), 'updating order status')
     setOrder({ ...order, status: 'Delivery Note Generated' })
     const refreshed = await supabase.from('dispatch_notes').select('*').eq('order_id', id).order('created_at', { ascending: false })
     setDispatched(refreshed.data || [])
+    setEditLocked(true)
     setPallets('')
     setNoPallets(false)
     setBatchModal(null)
@@ -483,13 +496,15 @@ ${items.map((it) => `  <li>${it.name}${it.pack ? ` — ${it.qty} x ${it.pack}` :
   async function deleteDispatchNote(d) {
     const when = d.created_at ? new Date(d.created_at).toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true }) : ''
     if (!confirm(`Delete this delivery-note copy${when ? ` (generated ${when})` : ''}? It will be removed from this order and the Delivery Notes library. This cannot be undone.`)) return
-    await supabase.from('dispatch_notes').delete().eq('id', d.id)
+    if (!ok(await supabase.from('dispatch_notes').delete().eq('id', d.id), 'deleting the note')) return
     const next = dispatched.filter((x) => x.id !== d.id)
     setDispatched(next)
     // If that was the last copy, drop the order back out of "generated" status
+    // and unlock editing again.
     if (next.length === 0) {
-      await supabase.from('orders').update({ status: 'In progress' }).eq('id', id)
+      ok(await supabase.from('orders').update({ status: 'In progress' }).eq('id', id), 'updating order status')
       setOrder((o) => ({ ...o, status: 'In progress' }))
+      setEditLocked(false)
     }
     toast('Delivery note deleted')
   }
@@ -550,15 +565,36 @@ ${items.map((it) => `  <li>${it.name}${it.pack ? ` — ${it.qty} x ${it.pack}` :
       <div className="card">
         <div className="ttl">
           <h2>Products</h2>
-          <button className="btn btn-g btn-sm" onClick={saveLines}>Save products</button>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            {editLocked ? (
+              <button className="btn btn-g btn-sm" onClick={() => {
+                if (confirm('A delivery note has already been generated from this order. Unlock editing anyway?\n\nIf you change anything, generate a new delivery note and delete the old copy so they stay in step.')) setEditLocked(false)
+              }}>✏️ Unlock editing</button>
+            ) : (
+              <button className="btn btn-g btn-sm" onClick={saveLines}>Save products</button>
+            )}
+          </div>
         </div>
-        <LineEditor lines={lines} setLines={setLines} products={products} packaging={packaging} availableByProduct={availableByProduct} />
+        {editLocked && (
+          <p className="hint" style={{ marginTop: 0, background: 'var(--accent-soft, #eef6f1)', border: '1px solid var(--accent)', borderRadius: 8, padding: '8px 12px' }}>
+            🔒 This order is locked because a delivery note has been generated from it. Click <b>✏️ Unlock editing</b> to make changes.
+          </p>
+        )}
+        <div style={editLocked ? { pointerEvents: 'none', opacity: 0.6 } : undefined}>
+          <LineEditor lines={lines} setLines={setLines} products={products} packaging={packaging} availableByProduct={availableByProduct} />
+        </div>
         <p className="hint">Totals: {fmt(totals.volume)} L · net {fmt(totals.net)} kg · gross {fmt(totals.gross)} kg</p>
       </div>
 
       {order.customer_id && (
         <PricingGuard>
-        <div className="card">
+        <div className="card" style={editLocked ? { position: 'relative' } : undefined}>
+          {editLocked && (
+            <div
+              style={{ position: 'absolute', inset: 0, zIndex: 5, cursor: 'not-allowed', borderRadius: 'inherit', background: 'rgba(255,255,255,0.35)' }}
+              title="Locked — a delivery note has been generated. Use ✏️ Unlock editing in the Products card to change pricing."
+            />
+          )}
           <div className="ttl">
             <h2>Pricing</h2>
             {customerThreeTier && (
@@ -653,7 +689,7 @@ ${items.map((it) => `  <li>${it.name}${it.pack ? ` — ${it.qty} x ${it.pack}` :
           </table>
           {(() => {
             const delivery = parseFloat(deliveryCharge) || 0
-            const vat = Math.round((orderTotal + labelTotal + delivery) * 0.20 * 100) / 100
+            const vat = Math.round((orderTotal + labelTotal + delivery) * VAT_RATE * 100) / 100
             const grandTotal = orderTotal + labelTotal + delivery + vat
             return (
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6, marginTop: 14 }}>
@@ -703,7 +739,7 @@ ${items.map((it) => `  <li>${it.name}${it.pack ? ` — ${it.qty} x ${it.pack}` :
                     <span className="mono">{(orderTotal + labelTotal + delivery) > 0 ? `£${(orderTotal + labelTotal + delivery).toFixed(2)}` : '—'}</span>
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', fontSize: 13 }}>
-                    <span className="muted">VAT (20%)</span>
+                    <span className="muted">{VAT_LABEL}</span>
                     <span className="mono">{orderTotal > 0 || delivery > 0 ? `£${vat.toFixed(2)}` : '—'}</span>
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', fontSize: 17, fontWeight: 700, borderTop: '1px solid var(--border)', paddingTop: 6 }}>
@@ -887,7 +923,7 @@ ${items.map((it) => `  <li>${it.name}${it.pack ? ` — ${it.qty} x ${it.pack}` :
         <div className="modal-bg" onClick={() => !busy && setBatchModal(null)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <h2 style={{ marginBottom: 6 }}>Batch numbers</h2>
-            <p className="hint" style={{ marginTop: 0, marginBottom: 14 }}>Enter the batch number for each product, or tick <b>Not Applicable</b>.</p>
+            <p className="hint" style={{ marginTop: 0, marginBottom: 14 }}>Enter the batch number for each product, or tick <b>Not Applicable</b>. Date of manufacture is optional — if set, it prints under the batch number.</p>
             <div className="batch-list">
               {batchModal.map((r, i) => (
                 <div key={i} className="batch-row">
@@ -898,8 +934,16 @@ ${items.map((it) => `  <li>${it.name}${it.pack ? ` — ${it.qty} x ${it.pack}` :
                     placeholder={r.na ? 'Not applicable' : 'Batch number'}
                     onChange={(e) => setBatchRow(i, { batch: e.target.value })}
                   />
+                  <input
+                    className="mono" type="date"
+                    value={r.mfg || ''}
+                    disabled={r.na}
+                    title="Date of manufacture (optional)"
+                    style={{ width: 150 }}
+                    onChange={(e) => setBatchRow(i, { mfg: e.target.value })}
+                  />
                   <label className="batch-na">
-                    <input type="checkbox" checked={r.na} onChange={(e) => setBatchRow(i, { na: e.target.checked, batch: e.target.checked ? '' : r.batch })} style={{ width: 'auto', height: 16, accentColor: 'var(--accent)' }} />
+                    <input type="checkbox" checked={r.na} onChange={(e) => setBatchRow(i, { na: e.target.checked, batch: e.target.checked ? '' : r.batch, mfg: e.target.checked ? '' : r.mfg })} style={{ width: 'auto', height: 16, accentColor: 'var(--accent)' }} />
                     Not Applicable
                   </label>
                 </div>
@@ -944,9 +988,3 @@ function orderContact(order) {
   return (merged.name || merged.email || merged.phone) ? merged : null
 }
 
-function toast(msg) {
-  let t = document.getElementById('toast')
-  if (!t) { t = document.createElement('div'); t.id = 'toast'; t.className = 'toast'; document.body.appendChild(t) }
-  t.textContent = msg; t.classList.add('show')
-  clearTimeout(t._t); t._t = setTimeout(() => t.classList.remove('show'), 1900)
-}
