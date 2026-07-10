@@ -1,7 +1,9 @@
 'use client'
+import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
+import { fetchIsAdmin, resetRoleCache } from '@/lib/roles'
 
 function nameFromEmail(email) {
   if (!email) return ''
@@ -44,13 +46,14 @@ const MAIN_LINKS = [
   ['/notes', 'Delivery Notes', 'doc'],
 ]
 
+// Pricing-related pages are admin-only; adminOnly flags hide them for general logins.
 const CATALOGUE_LINKS = [
   ['/settings/products', 'Products', 'box'],
   ['/settings/packaging', 'Packaging', 'package'],
   ['/settings/customers', 'Customers', 'users'],
-  ['/settings/prices', 'Price Entry', 'pound'],
-  ['/settings/pricelist', 'Price List', 'pound'],
-  ['/settings/dashboard', 'Insights', 'dashboard'],
+  ['/settings/prices', 'Price Entry', 'pound', true],
+  ['/settings/pricelist', 'Price List', 'pound', true],
+  ['/settings/dashboard', 'Insights', 'dashboard', true],
   ['/settings/letterheads', 'Letterheads', 'doc'],
 ]
 
@@ -58,9 +61,15 @@ export default function Sidebar({ email, openCount }) {
   const path = usePathname()
   const router = useRouter()
   const supabase = createClient()
+  const [isAdmin, setIsAdmin] = useState(true) // optimistic; corrected on load
+  const [menuOpen, setMenuOpen] = useState(false)
+
+  useEffect(() => { fetchIsAdmin().then(setIsAdmin) }, [])
+  useEffect(() => { setMenuOpen(false) }, [path]) // close mobile menu on navigation
 
   async function signOut() {
     await supabase.auth.signOut()
+    resetRoleCache()
     router.push('/login')
     router.refresh()
   }
@@ -72,12 +81,19 @@ export default function Sidebar({ email, openCount }) {
     return path.startsWith(href)
   }
 
+  const catalogueLinks = CATALOGUE_LINKS.filter(([, , , adminOnly]) => !adminOnly || isAdmin)
+
   return (
-    <aside className="sidebar">
-      <Link href="/" className="logo-card">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src="/logo.png" alt="Midland Chemicals" />
-      </Link>
+    <aside className={'sidebar' + (menuOpen ? ' open' : '')}>
+      <div className="sidebar-top">
+        <Link href="/" className="logo-card">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/logo.png" alt="Midland Chemicals" />
+        </Link>
+        <button className="menu-btn" onClick={() => setMenuOpen((o) => !o)} aria-label="Menu">
+          {menuOpen ? '✕' : '☰'}
+        </button>
+      </div>
       <nav>
         {MAIN_LINKS.map(([href, label, icon]) => (
           <Link key={href} href={href} className={isActive(href) ? 'on' : ''}>
@@ -87,7 +103,7 @@ export default function Sidebar({ email, openCount }) {
           </Link>
         ))}
         <div className="nav-label">Catalogue</div>
-        {CATALOGUE_LINKS.map(([href, label, icon]) => (
+        {catalogueLinks.map(([href, label, icon]) => (
           <Link key={href} href={href} className={isActive(href) ? 'on' : ''}>
             {ICONS[icon]}
             {label}

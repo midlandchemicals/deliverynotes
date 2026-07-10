@@ -1,10 +1,8 @@
 'use client'
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { computeLine, PRICE_LEVELS, seasonalActive } from '@/lib/calc'
+import { computeLine, PRICE_LEVELS, seasonalActive, parseTiers, resolveLinePpl } from '@/lib/calc'
 import PricingGuard from '@/app/(app)/PricingGuard'
-
-const VAT_RATE = 0.20
 
 function gbp(n) {
   return '£' + (Math.round((n || 0) * 100) / 100).toLocaleString('en-GB', { minimumFractionDigits: 0, maximumFractionDigits: 0 })
@@ -58,20 +56,10 @@ export default function DashboardPage() {
         levelMap[key] = { trade: p.price_trade, buyer_group: p.price_buyer_group, retail: p.price_retail }
         seasonMap[key] = (p.season_from && p.season_to && p.season_ppl != null)
           ? { from: p.season_from, to: p.season_to, ppl: Number(p.season_ppl) || 0 } : null
-        tierMap[key] = (Array.isArray(p.qty_tiers) ? p.qty_tiers : [])
-          .map((t) => ({ from: Number(t.from) || 0, to: t.to == null || t.to === '' ? null : Number(t.to), ppl: Number(t.ppl) || 0 }))
-          .filter((t) => t.ppl > 0)
-          .sort((a, b) => a.from - b.from)
+        tierMap[key] = parseTiers(p.qty_tiers)
       }
       const custThreeTier = Object.fromEntries(customers.map((c) => [c.id, !!c.three_tier_pricing]))
       const levelCol = (lvl) => (PRICE_LEVELS.find((l) => l.key === lvl) || PRICE_LEVELS[0]).col
-      // Effective £/litre for a customer/product/packaging at a given pack qty,
-      // matching the order page: a tier band overrides the base when qty fits.
-      function pplFor(key, qty) {
-        const tiers = tierMap[key] || []
-        const hit = tiers.find((t) => qty >= t.from && (t.to == null || qty <= t.to))
-        return hit ? hit.ppl : (priceMap[key] || 0)
-      }
       const custName = Object.fromEntries(customers.map((c) => [c.id, c.name]))
       const custLh = Object.fromEntries(customers.map((c) => [c.id, c.default_letterhead_id || null]))
       const lhById = Object.fromEntries(letterheads.map((l) => [l.id, l]))
@@ -79,7 +67,8 @@ export default function DashboardPage() {
         l.name.toLowerCase().includes('midland') || l.company.toLowerCase().includes('midland')
       ) || letterheads[0] || { company: 'Midland Chemicals', color: '#1FA86B' }
 
-      // Locked value from a dispatch-note snapshot — what the order was billed.
+      // Locked value from a dispatch-note snapshot — the ex-VAT total the order
+      // was actually billed: product lines + delivery charge + label charges.
       // Breakdown keyed by product NAME (snapshots store names, not ids).
       function lockedValue(dn) {
         let total = 0
@@ -92,6 +81,8 @@ export default function DashboardPage() {
         }
         // Older snapshots may predate per-line totals — fall back to order_total.
         if (total === 0 && dn.totals?.order_total) total = Number(dn.totals.order_total) || 0
+        total += Number(dn.totals?.delivery_charge) || 0
+        total += Number(dn.totals?.label_total) || 0
         return { total, byName }
       }
 
@@ -113,14 +104,16 @@ export default function DashboardPage() {
           const c = computeLine(l, products, packaging)
           if (!c.product || !c.packaging) continue
           const key = `${o.customer_id}::${c.product.id}::${c.packaging.id}`
-          const q = basisMap[key] === 'order' ? combined : c.qty
-          // Seasonal price wins; else 3-tier buyer level; else quantity tiers.
+          // Seasonal price wins; else 3-tier buyer level; else quantity tiers —
+          // same resolver as the order page.
           const s = seasonMap[key]
           const seasonP = s && seasonalActive(s.from, s.to, o.order_date) ? s.ppl : null
           const lvlPrice = threeTier ? levelMap[key]?.[lvlCol] : null
           const ppl = seasonP != null
             ? seasonP
-            : threeTier ? (lvlPrice != null ? lvlPrice : (priceMap[key] || 0)) : pplFor(key, q)
+            : threeTier
+              ? (lvlPrice != null ? lvlPrice : (priceMap[key] || 0))
+              : resolveLinePpl({ base: priceMap[key], tiers: tierMap[key] || [], basis: basisMap[key], lineQty: c.qty, combinedQty: combined })
           const lineVal = ppl * (c.vol || 0) * c.qty
           total += lineVal
           byName[c.productName] = (byName[c.productName] || 0) + lineVal
@@ -186,10 +179,9 @@ export default function DashboardPage() {
 
       const orderCount = orders.length
       const avgOrder = orderCount ? totalRevenue / orderCount : 0
-      const vatCollected = totalRevenue * VAT_RATE
 
       setData({
-        totalRevenue, dispatchedRevenue, pipelineValue, orderCount, avgOrder, vatCollected,
+        totalRevenue, dispatchedRevenue, pipelineValue, orderCount, avgOrder,
         thisMonthRev, lastMonthRev, monthSeries, topCustomers, topProducts, companies, statusCount,
         hasPrices: prices.length > 0,
       })
@@ -197,7 +189,7 @@ export default function DashboardPage() {
   }, [])
 
   return (
-    <PricingGuard>
+    <PricingGuard fallback={<div className="card"><div className="empty">This page is only available to admin logins.</div></div>}>
       {data === null ? (
         <div className="card"><div className="empty">Crunching the numbers…</div></div>
       ) : (
@@ -215,7 +207,7 @@ function Dashboard({ d }) {
       <div className="card">
         <div className="ttl">
           <h2>Financial Dashboard</h2>
-          <span className="muted" style={{ fontSize: 12 }}>All figures ex-VAT · dispatched orders use the price billed at the time; pipeline uses current prices</span>
+          <span className="muted" style={{ fontSize: 12 }}>All figures are the gross order total ex-VAT (products + delivery + labels) · dispatched orders use what was billed at the time; pipeline uses current prices</span>
         </div>
         {!d.hasPrices && (
           <p className="hint" style={{ color: 'var(--bad, #b3261e)' }}>
@@ -241,8 +233,6 @@ function Dashboard({ d }) {
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 14, marginTop: 14 }}>
           <Kpi label="Dispatched revenue" value={gbp(d.dispatchedRevenue)} accent="#197B55" small />
           <Kpi label="Pipeline (not dispatched)" value={gbp(d.pipelineValue)} accent="#c2410c" small />
-          <Kpi label="VAT @ 20%" value={gbp(d.vatCollected)} accent="#5C6B82" small />
-          <Kpi label="Inc. VAT total" value={gbp(d.totalRevenue * 1.2)} accent="#16294F" small />
         </div>
       </div>
 

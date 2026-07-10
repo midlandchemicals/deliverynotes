@@ -166,7 +166,7 @@ export default function PriceListPage() {
   const allVisibleSelected = filtered.length > 0 && filtered.every((e) => selected[e.customer.id])
 
   return (
-    <PricingGuard>
+    <PricingGuard fallback={<div className="card"><div className="empty">This page is only available to admin logins.</div></div>}>
       <div>
         <div className="card">
           <div className="ttl">

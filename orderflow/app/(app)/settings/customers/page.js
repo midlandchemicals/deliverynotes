@@ -3,6 +3,7 @@ import React, { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { splitContact } from '@/lib/calc'
 import Combobox from '@/app/(app)/Combobox'
+import { ok, toastError } from '@/lib/notify'
 
 // Sort addresses alphabetically by their label (falling back to the first line
 // of the address). Blank entries sort to the end so an empty new card doesn't
@@ -184,7 +185,7 @@ export default function CustomersPage() {
 
   async function update(id, patch) {
     setRows((r) => r.map((x) => (x.id === id ? { ...x, ...patch } : x)))
-    await supabase.from('customers').update(patch).eq('id', id)
+    ok(await supabase.from('customers').update(patch).eq('id', id), 'saving customer')
   }
 
   // Local-only update while typing — persisted on blur / Done via update()
@@ -270,8 +271,8 @@ export default function CustomersPage() {
   }
 
   async function remove(id) {
+    if (!ok(await supabase.from('customers').delete().eq('id', id), 'deleting customer')) return
     setRows((r) => r.filter((x) => x.id !== id))
-    await supabase.from('customers').delete().eq('id', id)
   }
 
   async function toggleTiers(customerId) {
@@ -298,7 +299,7 @@ export default function CustomersPage() {
   }
 
   async function saveTier(customerId, tierId, patch) {
-    await supabase.from('customer_delivery_tiers').update(patch).eq('id', tierId)
+    ok(await supabase.from('customer_delivery_tiers').update(patch).eq('id', tierId), 'saving delivery tier')
   }
 
   function updateTierLocal(customerId, tierId, patch) {

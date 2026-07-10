@@ -32,6 +32,41 @@ export function prettyDate(d) {
   return isNaN(dt) ? d : dt.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
 }
 
+// UK numeric date for printed documents: dd/mm/yyyy
+export function ukDate(d) {
+  if (!d) return ''
+  const dt = new Date(String(d).length <= 10 ? d + 'T00:00:00' : d)
+  if (isNaN(dt)) return d
+  return `${String(dt.getDate()).padStart(2, '0')}/${String(dt.getMonth() + 1).padStart(2, '0')}/${dt.getFullYear()}`
+}
+
+// Single VAT rate used across the app and PDFs.
+export const VAT_RATE = 0.20
+export const VAT_LABEL = `VAT (${Math.round(VAT_RATE * 100)}%)`
+
+// ---- shared price resolution ------------------------------------------------
+// One implementation of "which £/litre applies to this line", used by the order
+// page, the financial dashboard and the office-copy PDF so they can never drift.
+// Priority: seasonal window > quantity-break tier > base price.
+
+// Normalise a qty_tiers jsonb value into sorted, valid bands.
+export function parseTiers(raw) {
+  return (Array.isArray(raw) ? raw : [])
+    .map((t) => ({ from: Number(t.from) || 0, to: t.to == null || t.to === '' ? null : Number(t.to), ppl: Number(t.ppl) || 0 }))
+    .filter((t) => t.ppl > 0)
+    .sort((a, b) => a.from - b.from)
+}
+
+// base: base/list £/L · tiers: parsed bands · basis: 'line' | 'order'
+// season: {from,to,ppl} | null · orderDate: 'YYYY-MM-DD'
+// lineQty: packs on this line · combinedQty: total packs of 'order'-basis lines
+export function resolveLinePpl({ base = 0, tiers = [], basis = 'line', season = null, orderDate = null, lineQty = 0, combinedQty = 0 }) {
+  if (season && seasonalActive(season.from, season.to, orderDate)) return Number(season.ppl) || 0
+  const q = basis === 'order' ? combinedQty : (parseFloat(lineQty) || 0)
+  const hit = tiers.find((t) => q >= t.from && (t.to == null || q <= t.to))
+  return hit ? hit.ppl : (parseFloat(base) || 0)
+}
+
 // Pull contact details (name / email / phone) OUT of an address block.
 // Returns { address, contact: { name, email, phone } } — address has the
 // contact lines stripped so the Invoice To box stays clean.

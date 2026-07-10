@@ -153,21 +153,41 @@ export default function NewOrderPage() {
     setBusy(true)
     const { data: { user } } = await supabase.auth.getUser()
     const name = customers.find((c) => c.id === customerId)?.name || custDetails.split('\n')[0]
-    const { data, error } = await supabase.from('orders').insert({
-      order_no: orderNo,
-      customer_id: customerId || null,
-      customer_snapshot: { name, details: custDetails, deliver: custDeliver, contact: { name: contactName, email: contactEmail, phone: contactPhone } },
-      po_ref: poRef,
-      order_date: orderDate || null,
-      requested_date: requestedDate || null,
-      status: 'New',
-      notes,
-      lines,
-      created_by: user?.id || null,
-      added_by: user?.email || null,
-    }).select('id').single()
+
+    // Guard against duplicate DN numbers: if two people are entering orders at
+    // once (or the number was edited to one that exists), bump to the next free
+    // number instead of silently creating a duplicate.
+    let useNo = orderNo
+    let data = null, error = null
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const { data: clash } = await supabase.from('orders').select('id').eq('order_no', useNo).limit(1)
+      if (clash && clash.length) {
+        const { data: latest } = await supabase.from('orders').select('order_no').order('created_at', { ascending: false }).limit(1)
+        const bumped = nextNo(latest?.[0]?.order_no || useNo)
+        useNo = bumped === useNo ? nextNo(useNo) : bumped
+        continue
+      }
+      ;({ data, error } = await supabase.from('orders').insert({
+        order_no: useNo,
+        customer_id: customerId || null,
+        customer_snapshot: { name, details: custDetails, deliver: custDeliver, contact: { name: contactName, email: contactEmail, phone: contactPhone } },
+        po_ref: poRef,
+        order_date: orderDate || null,
+        requested_date: requestedDate || null,
+        status: 'New',
+        notes,
+        lines,
+        created_by: user?.id || null,
+        added_by: user?.email || null,
+      }).select('id').single())
+      // 23505 = unique violation (someone grabbed the number between our check and insert)
+      if (error && error.code === '23505') { error = null; data = null; useNo = nextNo(useNo); continue }
+      break
+    }
     setBusy(false)
     if (error) { alert('Could not save: ' + error.message); return }
+    if (!data) { alert('Could not find a free delivery note number — please check the Order Book and try again.'); return }
+    if (useNo !== orderNo) alert(`Note: ${orderNo} was already taken, so this order was saved as ${useNo}.`)
     router.push(`/orders/${data.id}`)
   }
 

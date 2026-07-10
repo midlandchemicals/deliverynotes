@@ -102,6 +102,12 @@ h1,h2,h3,.disp{font-family:var(--font-display);margin:0;font-weight:700;letter-s
   font-family:inherit;font-size:11px;padding:0;text-align:left;transition:.15s}
 .sidebar .user-row .out:hover{color:#DCE8E1}
 
+/* sidebar-top wraps the logo + mobile menu button; on desktop it behaves as if
+   it weren't there (display:contents) so the logo card keeps its spacing */
+.sidebar .sidebar-top{display:contents}
+.sidebar .menu-btn{display:none;background:none;border:none;color:#E4EEE8;font-size:24px;
+  cursor:pointer;padding:4px 10px;line-height:1}
+
 /* legacy shell/topbar kept as no-ops so nothing crashes if referenced */
 .shell{min-height:100vh}
 .topbar{display:none}
@@ -240,7 +246,7 @@ table.tbl input,table.tbl select{padding:7px 10px;font-size:12.5px;border-radius
   padding:26px;box-shadow:0 22px 60px rgba(20,30,24,.22)}
 .modal h2{font-size:17px;font-weight:700;color:var(--heading)}
 .batch-list{display:flex;flex-direction:column;gap:10px}
-.batch-row{display:grid;grid-template-columns:1fr 150px auto;gap:10px;align-items:center;
+.batch-row{display:grid;grid-template-columns:1fr 140px 150px auto;gap:10px;align-items:center;
   padding:10px 12px;border:1px solid var(--line);border-radius:var(--radius-sm);
   background:var(--panel-2)}
 .batch-row .batch-name{font-size:12.5px;font-weight:600;color:var(--fg);min-width:0}
@@ -289,6 +295,7 @@ table.tbl input,table.tbl select{padding:7px 10px;font-size:12.5px;border-radius
   box-shadow:0 14px 36px rgba(20,30,24,.3);border:none;
   opacity:0;pointer-events:none;transition:opacity .25s,transform .25s;z-index:300}
 .toast.show{opacity:1;transform:translateX(-50%) translateY(-4px)}
+.toast.err{background:#B3261E}
 
 /* ── dashboard (home) ── */
 .kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px}
@@ -317,3 +324,35 @@ table.tbl input,table.tbl select{padding:7px 10px;font-size:12.5px;border-radius
   border-radius:9px;padding:11px 14px;font-family:inherit;font-weight:600;font-size:13px;color:var(--heading);
   cursor:pointer;text-align:left;width:100%;transition:.15s}
 .quick-action:hover{border-color:var(--accent);color:var(--accent)}
+
+/* ── mobile layout ─────────────────────────────────────────────────────────
+   Below 860px the sidebar becomes a sticky top bar with a hamburger menu,
+   content padding tightens, and wide tables scroll inside their card. */
+@media(max-width:860px){
+  .app-shell{flex-direction:column}
+  .sidebar{position:sticky;top:0;height:auto;width:100%;z-index:120;
+    padding:10px 14px;box-shadow:0 4px 16px rgba(20,30,24,.18)}
+  .sidebar .sidebar-top{display:flex;align-items:center;justify-content:space-between;gap:12px}
+  .sidebar .logo-card{margin:0;padding:7px 10px;width:132px;flex-shrink:0}
+  .sidebar .menu-btn{display:block}
+  .sidebar nav{display:none}
+  .sidebar.open nav{display:flex;margin-top:12px;padding-bottom:4px}
+  .sidebar .nav-label{padding:12px 12px 6px}
+  .sidebar .user-row{display:none}
+  .sidebar.open .user-row{display:flex;margin-top:10px;padding-top:12px}
+  .main-col{padding:16px 12px 70px}
+  /* wide tables scroll sideways inside their card instead of breaking the page */
+  .card{padding:16px 14px;overflow-x:auto}
+  .card .ttl{flex-wrap:wrap}
+  .page-head{flex-wrap:wrap;gap:12px;margin-bottom:16px}
+  .page-head h1{font-size:22px}
+  table.tbl{min-width:560px}
+  .filters input{max-width:none;flex:1 1 160px}
+  .list-row{gap:10px}
+  .mini-table-head,.mini-table-row{grid-template-columns:90px 1fr auto}
+  .mini-table-head :nth-child(n+4),.mini-table-row :nth-child(n+4){display:none}
+  .modal{max-width:calc(100vw - 24px);padding:18px 14px}
+  .batch-row{grid-template-columns:1fr 1fr;gap:8px}
+  .batch-row .batch-name{grid-column:1 / -1}
+  .batch-na{grid-column:1 / -1}
+}
