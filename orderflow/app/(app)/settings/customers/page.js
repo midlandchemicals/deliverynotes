@@ -87,7 +87,11 @@ function AddressListEditor({ list, kind, withContact, onChange, onCommit }) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
-      {list.map((e, i) => {
+      {/* Show alphabetically while nothing is open; freeze to real order during
+          an edit so the open card never jumps. Handlers use the stable index
+          into `list` (sortAddrs keeps the same object references). */}
+      {(openIdx === null ? sortAddrs(list) : list).map((e) => {
+        const i = list.indexOf(e)
         const open = openIdx === i
         if (!open) {
           // Collapsed: one compact line

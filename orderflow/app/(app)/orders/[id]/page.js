@@ -698,6 +698,10 @@ ${items.map((it) => `  <li>${it.name}${it.pack ? ` — ${it.qty} x ${it.pack}` :
                       <span className="mono">£{delivery.toFixed(2)}</span>
                     </div>
                   )}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', fontSize: 13, fontWeight: 600, color: 'var(--heading)' }}>
+                    <span>Total (ex VAT)</span>
+                    <span className="mono">{(orderTotal + labelTotal + delivery) > 0 ? `£${(orderTotal + labelTotal + delivery).toFixed(2)}` : '—'}</span>
+                  </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', fontSize: 13 }}>
                     <span className="muted">VAT (20%)</span>
                     <span className="mono">{orderTotal > 0 || delivery > 0 ? `£${vat.toFixed(2)}` : '—'}</span>
