@@ -4,6 +4,20 @@ import { createClient } from '@/lib/supabase/client'
 import { splitContact } from '@/lib/calc'
 import Combobox from '@/app/(app)/Combobox'
 
+// Sort addresses alphabetically by their label (falling back to the first line
+// of the address). Blank entries sort to the end so an empty new card doesn't
+// jump to the top while you're filling it in.
+function sortAddrs(arr) {
+  const keyOf = (e) => (e.label || String(e.text || '').split('\n').map((l) => l.trim()).filter(Boolean)[0] || '').trim().toLowerCase()
+  return [...arr].sort((a, b) => {
+    const ka = keyOf(a), kb = keyOf(b)
+    if (!ka && !kb) return 0
+    if (!ka) return 1
+    if (!kb) return -1
+    return ka.localeCompare(kb)
+  })
+}
+
 function addrList(arr, legacy) {
   if (Array.isArray(arr) && arr.length) return arr
   return [{ label: '', text: legacy || '' }]
@@ -26,9 +40,13 @@ function AddressListEditor({ list, kind, withContact, onChange, onCommit }) {
   function setEntry(i, patch) { onChange(list.map((e, idx) => (idx === i ? { ...e, ...patch } : e))) }
   function setContact(i, patch) { onChange(list.map((e, idx) => (idx === i ? { ...e, contact: { ...(e.contact || {}), ...patch } } : e))) }
   const firstLineOf = (t) => String(t || '').split('\n').map((l) => l.trim()).filter(Boolean)[0] || ''
+  const withLabels = (arr) => arr.map((e) => (e.label && e.label.trim() ? e : { ...e, label: firstLineOf(e.text) }))
   // Persist, backfilling any empty label with the first line of its address so
   // every card is titled by its head-office / first line automatically.
-  const commit = () => onCommit(list.map((e) => (e.label && e.label.trim() ? e : { ...e, label: firstLineOf(e.text) })))
+  const commit = () => onCommit(withLabels(list))
+  // Settle points (closing / removing a card) also sort alphabetically so the
+  // list ends up in order without reshuffling cards mid-edit.
+  const commitSorted = (arr) => onCommit(sortAddrs(withLabels(arr)))
 
   function addEntry() {
     const next = [...list, blank()]
@@ -39,7 +57,7 @@ function AddressListEditor({ list, kind, withContact, onChange, onCommit }) {
     const next = list.filter((_, idx) => idx !== i)
     const final = next.length ? next : [blank()]
     onChange(final)
-    onCommit(final)
+    commitSorted(final)
     setOpenIdx(null)
   }
 
@@ -122,7 +140,7 @@ function AddressListEditor({ list, kind, withContact, onChange, onCommit }) {
               </div>
             )}
             <div style={{ display: 'flex', gap: 8, marginTop: 10, alignItems: 'center' }}>
-              <button className="btn btn-a btn-sm" onClick={() => { commit(); setOpenIdx(null) }}>Done</button>
+              <button className="btn btn-a btn-sm" onClick={() => { setOpenIdx(null); commitSorted(list) }}>Done</button>
               {list.length > 1 && (
                 <button className="btn btn-g btn-sm" onClick={() => removeEntry(i)}>Remove</button>
               )}
@@ -221,8 +239,8 @@ export default function CustomersPage() {
 
     const curDel = deliveryAddrList(cust).filter((a) => a.text)
     const curInv = addrList(cust.invoice_addresses, cust.details).filter((a) => a.text)
-    const nextDel = delEntry.text ? [...curDel, delEntry] : curDel
-    const nextInv = [...curInv, invEntry]
+    const nextDel = sortAddrs(delEntry.text ? [...curDel, delEntry] : curDel)
+    const nextInv = sortAddrs([...curInv, invEntry])
 
     await update(cust.id, {
       delivery_addresses: nextDel,
