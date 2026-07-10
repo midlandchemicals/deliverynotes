@@ -509,7 +509,7 @@ ${items.map((it) => `  <li>${it.name}${it.pack ? ` — ${it.qty} x ${it.pack}` :
     toast('Delivery note deleted')
   }
 
-  const { guard: pricingGuard, ModalUI: PricingModal } = usePricingCheck()
+  const { guard: pricingGuard, ModalUI: PricingModal, isAdmin } = usePricingCheck()
 
   if (!order) return <div className="card"><div className="empty">Loading…</div></div>
 
@@ -845,13 +845,15 @@ ${items.map((it) => `  <li>${it.name}${it.pack ? ` — ${it.qty} x ${it.pack}` :
                   <div className="meta">
                     {prettyDate(d.doc_date)}{gen ? ` · generated ${gen}` : ''} · gross {fmt(d.totals?.gross || 0)} kg
                     {d.totals?.pallets > 0 ? ` · ${d.totals.pallets} pallet(s)` : ''}
-                    {delivery > 0 ? ` · delivery £${delivery.toFixed(2)}` : ' · no delivery charge'}
+                    {isAdmin ? (delivery > 0 ? ` · delivery £${delivery.toFixed(2)}` : ' · no delivery charge') : ''}
                     {` · ${d.letterhead_snapshot?.name}`}
                   </div>
                 </div>
                 <div style={{ display: 'flex', gap: 6 }}>
                   <button className="btn btn-g btn-sm" onClick={() => reprintPDF(d)}>Re-download PDF</button>
-                  <button className="btn btn-g btn-sm" onClick={() => pricingGuard(() => printOfficeCopy(d))}>Print office copy</button>
+                  {isAdmin && (
+                    <button className="btn btn-g btn-sm" onClick={() => printOfficeCopy(d)}>Print office copy</button>
+                  )}
                   <button className="btn-dl" style={{ width: 34, height: 30, fontSize: 14, flexShrink: 0 }} onClick={() => deleteDispatchNote(d)} title="Delete this copy">🗑</button>
                 </div>
               </div>
