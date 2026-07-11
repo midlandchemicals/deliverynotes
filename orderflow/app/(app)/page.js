@@ -81,7 +81,7 @@ export default function HomePage() {
 
   return (
     <div>
-      <div className="page-head">
+      <div className="page-head" style={{ marginTop: 48 }}>
         <div>
           <h1>Dashboard</h1>
           <div className="sub">
