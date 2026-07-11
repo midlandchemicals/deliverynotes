@@ -11,7 +11,7 @@ export default async function AppLayout({ children }) {
   const { count } = await supabase
     .from('orders')
     .select('id', { count: 'exact', head: true })
-    .in('status', ['New', 'In progress'])
+    .not('status', 'in', '("Delivery Note Generated","Delivery Note Created")')
 
   return (
     <div className="app-shell">

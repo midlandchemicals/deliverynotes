@@ -3,8 +3,12 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { nextNo, splitContact } from '@/lib/calc'
+import { ok, toast } from '@/lib/notify'
 import LineEditor from '../LineEditor'
 import Combobox from '../../Combobox'
+
+const firstLine = (t) => String(t || '').split('\n').map((s) => s.trim()).filter(Boolean)[0] || ''
+const normAddr = (t) => String(t || '').replace(/\s+/g, ' ').trim().toLowerCase()
 
 export default function NewOrderPage() {
   const supabase = createClient()
@@ -143,10 +147,76 @@ export default function NewOrderPage() {
     setContactName(ct.name || ''); setContactEmail(ct.email || ''); setContactPhone(ct.phone || '')
   }
 
-  function goToStep2() {
-    if (!custDetails.trim()) { alert('Please fill in the invoice address'); return }
+  // Queue of manually-entered addresses we offer to save to the customer's
+  // address book before moving on. Each: { kind:'invoice'|'delivery', label, text, contact? }
+  const [addrQueue, setAddrQueue] = useState([])
+  const addrPrompt = addrQueue[0] || null
+
+  function proceedToStep2() {
     setStep(2)
     window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
+  function goToStep2() {
+    if (!custDetails.trim()) { alert('Please fill in the invoice address'); return }
+    // If an address was typed/edited by hand for a known customer (it doesn't
+    // match any stored address), offer to save it to their address book —
+    // label defaults to the first line (usually the head office / site name).
+    if (customerId) {
+      const queue = []
+      const matches = (opts, text) => opts.some((a) =>
+        normAddr(a.text) === normAddr(text) || normAddr(splitContact(a.text || '').address) === normAddr(text))
+      if (custDetails.trim() && !matches(invoiceOptions, custDetails)) {
+        queue.push({ kind: 'invoice', label: firstLine(custDetails), text: custDetails.trim() })
+      }
+      if (custDeliver.trim() && !matches(deliveryOptions, custDeliver)) {
+        queue.push({
+          kind: 'delivery', label: firstLine(custDeliver), text: custDeliver.trim(),
+          contact: { name: contactName || '', email: contactEmail || '', phone: contactPhone || '' },
+        })
+      }
+      if (queue.length) { setAddrQueue(queue); return } // modal takes over, then proceeds
+    }
+    proceedToStep2()
+  }
+
+  function patchAddrPrompt(patch) {
+    setAddrQueue((q) => [{ ...q[0], ...patch }, ...q.slice(1)])
+  }
+
+  function advanceAddrQueue() {
+    const rest = addrQueue.slice(1)
+    setAddrQueue(rest)
+    if (rest.length === 0) proceedToStep2()
+  }
+
+  async function saveAddrPrompt() {
+    const item = addrPrompt
+    const c = customers.find((x) => x.id === customerId)
+    if (!item || !c) { advanceAddrQueue(); return }
+    const entryLabel = (item.label || firstLine(item.text)).trim()
+    if (item.kind === 'invoice') {
+      const cur = (Array.isArray(c.invoice_addresses) && c.invoice_addresses.length)
+        ? c.invoice_addresses
+        : (c.details ? [{ label: firstLine(c.details), text: c.details }] : [])
+      const next = [...cur.filter((a) => a.text), { label: entryLabel, text: item.text }]
+      if (ok(await supabase.from('customers').update({ invoice_addresses: next }).eq('id', customerId), 'saving the invoice address')) {
+        setCustomers((cs) => cs.map((x) => (x.id === customerId ? { ...x, invoice_addresses: next } : x)))
+        setInvoiceOptions(next)
+        toast(`Invoice address saved to ${c.name}`)
+      }
+    } else {
+      const cur = (Array.isArray(c.delivery_addresses) && c.delivery_addresses.length)
+        ? c.delivery_addresses
+        : (c.deliver ? [{ label: firstLine(c.deliver), text: c.deliver, contact: { name: c.contact_name || '', email: c.email || '', phone: c.phone || '' } }] : [])
+      const next = [...cur.filter((a) => a.text), { label: entryLabel, text: item.text, contact: item.contact || { name: '', email: '', phone: '' } }]
+      if (ok(await supabase.from('customers').update({ delivery_addresses: next }).eq('id', customerId), 'saving the delivery address')) {
+        setCustomers((cs) => cs.map((x) => (x.id === customerId ? { ...x, delivery_addresses: next } : x)))
+        setDeliveryOptions(next)
+        toast(`Delivery address saved to ${c.name}`)
+      }
+    }
+    advanceAddrQueue()
   }
 
   async function saveOrder() {
@@ -416,6 +486,49 @@ export default function NewOrderPage() {
           </div>
         </>
       )}
+
+      {/* Offer to store a manually-entered address on the customer record */}
+      {addrPrompt && (() => {
+        const custName = customers.find((x) => x.id === customerId)?.name || 'this customer'
+        const isInv = addrPrompt.kind === 'invoice'
+        return (
+          <div className="modal-bg">
+            <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 480, textAlign: 'left' }}>
+              <h2 style={{ marginBottom: 6 }}>New {isInv ? 'invoice' : 'delivery'} address</h2>
+              <p className="hint" style={{ marginTop: 0, marginBottom: 14 }}>
+                Do you wish to store this as {isInv ? 'an invoice' : 'a delivery'} address for <b>{custName}</b>?
+                Check it one last time — it will appear in their address list on future orders.
+              </p>
+              <div className="field" style={{ marginBottom: 10 }}>
+                <label>Label</label>
+                <input value={addrPrompt.label} placeholder="e.g. Head Office"
+                  onChange={(e) => patchAddrPrompt({ label: e.target.value })} />
+              </div>
+              <div className="field" style={{ marginBottom: 10 }}>
+                <label>Address</label>
+                <textarea style={{ minHeight: 90 }} value={addrPrompt.text}
+                  onChange={(e) => patchAddrPrompt({ text: e.target.value })} />
+              </div>
+              {!isInv && (
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 8, marginBottom: 4 }}>
+                  <input placeholder="Contact name" value={addrPrompt.contact?.name || ''}
+                    onChange={(e) => patchAddrPrompt({ contact: { ...addrPrompt.contact, name: e.target.value } })} />
+                  <input placeholder="Email" value={addrPrompt.contact?.email || ''}
+                    onChange={(e) => patchAddrPrompt({ contact: { ...addrPrompt.contact, email: e.target.value } })} />
+                  <input placeholder="Phone" value={addrPrompt.contact?.phone || ''}
+                    onChange={(e) => patchAddrPrompt({ contact: { ...addrPrompt.contact, phone: e.target.value } })} />
+                </div>
+              )}
+              <div style={{ display: 'flex', gap: 10, marginTop: 14, justifyContent: 'flex-end' }}>
+                <button className="btn btn-g" onClick={advanceAddrQueue}>Don’t save</button>
+                <button className="btn btn-a" onClick={saveAddrPrompt} disabled={!addrPrompt.text.trim()}>
+                  Save to {custName}
+                </button>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
     </div>
   )
 }

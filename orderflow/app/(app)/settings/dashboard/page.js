@@ -1,7 +1,7 @@
 'use client'
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { computeLine, PRICE_LEVELS, seasonalActive, parseTiers, resolveLinePpl } from '@/lib/calc'
+import { computeLine, PRICE_LEVELS, seasonalActive, parseTiers, resolveLinePpl, labelCount, normalizeStatus, STATUS_NEW, STATUS_DONE } from '@/lib/calc'
 import PricingGuard from '@/app/(app)/PricingGuard'
 
 function gbp(n) {
@@ -23,7 +23,7 @@ export default function DashboardPage() {
         supabase.from('products').select('id, name, sg'),
         supabase.from('packaging').select('id, name, volume, tare'),
         supabase.from('customer_product_prices').select('customer_id, product_id, packaging_id, price_per_litre, delivery_charge, qty_tiers, tier_basis, price_trade, price_buyer_group, price_retail, season_from, season_to, season_ppl'),
-        supabase.from('customers').select('id, name, default_letterhead_id, three_tier_pricing'),
+        supabase.from('customers').select('id, name, default_letterhead_id, three_tier_pricing, label_price, default_delivery_charge'),
         supabase.from('letterheads').select('id, name, company, color'),
         supabase.from('dispatch_notes').select('order_id, doc_date, created_at, totals, lines_snapshot').order('created_at', { ascending: false }),
       ])
@@ -45,6 +45,7 @@ export default function DashboardPage() {
       // price lookup: `${customer}::${product}::${packaging}` -> ppl (base)
       // tierMap: same key -> [{from,to,ppl}] quantity-break bands
       const priceMap = {}
+      const deliveryMap = {}   // key -> per-product delivery surcharge
       const tierMap = {}
       const basisMap = {}
       const levelMap = {}   // key -> { trade, buyer_group, retail }
@@ -52,6 +53,7 @@ export default function DashboardPage() {
       for (const p of prices) {
         const key = `${p.customer_id}::${p.product_id}::${p.packaging_id}`
         priceMap[key] = p.price_per_litre || 0
+        deliveryMap[key] = Number(p.delivery_charge) || 0
         basisMap[key] = p.tier_basis || 'line'
         levelMap[key] = { trade: p.price_trade, buyer_group: p.price_buyer_group, retail: p.price_retail }
         seasonMap[key] = (p.season_from && p.season_to && p.season_ppl != null)
@@ -59,6 +61,8 @@ export default function DashboardPage() {
         tierMap[key] = parseTiers(p.qty_tiers)
       }
       const custThreeTier = Object.fromEntries(customers.map((c) => [c.id, !!c.three_tier_pricing]))
+      const custLabelPrice = Object.fromEntries(customers.map((c) => [c.id, Number(c.label_price) || 0]))
+      const custDefDelivery = Object.fromEntries(customers.map((c) => [c.id, Number(c.default_delivery_charge) || 0]))
       const levelCol = (lvl) => (PRICE_LEVELS.find((l) => l.key === lvl) || PRICE_LEVELS[0]).col
       const custName = Object.fromEntries(customers.map((c) => [c.id, c.name]))
       const custLh = Object.fromEntries(customers.map((c) => [c.id, c.default_letterhead_id || null]))
@@ -118,6 +122,21 @@ export default function DashboardPage() {
           total += lineVal
           byName[c.productName] = (byName[c.productName] || 0) + lineVal
         }
+        // Estimated label charges (starred products × customer £/label)
+        const lp = custLabelPrice[o.customer_id] || 0
+        if (lp > 0) {
+          for (const l of (o.lines || [])) total += labelCount(l, products, packaging) * lp
+        }
+        // Estimated delivery: per-product surcharges on this order, else the
+        // customer's flat default. (Pallet-based rates need a pallet count,
+        // which doesn't exist until dispatch — the locked note captures those.)
+        let delivery = 0
+        for (const l of (o.lines || [])) {
+          const c = computeLine(l, products, packaging)
+          if (c.product && c.packaging) delivery += deliveryMap[`${o.customer_id}::${c.product.id}::${c.packaging.id}`] || 0
+        }
+        if (delivery === 0) delivery = custDefDelivery[o.customer_id] || 0
+        total += delivery
         return { total, byName }
       }
 
@@ -129,10 +148,11 @@ export default function DashboardPage() {
       let totalRevenue = 0, dispatchedRevenue = 0, pipelineValue = 0
       let thisMonthRev = 0, lastMonthRev = 0
       const byMonth = {}            // 'YYYY-M' -> value
-      const byCustomer = {}        // custId -> value
-      const byProductTotal = {}    // productName -> value
-      const byCompany = {}         // lhId|'default' -> value
-      const statusCount = { 'New': 0, 'In progress': 0, 'Delivery Note Generated': 0 }
+      const byCompany = {}          // lhId|'default' -> value
+      // Per-company breakdowns for the toggleable panels — 'all' = overall.
+      const custByCo = { all: {} }  // coKey -> { custId: value }
+      const prodByCo = { all: {} }  // coKey -> { productName: value }
+      const statusCount = { [STATUS_NEW]: 0, [STATUS_DONE]: 0 }
 
       for (const o of orders) {
         // Dispatched orders use their locked snapshot; the rest are pipeline.
@@ -141,7 +161,8 @@ export default function DashboardPage() {
         totalRevenue += total
         if (dn) dispatchedRevenue += total
         else pipelineValue += total
-        statusCount[o.status] = (statusCount[o.status] || 0) + 1
+        const st = normalizeStatus(o.status)
+        statusCount[st] = (statusCount[st] || 0) + 1
 
         const d = new Date(o.order_date || o.created_at)
         const mk = `${d.getFullYear()}-${d.getMonth()}`
@@ -149,11 +170,18 @@ export default function DashboardPage() {
         if (mk === thisMonthKey) thisMonthRev += total
         if (mk === lastMonthKey) lastMonthRev += total
 
-        if (o.customer_id) byCustomer[o.customer_id] = (byCustomer[o.customer_id] || 0) + total
-        for (const [name, v] of Object.entries(byName)) byProductTotal[name] = (byProductTotal[name] || 0) + v
-
-        const lhId = (o.customer_id && custLh[o.customer_id]) || 'default'
-        byCompany[lhId] = (byCompany[lhId] || 0) + total
+        const coKey = (o.customer_id && custLh[o.customer_id]) || 'default'
+        byCompany[coKey] = (byCompany[coKey] || 0) + total
+        if (!custByCo[coKey]) custByCo[coKey] = {}
+        if (!prodByCo[coKey]) prodByCo[coKey] = {}
+        if (o.customer_id) {
+          custByCo.all[o.customer_id] = (custByCo.all[o.customer_id] || 0) + total
+          custByCo[coKey][o.customer_id] = (custByCo[coKey][o.customer_id] || 0) + total
+        }
+        for (const [name, v] of Object.entries(byName)) {
+          prodByCo.all[name] = (prodByCo.all[name] || 0) + v
+          prodByCo[coKey][name] = (prodByCo[coKey][name] || 0) + v
+        }
       }
 
       // Build last-12-months series
@@ -164,13 +192,28 @@ export default function DashboardPage() {
         monthSeries.push({ label: MONTHS[dt.getMonth()], year: dt.getFullYear(), value: byMonth[mk] || 0 })
       }
 
-      const topCustomers = Object.entries(byCustomer)
-        .map(([id, v]) => ({ name: custName[id] || '—', value: v }))
-        .sort((a, b) => b.value - a.value).slice(0, 8)
-
-      const topProducts = Object.entries(byProductTotal)
-        .map(([name, v]) => ({ name: name || '—', value: v }))
-        .sort((a, b) => b.value - a.value).slice(0, 8)
+      // Top-8 lists per company key ('all' + each company with any revenue)
+      const topCustomersBy = {}
+      for (const [coKey, m] of Object.entries(custByCo)) {
+        topCustomersBy[coKey] = Object.entries(m)
+          .map(([id, v]) => ({ name: custName[id] || '—', value: v }))
+          .sort((a, b) => b.value - a.value).slice(0, 8)
+      }
+      const topProductsBy = {}
+      for (const [coKey, m] of Object.entries(prodByCo)) {
+        topProductsBy[coKey] = Object.entries(m)
+          .map(([name, v]) => ({ name: name || '—', value: v }))
+          .sort((a, b) => b.value - a.value).slice(0, 8)
+      }
+      // Toggle options: Overall + every company that has revenue
+      const coName = (coKey) => {
+        const lh = coKey === 'default' ? defaultLh : lhById[coKey]
+        return lh?.company || lh?.name || 'Unknown'
+      }
+      const companyOptions = [
+        { key: 'all', label: 'Overall' },
+        ...Object.keys(byCompany).sort((a, b) => byCompany[b] - byCompany[a]).map((coKey) => ({ key: coKey, label: coName(coKey) })),
+      ]
 
       const companies = Object.entries(byCompany).map(([id, v]) => {
         const lh = id === 'default' ? defaultLh : lhById[id]
@@ -182,7 +225,7 @@ export default function DashboardPage() {
 
       setData({
         totalRevenue, dispatchedRevenue, pipelineValue, orderCount, avgOrder,
-        thisMonthRev, lastMonthRev, monthSeries, topCustomers, topProducts, companies, statusCount,
+        thisMonthRev, lastMonthRev, monthSeries, topCustomersBy, topProductsBy, companyOptions, companies, statusCount,
         hasPrices: prices.length > 0,
       })
     })()
@@ -201,6 +244,9 @@ export default function DashboardPage() {
 
 function Dashboard({ d }) {
   const momDelta = d.lastMonthRev > 0 ? ((d.thisMonthRev - d.lastMonthRev) / d.lastMonthRev) * 100 : null
+  const [co, setCo] = useState('all') // company filter for the top panels
+  const topCustomers = d.topCustomersBy[co] || d.topCustomersBy.all || []
+  const topProducts = d.topProductsBy[co] || d.topProductsBy.all || []
 
   return (
     <div>
@@ -242,16 +288,24 @@ function Dashboard({ d }) {
         <MonthBars series={d.monthSeries} />
       </div>
 
+      {/* Company toggle for the top-customer / top-product panels */}
+      {d.companyOptions.length > 2 && (
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 14 }}>
+          {d.companyOptions.map((c) => (
+            <span key={c.key} className={'chip' + (co === c.key ? ' on' : '')} onClick={() => setCo(c.key)}>{c.label}</span>
+          ))}
+        </div>
+      )}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 12, marginTop: 12 }}>
         {/* Top customers */}
         <div className="card" style={{ margin: 0 }}>
-          <div className="ttl" style={{ marginBottom: 14 }}><h3 style={{ margin: 0 }}>Top customers</h3></div>
-          <RankBars rows={d.topCustomers} color="#2d6cdf" />
+          <div className="ttl" style={{ marginBottom: 14 }}><h3 style={{ margin: 0 }}>Top customers{co !== 'all' ? ` — ${(d.companyOptions.find((c) => c.key === co) || {}).label}` : ''}</h3></div>
+          <RankBars rows={topCustomers} color="#2d6cdf" />
         </div>
         {/* Top products */}
         <div className="card" style={{ margin: 0 }}>
-          <div className="ttl" style={{ marginBottom: 14 }}><h3 style={{ margin: 0 }}>Top products by revenue</h3></div>
-          <RankBars rows={d.topProducts} color="#7a5cff" />
+          <div className="ttl" style={{ marginBottom: 14 }}><h3 style={{ margin: 0 }}>Top products by revenue{co !== 'all' ? ` — ${(d.companyOptions.find((c) => c.key === co) || {}).label}` : ''}</h3></div>
+          <RankBars rows={topProducts} color="#7a5cff" />
         </div>
       </div>
 
@@ -337,9 +391,8 @@ function RankBars({ rows, color, perRowColor }) {
 
 function StatusDonut({ counts }) {
   const segs = [
-    { label: 'New', value: counts['New'] || 0, color: '#2d6cdf' },
-    { label: 'In progress', value: counts['In progress'] || 0, color: '#e0892b' },
-    { label: 'Generated', value: counts['Delivery Note Generated'] || 0, color: '#1FA86B' },
+    { label: 'New', value: counts[STATUS_NEW] || 0, color: '#2d6cdf' },
+    { label: 'Note created', value: counts[STATUS_DONE] || 0, color: '#1FA86B' },
   ]
   const total = segs.reduce((s, x) => s + x.value, 0)
   const R = 60, C = 2 * Math.PI * R

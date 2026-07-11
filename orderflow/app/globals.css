@@ -168,7 +168,7 @@ table.tbl input,table.tbl select{padding:7px 10px;font-size:12.5px;border-radius
 .status{display:inline-block;font-size:11.5px;font-weight:600;padding:3px 10px;border-radius:20px;border:none;letter-spacing:.01em}
 .st-New{color:var(--badge-new-fg);background:var(--badge-new-bg)}
 .st-Inprogress{color:var(--badge-prog-fg);background:var(--badge-prog-bg)}
-.st-DeliveryNoteGenerated{color:var(--badge-done-fg);background:var(--badge-done-bg)}
+.st-DeliveryNoteGenerated,.st-DeliveryNoteCreated{color:var(--badge-done-fg);background:var(--badge-done-bg)}
 
 /* ── order log rows ── */
 .list-row{display:flex;justify-content:space-between;align-items:stretch;gap:16px;
@@ -179,7 +179,7 @@ table.tbl input,table.tbl select{padding:7px 10px;font-size:12.5px;border-radius
 .list-row:hover{border-color:var(--line-solid);box-shadow:0 4px 14px rgba(28,42,34,.07)}
 .list-row.st-border-New{border-left-color:var(--badge-new-fg)}
 .list-row.st-border-Inprogress{border-left-color:var(--badge-prog-fg)}
-.list-row.st-border-DeliveryNoteGenerated{border-left-color:var(--accent)}
+.list-row.st-border-DeliveryNoteGenerated,.list-row.st-border-DeliveryNoteCreated{border-left-color:var(--accent)}
 .list-customer{font-size:14.5px;font-weight:600;color:var(--heading);line-height:1.2}
 .list-orderno{font-family:"IBM Plex Mono";font-size:11.5px;color:var(--faint);font-weight:500}
 .list-date{font-size:13px;font-weight:500;color:var(--ink);margin-top:4px}
@@ -356,3 +356,20 @@ table.tbl input,table.tbl select{padding:7px 10px;font-size:12.5px;border-radius
   .batch-row .batch-name{grid-column:1 / -1}
   .batch-na{grid-column:1 / -1}
 }
+
+/* ── page transitions & loading skeletons ──────────────────────────────────
+   Every page eases in as one motion so navigating feels like moving within
+   one app rather than opening separate ones. */
+@keyframes pageIn{from{opacity:0;transform:translateY(7px)}to{opacity:1;transform:none}}
+.page-fade{animation:pageIn .24s cubic-bezier(.2,.7,.3,1)}
+@media(prefers-reduced-motion:reduce){.page-fade{animation:none}}
+
+@keyframes shimmer{from{background-position:-400px 0}to{background-position:400px 0}}
+.skel{border-radius:8px;background:linear-gradient(90deg,var(--panel-2) 25%,#F1EEE5 40%,var(--panel-2) 55%);
+  background-size:800px 100%;animation:shimmer 1.1s linear infinite}
+.skel-row{height:52px;margin-bottom:10px}
+.skel-title{height:20px;width:200px;margin-bottom:16px}
+
+/* clickable KPI tiles on the home dashboard */
+.kpi.kpi-link{cursor:pointer;transition:border-color .15s,box-shadow .15s,transform .15s}
+.kpi.kpi-link:hover{border-color:var(--accent);box-shadow:0 4px 14px rgba(28,42,34,.08);transform:translateY(-1px)}

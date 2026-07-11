@@ -3,7 +3,7 @@ import Link from 'next/link'
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import { prettyDate } from '@/lib/calc'
+import { prettyDate, normalizeStatus, STATUS_NEW, STATUS_DONE } from '@/lib/calc'
 
 function nameFromEmail(email) {
   if (!email) return ''
@@ -39,20 +39,21 @@ export default function HomePage() {
 
       const now = new Date()
       const weekAhead = new Date(now.getTime() + 7 * 86400000)
-      const counts = { 'New': 0, 'In progress': 0, 'Delivery Note Generated': 0 }
+      const counts = { [STATUS_NEW]: 0, [STATUS_DONE]: 0 }
       let dueThisWeek = 0
       let earliestDue = null
       let dispatchedThisMonth = 0
       for (const o of orders) {
-        counts[o.status] = (counts[o.status] || 0) + 1
-        if (o.status !== 'Delivery Note Generated' && o.requested_date) {
+        const st = normalizeStatus(o.status)
+        counts[st] = (counts[st] || 0) + 1
+        if (st !== STATUS_DONE && o.requested_date) {
           const d = new Date(o.requested_date)
           if (d >= now && d <= weekAhead) {
             dueThisWeek++
             if (!earliestDue || d < earliestDue) earliestDue = d
           }
         }
-        if (o.status === 'Delivery Note Generated') {
+        if (st === STATUS_DONE) {
           const d = new Date(o.order_date || o.created_at)
           if (d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth()) dispatchedThisMonth++
         }
@@ -65,10 +66,18 @@ export default function HomePage() {
     })()
   }, [])
 
-  if (!data) return <div className="card"><div className="empty">Loading…</div></div>
+  if (!data) return (
+    <div>
+      <div className="skel skel-title" />
+      <div className="kpi-grid">{[0, 1, 2, 3].map((i) => <div key={i} className="skel" style={{ height: 96 }} />)}</div>
+      <div className="card" style={{ marginTop: 14 }}>
+        {[0, 1, 2, 3].map((i) => <div key={i} className="skel skel-row" />)}
+      </div>
+    </div>
+  )
 
-  const open = (data.counts['New'] || 0) + (data.counts['In progress'] || 0)
-  const maxStatus = Math.max(1, data.counts['New'], data.counts['In progress'], data.counts['Delivery Note Generated'])
+  const open = data.counts[STATUS_NEW] || 0
+  const maxStatus = Math.max(1, data.counts[STATUS_NEW], data.counts[STATUS_DONE])
 
   return (
     <div>
@@ -86,25 +95,25 @@ export default function HomePage() {
       </div>
 
       <div className="kpi-grid">
-        <div className="kpi">
+        <div className="kpi kpi-link" onClick={() => router.push('/orders?filter=open')} title="View open orders">
           <div className="k-label">Open orders</div>
           <div className="k-value k-green">{open}</div>
-          <div className="k-sub">{data.counts['New'] || 0} new · {data.counts['In progress'] || 0} in progress</div>
+          <div className="k-sub">awaiting a delivery note →</div>
         </div>
-        <div className="kpi">
+        <div className="kpi kpi-link" onClick={() => router.push('/orders?due=week')} title="View orders due this week">
           <div className="k-label">Due this week</div>
           <div className="k-value k-amber">{data.dueThisWeek}</div>
-          <div className="k-sub">{data.earliestDue ? `earliest: ${prettyDate(data.earliestDue.toISOString().slice(0, 10))}` : 'no requested dates'}</div>
+          <div className="k-sub">{data.earliestDue ? `earliest: ${prettyDate(data.earliestDue.toISOString().slice(0, 10))} →` : 'no requested dates →'}</div>
         </div>
-        <div className="kpi">
+        <div className="kpi kpi-link" onClick={() => router.push('/orders?filter=done')} title="View completed orders">
           <div className="k-label">Dispatched this month</div>
           <div className="k-value k-blue">{data.dispatchedThisMonth}</div>
-          <div className="k-sub">delivery notes generated</div>
+          <div className="k-sub">delivery notes created →</div>
         </div>
-        <div className="kpi">
+        <div className="kpi kpi-link" onClick={() => router.push('/orders')} title="View the order book">
           <div className="k-label">Orders on the book</div>
           <div className="k-value">{data.total}</div>
-          <div className="k-sub">all time</div>
+          <div className="k-sub">all time →</div>
         </div>
       </div>
 
@@ -130,8 +139,8 @@ export default function HomePage() {
                   </div>
                   <div style={{ fontSize: 13 }}>{prettyDate(o.order_date)}</div>
                   <div style={{ textAlign: 'right' }}>
-                    <span className={'status st-' + String(o.status || 'New').replace(/\s+/g, '')}>
-                      {o.status === 'Delivery Note Generated' ? 'Dispatched' : o.status}
+                    <span className={'status st-' + normalizeStatus(o.status).replace(/\s+/g, '')}>
+                      {normalizeStatus(o.status) === STATUS_DONE ? 'Note created' : 'New'}
                     </span>
                   </div>
                 </div>
@@ -144,9 +153,8 @@ export default function HomePage() {
           <div className="card" style={{ margin: 0 }}>
             <div className="ttl" style={{ marginBottom: 14 }}><h2>Orders by status</h2></div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-              <StatusBar label="New" value={data.counts['New'] || 0} max={maxStatus} color="#3565A8" />
-              <StatusBar label="In progress" value={data.counts['In progress'] || 0} max={maxStatus} color="var(--gold)" />
-              <StatusBar label="Dispatched" value={data.counts['Delivery Note Generated'] || 0} max={maxStatus} color="var(--accent)" />
+              <StatusBar label="Open" value={data.counts[STATUS_NEW] || 0} max={maxStatus} color="#3565A8" />
+              <StatusBar label="Delivery note created" value={data.counts[STATUS_DONE] || 0} max={maxStatus} color="var(--accent)" />
             </div>
           </div>
           <div className="card" style={{ margin: 0 }}>
