@@ -379,11 +379,12 @@ table.tbl input,table.tbl select{padding:7px 10px;font-size:12.5px;border-radius
    sections of the sheet, separated by hairline rules — no tiles, no bubbles.
    Scoped to .main-inner so modals, dropdowns and the login page stay boxed. */
 
-/* The content area IS the page — white, edge to edge, no container box.
-   The dark sidebar is the only structural edge (YouTube/Claude style). */
-body{background:var(--panel)}
-.main-col{background:var(--panel);padding:28px 48px 80px}
-.main-inner{max-width:1080px;margin:0}
+/* The content area IS the page — warm paper, edge to edge, no container box.
+   The dark sidebar is the only structural edge. Content is a centred fluid
+   column so it sits uniformly on any screen size. */
+body{background:var(--bg-grad)}
+.main-col{background:var(--bg-grad);padding:28px clamp(20px,4vw,56px) 80px}
+.main-inner{width:100%;max-width:1240px;margin:0 auto}
 
 .main-inner .page-head{margin-top:6px}
 
