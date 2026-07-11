@@ -373,3 +373,46 @@ table.tbl input,table.tbl select{padding:7px 10px;font-size:12.5px;border-radius
 /* clickable KPI tiles on the home dashboard */
 .kpi.kpi-link{cursor:pointer;transition:border-color .15s,box-shadow .15s,transform .15s}
 .kpi.kpi-link:hover{border-color:var(--accent);box-shadow:0 4px 14px rgba(28,42,34,.08);transform:translateY(-1px)}
+
+/* ═══ INTEGRATED SHEET ═════════════════════════════════════════════════════
+   The page is ONE continuous white surface. Former floating "cards" become
+   sections of the sheet, separated by hairline rules — no tiles, no bubbles.
+   Scoped to .main-inner so modals, dropdowns and the login page stay boxed. */
+
+.main-inner{background:var(--panel);border:1px solid var(--line);border-radius:16px;
+  box-shadow:0 1px 3px rgba(28,42,34,.05);padding:10px 32px 34px;
+  min-height:calc(100vh - 132px)}
+
+.main-inner .page-head{margin-top:18px}
+
+/* cards → sections: transparent, full-bleed to the sheet's inner edges,
+   divided by a hairline above each section */
+.main-inner .card{background:transparent;border:none;border-radius:0;box-shadow:none;
+  margin:0;padding:24px 0;border-top:1px solid var(--line)}
+.main-inner .page-fade > div > .card:first-child,
+.main-inner > div > .card:first-child{border-top:none}
+
+/* KPI tiles → one stat band divided by vertical hairlines */
+.main-inner .kpi-grid{gap:0;margin-top:6px}
+.main-inner .kpi{background:transparent;border:none;border-radius:0;
+  border-left:1px solid var(--line);padding:8px 22px}
+.main-inner .kpi:first-child{border-left:none;padding-left:0}
+.main-inner .kpi.kpi-link:hover{background:var(--hover-bg);border-radius:10px;
+  transform:none;box-shadow:none}
+
+/* order-book rows → ledger lines (status colour kept as the left bar) */
+.main-inner .list-row{background:transparent;border:none;border-radius:0;
+  border-left:3px solid var(--line-solid);border-bottom:1px solid var(--line);
+  margin-bottom:0;padding:14px 14px}
+.main-inner .list-row:hover{background:var(--hover-bg);box-shadow:none}
+.main-inner .list-row:last-of-type{border-bottom:none}
+.main-inner .list-row.st-border-New{border-left-color:var(--badge-new-fg)}
+.main-inner .list-row.st-border-Inprogress{border-left-color:var(--badge-prog-fg)}
+.main-inner .list-row.st-border-DeliveryNoteGenerated,
+.main-inner .list-row.st-border-DeliveryNoteCreated{border-left-color:var(--accent)}
+
+@media(max-width:860px){
+  .main-inner{padding:4px 16px 24px;min-height:auto;border-radius:12px}
+  .main-inner .card{padding:18px 0;overflow-x:auto}
+  .main-inner .kpi{padding:8px 14px}
+}
