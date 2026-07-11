@@ -23,6 +23,7 @@ export default function DeliveryNotesPage() {
   const supabase = createClient()
   const [notes, setNotes] = useState(null)
   const [nameByOrder, setNameByOrder] = useState({})
+  const [summaryByOrder, setSummaryByOrder] = useState({})
   const [q, setQ] = useState('')
   const [err, setErr] = useState('')
   const [openingId, setOpeningId] = useState(null)
@@ -31,15 +32,31 @@ export default function DeliveryNotesPage() {
     (async () => {
       // Light columns only — letterhead_snapshot / lines_snapshot can be large
       // (embedded logos), so we fetch those per-note only when opening the PDF.
-      const [dnRes, ordRes] = await Promise.all([
+      const [dnRes, ordRes, prodRes, pkgRes] = await Promise.all([
         supabase.from('dispatch_notes')
           .select('id, doc_no, doc_date, order_id, customer, created_at')
           .order('created_at', { ascending: false }),
-        supabase.from('orders').select('id, customer_snapshot'),
+        supabase.from('orders').select('id, customer_snapshot, lines'),
+        supabase.from('products').select('id, name'),
+        supabase.from('packaging').select('id, name'),
       ])
       if (dnRes.error) setErr(dnRes.error.message)
       const liveOrders = new Set((ordRes.data || []).map((o) => o.id))
       setNameByOrder(Object.fromEntries((ordRes.data || []).map((o) => [o.id, o.customer_snapshot?.name || ''])))
+      // Order summary per order: "24 × 25L PREMCLEAN · 2 × 1000L MN Super"
+      const prodName = Object.fromEntries((prodRes.data || []).map((x) => [x.id, x.name]))
+      const pkgName = Object.fromEntries((pkgRes.data || []).map((x) => [x.id, x.name]))
+      setSummaryByOrder(Object.fromEntries((ordRes.data || []).map((o) => [
+        o.id,
+        (o.lines || [])
+          .map((l) => {
+            const pn = prodName[l.productId]
+            if (!pn) return null
+            const kn = pkgName[l.packagingId] || ''
+            return `${l.qty || ''} × ${kn ? kn + ' ' : ''}${pn}`.trim()
+          })
+          .filter(Boolean).join(' · '),
+      ])))
       // Only show notes whose order still exists (hide notes for deleted orders)
       setNotes((dnRes.data || []).filter((n) => n.order_id && liveOrders.has(n.order_id)))
     })()
@@ -58,7 +75,7 @@ export default function DeliveryNotesPage() {
 
   const filtered = (notes || []).filter((n) => {
     if (!q) return true
-    const hay = `${n.doc_no} ${custName(n)}`.toLowerCase()
+    const hay = `${n.doc_no} ${custName(n)} ${summaryByOrder[n.order_id] || ''}`.toLowerCase()
     return hay.includes(q.toLowerCase())
   })
 
@@ -91,7 +108,7 @@ export default function DeliveryNotesPage() {
       {err ? (
         <div className="card"><div className="empty" style={{ color: 'var(--bad)' }}>Couldn’t load delivery notes: {err}</div></div>
       ) : notes === null ? (
-        <div className="card"><div className="empty">Loading…</div></div>
+        <div className="card">{[0, 1, 2, 3].map((i) => <div key={i} className="skel skel-row" />)}</div>
       ) : groups.length === 0 ? (
         <div className="card"><div className="empty">{q ? `No delivery note matches “${q}”.` : 'No delivery notes generated yet.'}</div></div>
       ) : (
@@ -110,7 +127,14 @@ export default function DeliveryNotesPage() {
                 title="Reopen this delivery note PDF"
               >
                 <span className="mono" style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--heading)' }}>{n.doc_no}</span>
-                <span style={{ fontWeight: 600, color: 'var(--heading)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{custName(n)}</span>
+                <span style={{ minWidth: 0 }}>
+                  <span style={{ display: 'block', fontWeight: 600, color: 'var(--heading)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{custName(n)}</span>
+                  {summaryByOrder[n.order_id] ? (
+                    <span style={{ display: 'block', fontSize: 12, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={summaryByOrder[n.order_id]}>
+                      {summaryByOrder[n.order_id]}
+                    </span>
+                  ) : null}
+                </span>
                 <span style={{ fontSize: 12.5, color: 'var(--muted)' }}>{timeLabel(n.created_at)}</span>
                 <span style={{ display: 'inline-flex', gap: 8, alignItems: 'center', justifyContent: 'flex-end' }}>
                   {n.order_id && (

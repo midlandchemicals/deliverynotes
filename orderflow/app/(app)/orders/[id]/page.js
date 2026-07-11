@@ -2,14 +2,14 @@
 import { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import { computeLine, docTotals, fmt, prettyDate, splitContact, labelCount, PRICE_LEVELS, seasonalActive, resolveLinePpl, parseTiers, VAT_RATE, VAT_LABEL } from '@/lib/calc'
+import { computeLine, docTotals, fmt, prettyDate, splitContact, labelCount, PRICE_LEVELS, seasonalActive, resolveLinePpl, parseTiers, VAT_RATE, VAT_LABEL, ORDER_STATUSES, STATUS_NEW, STATUS_DONE, normalizeStatus } from '@/lib/calc'
 import { generateDispatchPDF, generateOfficeCopyPDF, reprintPDF } from '@/lib/pdf'
 import { toast, ok } from '@/lib/notify'
 import PricingGuard, { usePricingCheck } from '@/app/(app)/PricingGuard'
 import { StatusBadge } from '../page'
 import LineEditor from '../LineEditor'
 
-const STATUS_FLOW = ['New', 'In progress', 'Delivery Note Generated']
+const STATUS_FLOW = ORDER_STATUSES
 
 // Build the productId::packagingId -> £/litre map for the active buyer level.
 // For 3-tier customers, read the level's column (falling back to price_per_litre).
@@ -479,8 +479,8 @@ ${items.map((it) => `  <li>${it.name}${it.pack ? ` — ${it.qty} x ${it.pack}` :
       options, created_by: user?.id || null,
     })
     if (!ok(inserted, 'saving the delivery note record')) { setBusy(false); return }
-    ok(await supabase.from('orders').update({ status: 'Delivery Note Generated' }).eq('id', id), 'updating order status')
-    setOrder({ ...order, status: 'Delivery Note Generated' })
+    ok(await supabase.from('orders').update({ status: STATUS_DONE }).eq('id', id), 'updating order status')
+    setOrder({ ...order, status: STATUS_DONE })
     const refreshed = await supabase.from('dispatch_notes').select('*').eq('order_id', id).order('created_at', { ascending: false })
     setDispatched(refreshed.data || [])
     setEditLocked(true)
@@ -502,8 +502,8 @@ ${items.map((it) => `  <li>${it.name}${it.pack ? ` — ${it.qty} x ${it.pack}` :
     // If that was the last copy, drop the order back out of "generated" status
     // and unlock editing again.
     if (next.length === 0) {
-      ok(await supabase.from('orders').update({ status: 'In progress' }).eq('id', id), 'updating order status')
-      setOrder((o) => ({ ...o, status: 'In progress' }))
+      ok(await supabase.from('orders').update({ status: STATUS_NEW }).eq('id', id), 'updating order status')
+      setOrder((o) => ({ ...o, status: STATUS_NEW }))
       setEditLocked(false)
     }
     toast('Delivery note deleted')
@@ -557,7 +557,7 @@ ${items.map((it) => `  <li>${it.name}${it.pack ? ` — ${it.qty} x ${it.pack}` :
         <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
           <label style={{ alignSelf: 'center' }}>Status:</label>
           {STATUS_FLOW.map((s) => (
-            <span key={s} className={'chip' + (order.status === s ? ' on' : '')} onClick={() => setStatus(s)}>{s}</span>
+            <span key={s} className={'chip' + (normalizeStatus(order.status) === s ? ' on' : '')} onClick={() => setStatus(s)}>{s}</span>
           ))}
         </div>
       </div>

@@ -17,6 +17,18 @@ export function seasonalActive(fromD, toD, dateStr) {
   return d >= fromD && d <= toD
 }
 
+// ---- order statuses ----------------------------------------------------
+// Just two: an order is either open or its delivery note has been created.
+// Older rows may still hold 'In progress' / 'Delivery Note Generated' until
+// migration 010 runs — normalizeStatus maps them so the app treats both eras
+// the same.
+export const STATUS_NEW = 'New'
+export const STATUS_DONE = 'Delivery Note Created'
+export const ORDER_STATUSES = [STATUS_NEW, STATUS_DONE]
+export function normalizeStatus(s) {
+  return (s === 'Delivery Note Generated' || s === STATUS_DONE) ? STATUS_DONE : STATUS_NEW
+}
+
 export function num(v) {
   const n = parseFloat(String(v ?? '').replace(/,/g, ''))
   return isNaN(n) ? 0 : n

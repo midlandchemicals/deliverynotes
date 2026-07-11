@@ -3,10 +3,10 @@ import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import { prettyDate } from '@/lib/calc'
+import { prettyDate, normalizeStatus, STATUS_NEW, STATUS_DONE } from '@/lib/calc'
 import { ok } from '@/lib/notify'
 
-const STATUSES = ['All', 'New', 'In progress', 'Delivery Note Generated']
+const STATUSES = ['All', STATUS_NEW, STATUS_DONE]
 
 function nameFromEmail(email) {
   if (!email) return null
@@ -37,6 +37,16 @@ export default function OrdersPage() {
   const [olderMonths, setOlderMonths] = useState([]) // [{key:'2026-03', label:'March 2026', count}]
   const [loadedMonths, setLoadedMonths] = useState({}) // key -> true once fetched
   const [loadingMonth, setLoadingMonth] = useState(null)
+  const [dueWeek, setDueWeek] = useState(false)
+
+  // Apply filters passed from the dashboard KPI tiles (?filter=open|done, ?due=week)
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const f = params.get('filter')
+    if (f === 'open') setFilter(STATUS_NEW)
+    if (f === 'done') setFilter(STATUS_DONE)
+    if (params.get('due') === 'week') setDueWeek(true)
+  }, [])
 
   useEffect(() => {
     (async () => {
@@ -102,7 +112,12 @@ export default function OrdersPage() {
     setOrders((list) => list.filter((x) => x.id !== order.id))
   }
 
-  if (orders === null) return <div className="card"><div className="empty">Loading orders…</div></div>
+  if (orders === null) return (
+    <div className="card">
+      <div className="skel skel-title" />
+      {[0, 1, 2, 3, 4].map((i) => <div key={i} className="skel skel-row" />)}
+    </div>
+  )
 
   const nameOf = (id) => (products.find((p) => p.id === id) || {}).name || ''
   const productSummary = (o) => {
@@ -137,7 +152,13 @@ export default function OrdersPage() {
     : orders
 
   const filtered = tabOrders.filter((o) => {
-    if (filter !== 'All' && o.status !== filter) return false
+    if (filter !== 'All' && normalizeStatus(o.status) !== filter) return false
+    if (dueWeek) {
+      if (normalizeStatus(o.status) === STATUS_DONE || !o.requested_date) return false
+      const d = new Date(o.requested_date)
+      const now = new Date()
+      if (!(d >= now && d <= new Date(now.getTime() + 7 * 86400000))) return false
+    }
     if (q) {
       const hay = `${o.order_no} ${o.po_ref} ${o.customer_snapshot?.name || ''} ${productSummary(o)}`.toLowerCase()
       if (!hay.includes(q.toLowerCase())) return false
@@ -197,15 +218,16 @@ export default function OrdersPage() {
         <div className="filters">
           <input placeholder="Search DN no., customer order no., customer or product…" value={q} onChange={(e) => setQ(e.target.value)} />
           {STATUSES.map((s) => (
-            <span key={s} className={'chip' + (filter === s ? ' on' : '')} onClick={() => setFilter(s)}>{s}</span>
+            <span key={s} className={'chip' + (filter === s && !dueWeek ? ' on' : '')} onClick={() => { setFilter(s); setDueWeek(false) }}>{s}</span>
           ))}
+          <span className={'chip' + (dueWeek ? ' on' : '')} onClick={() => setDueWeek((v) => !v)}>Due this week</span>
         </div>
 
         {filtered.length === 0 ? (
           <div className="empty">No delivery notes match. Log one from <b>New delivery note</b>.</div>
         ) : (
           filtered.map((o) => (
-            <div key={o.id} className={'list-row st-border-' + String(o.status || 'New').replace(/\s+/g, '')} onClick={() => router.push(`/orders/${o.id}`)} style={{ cursor: 'pointer' }}>
+            <div key={o.id} className={'list-row st-border-' + normalizeStatus(o.status).replace(/\s+/g, '')} onClick={() => router.push(`/orders/${o.id}`)} style={{ cursor: 'pointer' }}>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
                   <span className="list-customer">{o.customer_snapshot?.name || '—'}</span>
@@ -254,6 +276,7 @@ export default function OrdersPage() {
 }
 
 export function StatusBadge({ status }) {
-  const cls = 'st-' + String(status || 'New').replace(/\s+/g, '')
-  return <span className={`status ${cls}`}>{status}</span>
+  const st = normalizeStatus(status)
+  const cls = 'st-' + st.replace(/\s+/g, '')
+  return <span className={`status ${cls}`}>{st}</span>
 }
