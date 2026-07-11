@@ -379,11 +379,13 @@ table.tbl input,table.tbl select{padding:7px 10px;font-size:12.5px;border-radius
    sections of the sheet, separated by hairline rules — no tiles, no bubbles.
    Scoped to .main-inner so modals, dropdowns and the login page stay boxed. */
 
-.main-inner{background:var(--panel);border:1px solid var(--line);border-radius:16px;
-  box-shadow:0 1px 3px rgba(28,42,34,.05);padding:10px 32px 34px;
-  min-height:calc(100vh - 132px)}
+/* The content area IS the page — white, edge to edge, no container box.
+   The dark sidebar is the only structural edge (YouTube/Claude style). */
+body{background:var(--panel)}
+.main-col{background:var(--panel);padding:28px 48px 80px}
+.main-inner{max-width:1080px;margin:0}
 
-.main-inner .page-head{margin-top:18px}
+.main-inner .page-head{margin-top:6px}
 
 /* cards → sections: transparent, full-bleed to the sheet's inner edges,
    divided by a hairline above each section */
@@ -412,7 +414,7 @@ table.tbl input,table.tbl select{padding:7px 10px;font-size:12.5px;border-radius
 .main-inner .list-row.st-border-DeliveryNoteCreated{border-left-color:var(--accent)}
 
 @media(max-width:860px){
-  .main-inner{padding:4px 16px 24px;min-height:auto;border-radius:12px}
+  .main-col{padding:14px 16px 70px}
   .main-inner .card{padding:18px 0;overflow-x:auto}
   .main-inner .kpi{padding:8px 14px}
 }
