@@ -332,9 +332,8 @@ function Dashboard({ d }) {
 function Kpi({ label, value, accent, sub, subColor, small }) {
   return (
     <div style={{
-      borderRadius: 14, padding: small ? '14px 16px' : '18px 20px',
-      background: 'var(--panel)', border: '1px solid var(--border)',
-      borderLeft: `4px solid ${accent}`,
+      padding: small ? '4px 16px' : '6px 18px',
+      borderLeft: `3px solid ${accent}`,
     }}>
       <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted)' }}>{label}</div>
       <div style={{ fontSize: small ? 22 : 30, fontWeight: 800, color: 'var(--ink)', marginTop: 6, lineHeight: 1.1, fontFamily: 'var(--mono, monospace)' }}>{value}</div>
