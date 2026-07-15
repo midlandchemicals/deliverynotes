@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { computeLine, docTotals, fmt, prettyDate, splitContact, labelCount, PRICE_LEVELS, seasonalActive, resolveLinePpl, parseTiers, VAT_RATE, VAT_LABEL, ORDER_STATUSES, STATUS_NEW, STATUS_BOARD, STATUS_DONE, normalizeStatus, extractDeliveryInstructions } from '@/lib/calc'
-import { generateDispatchPDF, generateOfficeCopyPDF, reprintPDF } from '@/lib/pdf'
+import { generateDispatchPDF, generateOfficeCopyPDF, reprintPDF, generatePurchaseOrderPDF } from '@/lib/pdf'
 import { printBoardNote } from '@/lib/boardnote'
 import { toast, ok } from '@/lib/notify'
 import PricingGuard, { usePricingCheck } from '@/app/(app)/PricingGuard'
@@ -511,6 +511,7 @@ export default function OrderDetailPage() {
         <div className="ttl">
           <h2>{order.order_no} <StatusBadge status={order.status} /></h2>
           <div style={{ display: 'flex', gap: 8 }}>
+            <button className="btn btn-g btn-sm" onClick={() => generatePurchaseOrderPDF({ ...order, lines }, products, packaging, letterheads[lhIndex] || {})}>📄 Purchase order</button>
             <button className="btn btn-g btn-sm" onClick={printNote}>🖨 Print for board</button>
             <button className="btn btn-g btn-sm" onClick={() => router.push('/orders')}>← Back to log</button>
           </div>
@@ -839,6 +840,7 @@ export default function OrderDetailPage() {
                   </div>
                 </div>
                 <div style={{ display: 'flex', gap: 6 }}>
+                  <button className="btn btn-g btn-sm" onClick={() => generatePurchaseOrderPDF({ ...order, lines }, products, packaging, letterheads[lhIndex] || {})}>Purchase order</button>
                   <button className="btn btn-g btn-sm" onClick={() => reprintPDF(d)}>Re-download PDF</button>
                   {isAdmin && (
                     <button className="btn btn-g btn-sm" onClick={() => printOfficeCopy(d)}>Print office copy</button>
