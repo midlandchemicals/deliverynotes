@@ -841,9 +841,9 @@ export default function OrderDetailPage() {
                 </div>
                 <div style={{ display: 'flex', gap: 6 }}>
                   <button className="btn btn-g btn-sm" onClick={() => generatePurchaseOrderPDF({ ...order, lines }, products, packaging, letterheads[lhIndex] || {})}>Purchase order</button>
-                  <button className="btn btn-g btn-sm" onClick={() => reprintPDF(d)}>Re-download PDF</button>
+                  <button className="btn btn-g btn-sm" onClick={() => reprintPDF(d)}>Delivery Note</button>
                   {isAdmin && (
-                    <button className="btn btn-g btn-sm" onClick={() => printOfficeCopy(d)}>Print office copy</button>
+                    <button className="btn btn-g btn-sm" onClick={() => printOfficeCopy(d)}>For Invoicing</button>
                   )}
                   <button className="btn-dl" style={{ width: 34, height: 30, fontSize: 14, flexShrink: 0 }} onClick={() => deleteDispatchNote(d)} title="Delete this copy">🗑</button>
                 </div>
