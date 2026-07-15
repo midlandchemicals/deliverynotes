@@ -650,25 +650,19 @@ export function generatePurchaseOrderPDF(order, products, packaging, lh = {}) {
     cy += ih + 5
   }
 
-  const t = docTotals(order.lines || [], products, packaging)
   autoTable(doc, {
     startY: cy,
     margin: { left: M, right: M, bottom: 40 },
-    head: [['Qty', 'Pack size', 'Product', 'Total volume (L)']],
+    head: [['Quantity', 'Product']],
     body: (order.lines || []).map((l) => {
       const c = computeLine(l, products, packaging)
-      return [String(c.qty || ''), c.packaging?.name || '', c.productName, fmt(c.totalVol)]
+      return [c.packDesc || String(c.qty || ''), c.productName]
     }),
-    styles: { font: FONT, fontSize: 10, cellPadding: 2.2, lineColor: [190, 190, 190], lineWidth: 0.15, textColor: BK },
+    styles: { font: FONT, fontSize: 10.5, cellPadding: 2.4, lineColor: [190, 190, 190], lineWidth: 0.15, textColor: BK },
     headStyles: { fillColor: [40, 40, 40], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 8.5 },
-    columnStyles: { 0: { cellWidth: 16, halign: 'right' }, 1: { cellWidth: 32 }, 3: { cellWidth: 34, halign: 'right', fontStyle: 'bold' } },
+    columnStyles: { 0: { cellWidth: 52 } },
     alternateRowStyles: { fillColor: [246, 246, 246] },
   })
-
-  let ty = doc.lastAutoTable.finalY + 6
-  doc.setFont(FONT, 'bold').setFontSize(11).setTextColor(40, 40, 40)
-  doc.text('Total volume', W - M - 60, ty)
-  doc.text(`${fmt(t.volume)} L`, W - M, ty, { align: 'right' })
 
   // Authorisation lines for the customer to sign
   const sy = 272
