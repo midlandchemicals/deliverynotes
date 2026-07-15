@@ -140,7 +140,7 @@ export default function DeliveryNotesPage() {
                   {n.order_id && (
                     <Link href={`/orders/${n.order_id}`} onClick={(e) => e.stopPropagation()} className="btn btn-g btn-sm" style={{ padding: '4px 10px' }}>Order</Link>
                   )}
-                  <span className="btn btn-a btn-sm" style={{ padding: '4px 12px' }}>{openingId === n.id ? '…' : '⬇ PDF'}</span>
+                  <span className="btn btn-a btn-sm" style={{ padding: '4px 12px' }}>{openingId === n.id ? '…' : '⬇ Delivery Note'}</span>
                 </span>
               </div>
             ))}
