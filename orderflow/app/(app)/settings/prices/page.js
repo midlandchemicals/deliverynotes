@@ -37,6 +37,10 @@ export default function PricesPage() {
   const [drafts, setDrafts] = useState([]) // bulk-fill rows awaiting prices
   const dupSeq = useRef(0)                  // counter for unique duplicate-draft keys
   const [tiersRowId, setTiersRowId] = useState(null) // saved-row id whose qty tiers are open
+  // Raw £/pack text while a row's pack-price box is focused — without this the
+  // value is re-derived and re-formatted on every keystroke, which makes it
+  // impossible to type past the decimal point.
+  const [pppEdit, setPppEdit] = useState(null) // { rowId, val } | null
   const [seasonRowId, setSeasonRowId] = useState(null) // saved-row id whose seasonal panel is open
   const [level, setLevel] = useState('trade')        // active buyer level for 3-tier customers
 
@@ -394,14 +398,11 @@ export default function PricesPage() {
                     </td>
                     <td>
                       <input className="mono" style={{ textAlign: 'right' }}
-                        value={ppp > 0 ? ppp.toFixed(4) : ''}
+                        value={pppEdit?.rowId === row.id ? pppEdit.val : (ppp > 0 ? ppp.toFixed(4) : '')}
                         placeholder="0.0000"
-                        onChange={(e) => setRows((r) => r.map((x) => {
-                          if (x.id !== row.id) return x
-                          const newPpl = vol > 0 ? (parseFloat(e.target.value) || 0) / vol : 0
-                          return { ...x, ...(isThreeTier ? { [priceCol()]: newPpl } : { price_per_litre: newPpl }) }
-                        }))}
-                        onBlur={(e) => handlePppChange(row.id, row.packaging_id, e.target.value)}
+                        onFocus={(e) => setPppEdit({ rowId: row.id, val: e.target.value })}
+                        onChange={(e) => setPppEdit({ rowId: row.id, val: e.target.value })}
+                        onBlur={(e) => { setPppEdit(null); handlePppChange(row.id, row.packaging_id, e.target.value) }}
                       />
                     </td>
                     <td>

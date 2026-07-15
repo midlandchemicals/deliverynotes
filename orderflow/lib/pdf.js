@@ -585,6 +585,108 @@ export function generatePriceListPDF(entries, fallbackLh = {}) {
   window.open(URL.createObjectURL(new Blob([doc.output('arraybuffer')], { type: 'application/pdf' })), '_blank')
 }
 
+
+// Purchase order built from a customer order — for ordering the stock in from
+// the supplier/range. No prices; products, sizes and quantities plus where the
+// goods must end up (with any driver instructions pulled out prominently).
+export function generatePurchaseOrderPDF(order, products, packaging, lh = {}) {
+  const doc = new jsPDF({ unit: 'mm', format: 'a4' })
+  FONT = registerFonts(doc)
+  const W = 210, M = 16
+  const [r, g, b] = hexToRgb(lh.color)
+  let y = 16
+
+  if (lh.logo) {
+    try {
+      const props = doc.getImageProperties(lh.logo)
+      const maxW = 40, maxH = 14
+      let lw = maxW
+      let logoH = (lw * props.height) / props.width
+      if (logoH > maxH) { logoH = maxH; lw = (logoH * props.width) / props.height }
+      const imgFmt = (lh.logo.match(/data:image\/(\w+)/) || [])[1]?.toUpperCase() || 'PNG'
+      doc.addImage(lh.logo, imgFmt, M, y, lw, logoH); y += logoH + 2
+    } catch (e) {}
+  }
+  doc.setFont(FONT, 'bold').setFontSize(13).setTextColor(20, 20, 20).text(lh.company || '', M, y + 2)
+  const addrLines = String(lh.address || '').split('\n')
+  doc.setFont(FONT, 'normal').setFontSize(8).setTextColor(90, 90, 90).text(addrLines, M, y + 7)
+
+  doc.setFont(FONT, 'bold').setFontSize(22).setTextColor(r, g, b)
+    .text('PURCHASE ORDER', W - M, 20, { align: 'right' })
+  doc.setFont(FONT, 'normal').setFontSize(10).setTextColor(40, 40, 40)
+  doc.text(`Our ref   ${order.order_no || ''}`, W - M, 28, { align: 'right' })
+  doc.text(`Date      ${ukDate(new Date().toISOString().slice(0, 10))}`, W - M, 34, { align: 'right' })
+  if (order.requested_date) {
+    doc.setFont(FONT, 'bold')
+    doc.text(`Required  ${ukDate(order.requested_date)}`, W - M, 40, { align: 'right' })
+  }
+
+  const headerBottom = order.requested_date ? 44 : 38
+  const barY = Math.max(y + addrLines.length * 3.4 + 5, headerBottom)
+  doc.setFillColor(r, g, b).rect(M, barY, W - 2 * M, 1.2, 'F')
+  let cy = barY + 7
+
+  // Supplier / range — from the products' range (category)
+  const cats = [...new Set((order.lines || [])
+    .map((l) => products.find((x) => x.id === l.productId)?.category)
+    .filter(Boolean))]
+  const colW = (W - 2 * M - 5) / 2
+  function block(x, title, text, yPos = cy) {
+    doc.setDrawColor(r, g, b).setLineWidth(0.25)
+    const bLines = doc.splitTextToSize(compactAddress(text || ''), colW - 10)
+    const h = 11 + bLines.length * 3.9
+    doc.roundedRect(x, yPos, colW, h, 2, 2, 'S')
+    doc.setFont(FONT, 'bold').setFontSize(7).setTextColor(r, g, b).text(title.toUpperCase(), x + 5, yPos + 5.5)
+    doc.setFont(FONT, 'normal').setFontSize(8).setTextColor(25, 25, 25)
+      .text(bLines, x + 5, yPos + 10.5, { lineHeightFactor: 1.25 })
+    return h
+  }
+  const { address: deliverAddr, instructions } = extractDeliveryInstructions(order.customer_snapshot?.deliver || '')
+  const bh1 = block(M, 'Supplier / Range', cats.length ? cats.join('\n') : ' ')
+  const rightX = M + colW + 5
+  const bh2 = block(rightX, 'Deliver To', deliverAddr)
+  cy += Math.max(bh1, bh2) + 5
+
+  if (instructions.length) {
+    const insLines = doc.splitTextToSize(instructions.join('\n').toUpperCase(), W - 2 * M - 12)
+    const ih = 10 + insLines.length * 5.4
+    doc.setDrawColor(175, 45, 35).setLineWidth(0.8).setFillColor(255, 246, 240)
+    doc.roundedRect(M, cy, W - 2 * M, ih, 2, 2, 'FD')
+    doc.setFont(FONT, 'bold').setFontSize(7.5).setTextColor(175, 45, 35)
+      .text('DELIVERY INSTRUCTIONS — PLEASE READ', M + 5, cy + 5.5)
+    doc.setFont(FONT, 'bold').setFontSize(12).setTextColor(15, 15, 15)
+      .text(insLines, M + 5, cy + 11.5)
+    cy += ih + 5
+  }
+
+  const t = docTotals(order.lines || [], products, packaging)
+  autoTable(doc, {
+    startY: cy,
+    margin: { left: M, right: M, bottom: 25 },
+    head: [['Qty', 'Pack size', 'Product', 'Range', 'Total volume (L)']],
+    body: (order.lines || []).map((l) => {
+      const c = computeLine(l, products, packaging)
+      return [String(c.qty || ''), c.packaging?.name || '', c.productName, c.product?.category || '—', fmt(c.totalVol)]
+    }),
+    styles: { font: FONT, fontSize: 10, cellPadding: 2.2, lineColor: [210, 220, 215], lineWidth: 0.15 },
+    headStyles: { fillColor: [r, g, b], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 8.5 },
+    columnStyles: { 0: { cellWidth: 16, halign: 'right' }, 1: { cellWidth: 30 }, 3: { cellWidth: 34 }, 4: { cellWidth: 30, halign: 'right', fontStyle: 'bold' } },
+    alternateRowStyles: { fillColor: [242, 249, 245] },
+  })
+
+  let ty = doc.lastAutoTable.finalY + 6
+  doc.setFont(FONT, 'bold').setFontSize(11).setTextColor(40, 40, 40)
+  doc.text('Total volume', W - M - 60, ty)
+  doc.text(`${fmt(t.volume)} L`, W - M, ty, { align: 'right' })
+
+  const fy = 287
+  doc.setDrawColor(210, 220, 215).setLineWidth(0.2).line(M, fy - 5, W - M, fy - 5)
+  doc.setFont(FONT, 'normal').setFontSize(7.5).setTextColor(130, 130, 130)
+    .text(doc.splitTextToSize(lh.footer || '', W - 2 * M), W / 2, fy, { align: 'center' })
+
+  window.open(URL.createObjectURL(new Blob([doc.output('arraybuffer')], { type: 'application/pdf' })), '_blank')
+}
+
 // Reprint from stored snapshot — two copies in one PDF.
 // Newer notes store a slim letterhead snapshot (no embedded logo, just the
 // letterhead id) to keep the database small — fetch the logo on demand.
