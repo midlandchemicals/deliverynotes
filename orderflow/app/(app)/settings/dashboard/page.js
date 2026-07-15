@@ -184,12 +184,17 @@ export default function DashboardPage() {
         }
       }
 
-      // Build last-12-months series
+      // Financial year (April–March) series, with the FY label and total
+      const fyStartYear = now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1
+      const fyLabel = `${fyStartYear}-${String((fyStartYear + 1) % 100).padStart(2, '0')}`
       const monthSeries = []
-      for (let i = 11; i >= 0; i--) {
-        const dt = new Date(now.getFullYear(), now.getMonth() - i, 1)
+      let fyTotal = 0
+      for (let i = 0; i < 12; i++) {
+        const dt = new Date(fyStartYear, 3 + i, 1)
         const mk = `${dt.getFullYear()}-${dt.getMonth()}`
-        monthSeries.push({ label: MONTHS[dt.getMonth()], year: dt.getFullYear(), value: byMonth[mk] || 0 })
+        const v = byMonth[mk] || 0
+        fyTotal += v
+        monthSeries.push({ label: MONTHS[dt.getMonth()], year: dt.getFullYear(), value: v })
       }
 
       // Top-8 lists per company key ('all' + each company with any revenue)
@@ -221,11 +226,10 @@ export default function DashboardPage() {
       }).sort((a, b) => b.value - a.value)
 
       const orderCount = orders.length
-      const avgOrder = orderCount ? totalRevenue / orderCount : 0
 
       setData({
-        totalRevenue, dispatchedRevenue, pipelineValue, orderCount, avgOrder,
-        thisMonthRev, lastMonthRev, monthSeries, topCustomersBy, topProductsBy, companyOptions, companies, statusCount,
+        totalRevenue, dispatchedRevenue, pipelineValue, orderCount,
+        monthSeries, fyLabel, fyTotal, topCustomersBy, topProductsBy, companyOptions, companies,
         hasPrices: prices.length > 0,
       })
     })()
@@ -243,7 +247,6 @@ export default function DashboardPage() {
 }
 
 function Dashboard({ d }) {
-  const momDelta = d.lastMonthRev > 0 ? ((d.thisMonthRev - d.lastMonthRev) / d.lastMonthRev) * 100 : null
   const [co, setCo] = useState('all') // company filter for the top panels
   const topCustomers = d.topCustomersBy[co] || d.topCustomersBy.all || []
   const topProducts = d.topProductsBy[co] || d.topProductsBy.all || []
@@ -262,29 +265,20 @@ function Dashboard({ d }) {
         )}
 
         {/* KPI cards */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 14, marginTop: 6 }}>
-          <Kpi label="Total revenue" value={gbp(d.totalRevenue)} accent="#1FA86B" />
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 14, marginTop: 6 }}>
+          <Kpi label="Total revenue (ex VAT)" value={gbp(d.totalRevenue)} accent="#1FA86B" />
+          <Kpi label="Dispatched revenue (ex VAT)" value={gbp(d.dispatchedRevenue)} accent="#197B55" />
+          <Kpi label="Pipeline (ex VAT, not dispatched)" value={gbp(d.pipelineValue)} accent="#c2410c" />
           <Kpi label="Orders placed" value={d.orderCount.toLocaleString()} accent="#2d6cdf" />
-          <Kpi label="Average order" value={gbp(d.avgOrder)} accent="#7a5cff" />
-          <Kpi
-            label="This month"
-            value={gbp(d.thisMonthRev)}
-            accent="#e0892b"
-            sub={momDelta === null ? null : `${momDelta >= 0 ? '▲' : '▼'} ${Math.abs(momDelta).toFixed(0)}% vs last month`}
-            subColor={momDelta >= 0 ? '#1FA86B' : '#b3261e'}
-          />
-        </div>
-
-        {/* Secondary KPIs */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 14, marginTop: 14 }}>
-          <Kpi label="Dispatched revenue" value={gbp(d.dispatchedRevenue)} accent="#197B55" small />
-          <Kpi label="Pipeline (not dispatched)" value={gbp(d.pipelineValue)} accent="#c2410c" small />
         </div>
       </div>
 
-      {/* Revenue by month */}
+      {/* Revenue for the financial year */}
       <div className="card" style={{ marginTop: 12 }}>
-        <div className="ttl" style={{ marginBottom: 16 }}><h3 style={{ margin: 0 }}>Revenue — last 12 months</h3></div>
+        <div className="ttl" style={{ marginBottom: 16 }}>
+          <h3 style={{ margin: 0 }}>Revenue — {d.fyLabel} <span style={{ color: 'var(--accent)', marginLeft: 8 }}>{gbp(d.fyTotal)}</span></h3>
+          <span className="muted" style={{ fontSize: 12 }}>April to March, ex VAT</span>
+        </div>
         <MonthBars series={d.monthSeries} />
       </div>
 
@@ -310,11 +304,6 @@ function Dashboard({ d }) {
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 12, marginTop: 12 }}>
-        {/* Status donut */}
-        <div className="card" style={{ margin: 0 }}>
-          <div className="ttl" style={{ marginBottom: 14 }}><h3 style={{ margin: 0 }}>Orders by status</h3></div>
-          <StatusDonut counts={d.statusCount} />
-        </div>
         {/* Revenue by company */}
         <div className="card" style={{ margin: 0 }}>
           <div className="ttl" style={{ marginBottom: 14 }}><h3 style={{ margin: 0 }}>Revenue by company</h3></div>
@@ -384,45 +373,6 @@ function RankBars({ rows, color, perRowColor }) {
           </div>
         )
       })}
-    </div>
-  )
-}
-
-function StatusDonut({ counts }) {
-  const segs = [
-    { label: 'New', value: counts[STATUS_NEW] || 0, color: '#2d6cdf' },
-    { label: 'Note created', value: counts[STATUS_DONE] || 0, color: '#1FA86B' },
-  ]
-  const total = segs.reduce((s, x) => s + x.value, 0)
-  const R = 60, C = 2 * Math.PI * R
-  let offset = 0
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 24, flexWrap: 'wrap' }}>
-      <svg width="150" height="150" viewBox="0 0 150 150">
-        <circle cx="75" cy="75" r={R} fill="none" stroke="var(--panel-2)" strokeWidth="22" />
-        {total > 0 && segs.map((s, i) => {
-          if (!s.value) return null
-          const len = (s.value / total) * C
-          const el = (
-            <circle key={i} cx="75" cy="75" r={R} fill="none" stroke={s.color} strokeWidth="22"
-              strokeDasharray={`${len} ${C - len}`} strokeDashoffset={-offset}
-              transform="rotate(-90 75 75)" />
-          )
-          offset += len
-          return el
-        })}
-        <text x="75" y="71" textAnchor="middle" fontSize="26" fontWeight="800" fill="var(--ink)">{total}</text>
-        <text x="75" y="90" textAnchor="middle" fontSize="11" fill="var(--muted)">orders</text>
-      </svg>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        {segs.map((s, i) => (
-          <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ width: 13, height: 13, borderRadius: 3, background: s.color, flexShrink: 0 }} />
-            <span style={{ fontSize: 13, color: 'var(--ink)', fontWeight: 600 }}>{s.label}</span>
-            <span style={{ fontSize: 13, color: 'var(--muted)', fontWeight: 700, marginLeft: 4 }}>{s.value}</span>
-          </div>
-        ))}
-      </div>
     </div>
   )
 }

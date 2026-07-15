@@ -3,10 +3,11 @@ import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import { prettyDate, normalizeStatus, STATUS_NEW, STATUS_DONE } from '@/lib/calc'
-import { ok } from '@/lib/notify'
+import { prettyDate, normalizeStatus, STATUS_NEW, STATUS_BOARD, STATUS_DONE } from '@/lib/calc'
+import { printBoardNote } from '@/lib/boardnote'
+import { ok, toast } from '@/lib/notify'
 
-const STATUSES = ['All', STATUS_NEW, STATUS_DONE]
+const STATUSES = ['All', STATUS_NEW, STATUS_BOARD, STATUS_DONE]
 
 function nameFromEmail(email) {
   if (!email) return null
@@ -29,6 +30,7 @@ export default function OrdersPage() {
   const router = useRouter()
   const [orders, setOrders] = useState(null)
   const [products, setProducts] = useState([])
+  const [packaging, setPackaging] = useState([])
   const [letterheads, setLetterheads] = useState([])
   const [custLhMap, setCustLhMap] = useState({})   // { customerId: letterheadId }
   const [filter, setFilter] = useState('All')
@@ -43,7 +45,7 @@ export default function OrdersPage() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
     const f = params.get('filter')
-    if (f === 'open') setFilter(STATUS_NEW)
+    if (f === 'open') setFilter('Open')  // pseudo-filter: New Order + On Board
     if (f === 'done') setFilter(STATUS_DONE)
     if (params.get('due') === 'week') setDueWeek(true)
   }, [])
@@ -54,14 +56,16 @@ export default function OrdersPage() {
       // and fetch on click, so the page stays fast as history grows.
       const cd = new Date(); cd.setMonth(cd.getMonth() - 3)
       const cutoff = cd.toISOString()
-      const [o, older, p, c, lh] = await Promise.all([
+      const [o, older, p, k, c, lh] = await Promise.all([
         supabase.from('orders').select('*').gte('created_at', cutoff).order('created_at', { ascending: false }),
         supabase.from('orders').select('created_at').lt('created_at', cutoff).order('created_at', { ascending: false }),
         supabase.from('products').select('id,name'),
+        supabase.from('packaging').select('id,name,volume,tare'),
         supabase.from('customers').select('id, default_letterhead_id'),
         supabase.from('letterheads').select('id, name, company, color').order('name'),
       ])
       setProducts(p.data || [])
+      setPackaging(k.data || [])
       setLetterheads(lh.data || [])
       const map = {}
       for (const cust of (c.data || [])) {
@@ -100,6 +104,17 @@ export default function OrdersPage() {
     })
     setLoadedMonths((lm) => ({ ...lm, [mKey]: true }))
     setLoadingMonth(null)
+  }
+
+  // Print the 80mm post-it for the wall board; a New order moves to On Board.
+  async function printForBoard(e, order) {
+    e.stopPropagation()
+    printBoardNote(order, products, packaging)
+    if (normalizeStatus(order.status) === STATUS_NEW) {
+      if (!ok(await supabase.from('orders').update({ status: STATUS_BOARD }).eq('id', order.id), 'updating status')) return
+      setOrders((list) => list.map((x) => (x.id === order.id ? { ...x, status: STATUS_BOARD } : x)))
+      toast('Printed — order moved to On Board')
+    }
   }
 
   async function remove(e, order) {
@@ -152,7 +167,10 @@ export default function OrdersPage() {
     : orders
 
   const filtered = tabOrders.filter((o) => {
-    if (filter !== 'All' && normalizeStatus(o.status) !== filter) return false
+    if (filter !== 'All') {
+      const st = normalizeStatus(o.status)
+      if (filter === 'Open' ? st === STATUS_DONE : st !== filter) return false
+    }
     if (dueWeek) {
       if (normalizeStatus(o.status) === STATUS_DONE || !o.requested_date) return false
       const d = new Date(o.requested_date)
@@ -247,9 +265,23 @@ export default function OrdersPage() {
                   </div>
                 )}
               </div>
-              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', justifyContent: 'space-between', gap: 10, flexShrink: 0 }}>
-                <StatusBadge status={o.status} />
-                <button className="btn-dl" onClick={(e) => remove(e, o)} title="Delete">×</button>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexShrink: 0 }}>
+                <button
+                  onClick={(e) => printForBoard(e, o)}
+                  title="Print this order for the wall board"
+                  style={{
+                    display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2,
+                    background: 'var(--panel)', border: '1.5px solid var(--line-solid)', borderRadius: 10,
+                    padding: '8px 14px', cursor: 'pointer', fontFamily: 'inherit', color: 'var(--heading)',
+                  }}
+                >
+                  <span style={{ fontSize: 22, lineHeight: 1 }}>🖨</span>
+                  <span style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.04em', color: 'var(--muted)' }}>Print for board</span>
+                </button>
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', justifyContent: 'space-between', gap: 10 }}>
+                  <StatusBadge status={o.status} />
+                  <button className="btn-dl" onClick={(e) => remove(e, o)} title="Delete">×</button>
+                </div>
               </div>
             </div>
           ))

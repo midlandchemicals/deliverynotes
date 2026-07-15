@@ -1,7 +1,7 @@
 'use client'
 import { jsPDF } from 'jspdf'
 import autoTable from 'jspdf-autotable'
-import { computeLine, docTotals, fmt, ukDate, packSize, resolveLinePpl, VAT_RATE, VAT_LABEL } from '@/lib/calc'
+import { computeLine, docTotals, fmt, ukDate, packSize, resolveLinePpl, VAT_RATE, VAT_LABEL, extractDeliveryInstructions } from '@/lib/calc'
 import { registerFonts } from '@/lib/fonts'
 
 let FONT = 'helvetica'
@@ -199,8 +199,9 @@ function renderDeliveryNote(doc, doc_, lh, products, packaging) {
     return h
   }
   const rightX = M + colW + 5
+  const { address: deliverAddr, instructions } = extractDeliveryInstructions(doc_.deliver)
   const bh1 = block(M, 'Invoice To', doc_.invoiceTo)
-  const bh2 = block(rightX, 'Deliver To', doc_.deliver)
+  const bh2 = block(rightX, 'Deliver To', deliverAddr)
   let rightH = bh2
   const cLines = contactPdfLines(doc_.contact)
   if (cLines.length) {
@@ -208,6 +209,19 @@ function renderDeliveryNote(doc, doc_, lh, products, packaging) {
     rightH = bh2 + 3 + cbh
   }
   cy += Math.max(bh1, rightH) + 5
+
+  // Driver instructions pulled out of the address — big, bold, unmissable.
+  if (instructions.length) {
+    const insLines = doc.splitTextToSize(instructions.join('\n').toUpperCase(), W - 2 * M - 12)
+    const ih = 10 + insLines.length * 5.4
+    doc.setDrawColor(175, 45, 35).setLineWidth(0.8).setFillColor(255, 246, 240)
+    doc.roundedRect(M, cy, W - 2 * M, ih, 2, 2, 'FD')
+    doc.setFont(FONT, 'bold').setFontSize(7.5).setTextColor(175, 45, 35)
+      .text('DELIVERY INSTRUCTIONS — PLEASE READ', M + 5, cy + 5.5)
+    doc.setFont(FONT, 'bold').setFontSize(12).setTextColor(15, 15, 15)
+      .text(insLines, M + 5, cy + 11.5)
+    cy += ih + 5
+  }
 
   autoTable(doc, {
     startY: cy,
@@ -217,12 +231,12 @@ function renderDeliveryNote(doc, doc_, lh, products, packaging) {
       const c = computeLine(l, products, packaging)
       const batch = (doc_.batches && doc_.batches[i]) || ''
       const mfg = (doc_.mfgDates && doc_.mfgDates[i]) || ''
-      return [batch + (mfg ? `\nMfg ${ukShort(mfg)}` : ''), c.packQty, c.productName, c.hazardShort, fmt(c.net), fmt(c.gross)]
+      return [batch + (mfg ? `\nDate of Manufacture\n${ukShort(mfg)}` : ''), c.packQty, c.productName, c.hazardShort, fmt(c.net), fmt(c.gross)]
     }),
     styles: { font: FONT, fontSize: 9, cellPadding: 1.6, lineColor: [210, 220, 215], lineWidth: 0.15 },
     headStyles: { fillColor: [r, g, b], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 8 },
     columnStyles: {
-      0: { cellWidth: 20 },
+      0: { cellWidth: 28 },
       1: { cellWidth: 18 },
       3: { cellWidth: 26 },
       4: { halign: 'right' },
@@ -240,7 +254,21 @@ function renderDeliveryNote(doc, doc_, lh, products, packaging) {
     { label: 'Total net weight',   val: fmt(t.net) + ' kg',      bold: false },
     { label: 'Total gross weight', val: fmt(grossTotal) + ' kg', bold: true  },
   ]
-  if (pallets > 0) totRows.push({ label: 'Total pallets', val: String(pallets), bold: true })
+  // Every 600 L / 1000 L IBC sits on its own pallet — describe the load as
+  // IBCs (plus any extra pallets of smaller packs) rather than plain pallets.
+  const ibcCount = doc_.lines.reduce((sum, l) => {
+    const c = computeLine(l, products, packaging)
+    return sum + (((c.vol || 0) > 500) ? (c.qty || 0) : 0)
+  }, 0)
+  if (pallets > 0) {
+    const extra = pallets - ibcCount
+    const loadVal = ibcCount > 0
+      ? (extra > 0
+          ? `${ibcCount} IBC${ibcCount === 1 ? '' : 's'} + ${extra} Pallet${extra === 1 ? '' : 's'}`
+          : `${ibcCount} IBC${ibcCount === 1 ? '' : 's'}`)
+      : String(pallets)
+    totRows.push({ label: ibcCount > 0 ? 'Total load' : 'Total pallets', val: loadVal, bold: true })
+  }
   if (ty + totRows.length * 6 > 258) { doc.addPage(); ty = 20 }
   totRows.forEach(({ label, val, bold }) => {
     doc.setFont(FONT, bold ? 'bold' : 'normal').setFontSize(bold ? 12 : 11).setTextColor(40, 40, 40)
@@ -268,7 +296,7 @@ function renderDeliveryNote(doc, doc_, lh, products, packaging) {
   doc.setFont(FONT, 'normal').setFontSize(7.5).setTextColor(130, 130, 130)
     .text(doc.splitTextToSize(lh.footer || '', W - 2 * M), W / 2, fy, { align: 'center' })
 
-  return { totals: { ...t, gross: grossTotal, pallets, showHazard, invoice_to: doc_.invoiceTo || '' } }
+  return { totals: { ...t, gross: grossTotal, pallets, ibc_count: ibcCount, showHazard, invoice_to: doc_.invoiceTo || '' } }
 }
 
 // doc_ = { docNo, date, invoiceTo, deliver, contact, customerName, lines, batches, options, pallets, showHazard }
@@ -380,7 +408,7 @@ export function generateOfficeCopyPDF(doc_, lh, products, packaging, pricing = {
     const unitPrice = ppl * (c.vol || 0)
     const lineTotal = unitPrice * c.qty
     const mfg = doc_.mfgDates?.[i] || ''
-    return { c, unitPrice, lineTotal, batch: (doc_.batches?.[i] || '') + (mfg ? `\nMfg ${ukShort(mfg)}` : '') }
+    return { c, unitPrice, lineTotal, batch: (doc_.batches?.[i] || '') + (mfg ? `\nDate of Manufacture\n${ukShort(mfg)}` : '') }
   })
   const subtotal = lineData.reduce((s, d) => s + d.lineTotal, 0)
   const delivery = parseFloat(deliveryCharge) || 0
@@ -400,7 +428,7 @@ export function generateOfficeCopyPDF(doc_, lh, products, packaging, pricing = {
     styles: { font: FONT, fontSize: 9, cellPadding: 1.6, lineColor: [180, 180, 180], lineWidth: 0.15, textColor: BK },
     headStyles: { fillColor: [40, 40, 40], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 8 },
     columnStyles: {
-      0: { cellWidth: 20 },
+      0: { cellWidth: 28 },
       1: { cellWidth: 18 },
       3: { halign: 'right' },
       4: { halign: 'right', fontStyle: 'bold' },
@@ -597,8 +625,9 @@ export async function reprintPDF(d) {
         return h
       }
       const rightX = M + colW + 5
+      const { address: deliverAddr, instructions } = extractDeliveryInstructions(d.deliver)
       const bh1 = block(M, 'Invoice To', d.customer)
-      const bh2 = block(rightX, 'Deliver To', d.deliver)
+      const bh2 = block(rightX, 'Deliver To', deliverAddr)
       let rightH = bh2
       const cLines = contactPdfLines(d.totals?.contact)
       if (cLines.length) {
@@ -606,6 +635,17 @@ export async function reprintPDF(d) {
         rightH = bh2 + 3 + cbh
       }
       cy += Math.max(bh1, rightH) + 5
+      if (instructions.length) {
+        const insLines = doc.splitTextToSize(instructions.join('\n').toUpperCase(), W - 2 * M - 12)
+        const ih = 10 + insLines.length * 5.4
+        doc.setDrawColor(175, 45, 35).setLineWidth(0.8).setFillColor(255, 246, 240)
+        doc.roundedRect(M, cy, W - 2 * M, ih, 2, 2, 'FD')
+        doc.setFont(FONT, 'bold').setFontSize(7.5).setTextColor(175, 45, 35)
+          .text('DELIVERY INSTRUCTIONS — PLEASE READ', M + 5, cy + 5.5)
+        doc.setFont(FONT, 'bold').setFontSize(12).setTextColor(15, 15, 15)
+          .text(insLines, M + 5, cy + 11.5)
+        cy += ih + 5
+      }
       autoTable(doc, {
         startY: cy, margin: { left: M, right: M, bottom: 45 },
         head: [['Batch', 'Qty', 'Product', 'UN / PG', 'Net (kg)', 'Gross (kg)']],
@@ -617,12 +657,12 @@ export async function reprintPDF(d) {
             const m = s.packDesc.match(/^\s*(\d+(?:\.\d+)?)\s*[×x]\s*(.+)$/)
             packQty = m ? `${m[1]}x${packSize(m[2]) || m[2].trim()}` : s.packDesc.replace('×', 'x')
           }
-          return [(s.batch || '') + (s.mfg_date ? `\nMfg ${ukShort(s.mfg_date)}` : ''), packQty || '', s.productName, hazardShort, n2(s.net), n2(s.gross)]
+          return [(s.batch || '') + (s.mfg_date ? `\nDate of Manufacture\n${ukShort(s.mfg_date)}` : ''), packQty || '', s.productName, hazardShort, n2(s.net), n2(s.gross)]
         }),
         styles: { font: FONT, fontSize: 9, cellPadding: 1.6, lineColor: [210, 220, 215], lineWidth: 0.15 },
         headStyles: { fillColor: [r, g, b], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 8 },
         columnStyles: {
-          0: { cellWidth: 20 }, 1: { cellWidth: 18 }, 3: { cellWidth: 26 },
+          0: { cellWidth: 28 }, 1: { cellWidth: 18 }, 3: { cellWidth: 26 },
           4: { halign: 'right' }, 5: { halign: 'right', fontStyle: 'bold' },
         },
         alternateRowStyles: { fillColor: [242, 249, 245] },
@@ -637,7 +677,16 @@ export async function reprintPDF(d) {
         { label: 'Total net weight',   val: n2(t.net) + ' kg',    bold: false },
         { label: 'Total gross weight', val: n2(t.gross) + ' kg',  bold: true  },
       ]
-      if (pallets > 0) totRows.push({ label: 'Total pallets', val: String(pallets), bold: true })
+      if (pallets > 0) {
+        const ibc = parseInt(t.ibc_count || 0, 10) || 0
+        const extra = pallets - ibc
+        const loadVal = ibc > 0
+          ? (extra > 0
+              ? `${ibc} IBC${ibc === 1 ? '' : 's'} + ${extra} Pallet${extra === 1 ? '' : 's'}`
+              : `${ibc} IBC${ibc === 1 ? '' : 's'}`)
+          : String(pallets)
+        totRows.push({ label: ibc > 0 ? 'Total load' : 'Total pallets', val: loadVal, bold: true })
+      }
       if (ty + totRows.length * 6 > 258) { doc.addPage(); ty = 20 }
       totRows.forEach(({ label, val, bold }) => {
         doc.setFont(FONT, bold ? 'bold' : 'normal').setFontSize(bold ? 12 : 11).setTextColor(40, 40, 40)

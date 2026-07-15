@@ -304,20 +304,30 @@ export default function NewOrderPage() {
 
           <Field label="Invoice to">
             {invoiceOptions.length > 1 && (
-              <select style={{ marginBottom: 6 }} value={invoiceIdx} onChange={(e) => pickInvoiceAddr(+e.target.value)}>
-                {invoiceOptions.map((a, i) => <option key={i} value={i}>{a.label || `Address ${i + 1}`}</option>)}
-              </select>
+              <div style={{ marginBottom: 6 }}>
+                <Combobox
+                  options={invoiceOptions.map((a, i) => ({ id: String(i), label: a.label || firstLine(a.text) || `Address ${i + 1}` }))}
+                  value={String(invoiceIdx)}
+                  onSelect={(id) => pickInvoiceAddr(+id)}
+                  placeholder="Type to search saved invoice addresses…"
+                />
+              </div>
             )}
-            <textarea value={custDetails} onChange={(e) => setCustDetails(e.target.value)} placeholder="Company / invoice address" style={{ minHeight: 90 }} />
+            <textarea value={custDetails} onChange={(e) => setCustDetails(e.target.value)} placeholder="Company / invoice address — or type one in" style={{ minHeight: 90 }} />
           </Field>
 
           <Field label="Delivery address">
             {deliveryOptions.length > 1 && (
-              <select style={{ marginBottom: 6 }} value={deliveryIdx} onChange={(e) => pickDeliveryAddr(+e.target.value)}>
-                {deliveryOptions.map((a, i) => <option key={i} value={i}>{a.label || `Address ${i + 1}`}</option>)}
-              </select>
+              <div style={{ marginBottom: 6 }}>
+                <Combobox
+                  options={deliveryOptions.map((a, i) => ({ id: String(i), label: a.label || firstLine(a.text) || `Address ${i + 1}` }))}
+                  value={String(deliveryIdx)}
+                  onSelect={(id) => pickDeliveryAddr(+id)}
+                  placeholder="Type to search saved delivery addresses…"
+                />
+              </div>
             )}
-            <textarea value={custDeliver} onChange={(e) => setCustDeliver(e.target.value)} style={{ minHeight: 90 }} />
+            <textarea value={custDeliver} onChange={(e) => setCustDeliver(e.target.value)} placeholder="Delivery address — or type one in" style={{ minHeight: 90 }} />
           </Field>
 
           <Field label="Contact name">
