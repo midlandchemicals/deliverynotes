@@ -20,3 +20,4 @@ a new numbered file appears here — run just that one.
 | 008_order_no_unique.sql | **duplicate DN-number protection** (check for dupes first — see file) |
 | 009_app_users_roles.sql | **admin / general roles** (edit the emails before running!) |
 | 010_order_status_rename.sql | folds 'In progress' into 'New', renames generated → created |
+| 011_three_stage_status.sql | three stages: New Order → On Board → Delivery Note Printed |

@@ -3,7 +3,7 @@ import Link from 'next/link'
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import { prettyDate, normalizeStatus, STATUS_NEW, STATUS_DONE } from '@/lib/calc'
+import { prettyDate, normalizeStatus, STATUS_NEW, STATUS_BOARD, STATUS_DONE } from '@/lib/calc'
 
 function nameFromEmail(email) {
   if (!email) return ''
@@ -39,7 +39,7 @@ export default function HomePage() {
 
       const now = new Date()
       const weekAhead = new Date(now.getTime() + 7 * 86400000)
-      const counts = { [STATUS_NEW]: 0, [STATUS_DONE]: 0 }
+      const counts = { [STATUS_NEW]: 0, [STATUS_BOARD]: 0, [STATUS_DONE]: 0 }
       let dueThisWeek = 0
       let earliestDue = null
       let dispatchedThisMonth = 0
@@ -76,8 +76,8 @@ export default function HomePage() {
     </div>
   )
 
-  const open = data.counts[STATUS_NEW] || 0
-  const maxStatus = Math.max(1, data.counts[STATUS_NEW], data.counts[STATUS_DONE])
+  const open = (data.counts[STATUS_NEW] || 0) + (data.counts[STATUS_BOARD] || 0)
+  const maxStatus = Math.max(1, data.counts[STATUS_NEW], data.counts[STATUS_BOARD], data.counts[STATUS_DONE])
 
   return (
     <div>
@@ -140,7 +140,7 @@ export default function HomePage() {
                   <div style={{ fontSize: 13 }}>{prettyDate(o.order_date)}</div>
                   <div style={{ textAlign: 'right' }}>
                     <span className={'status st-' + normalizeStatus(o.status).replace(/\s+/g, '')}>
-                      {normalizeStatus(o.status) === STATUS_DONE ? 'Note created' : 'New'}
+                      {normalizeStatus(o.status) === STATUS_DONE ? 'Note printed' : normalizeStatus(o.status) === STATUS_BOARD ? 'On board' : 'New'}
                     </span>
                   </div>
                 </div>
@@ -153,16 +153,9 @@ export default function HomePage() {
           <div className="card" style={{ margin: 0 }}>
             <div className="ttl" style={{ marginBottom: 14 }}><h2>Orders by status</h2></div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-              <StatusBar label="Open" value={data.counts[STATUS_NEW] || 0} max={maxStatus} color="#3565A8" />
-              <StatusBar label="Delivery note created" value={data.counts[STATUS_DONE] || 0} max={maxStatus} color="var(--accent)" />
-            </div>
-          </div>
-          <div className="card" style={{ margin: 0 }}>
-            <div className="ttl" style={{ marginBottom: 12 }}><h2>Quick actions</h2></div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              <button className="quick-action" onClick={() => router.push('/orders/new')}>＋ Log a new order</button>
-              <button className="quick-action" onClick={() => router.push('/settings/prices')}>£ Enter customer prices</button>
-              <button className="quick-action" onClick={() => router.push('/settings/customers')}>⌂ Add a customer</button>
+              <StatusBar label="New order" value={data.counts[STATUS_NEW] || 0} max={maxStatus} color="#3565A8" />
+              <StatusBar label="On board" value={data.counts[STATUS_BOARD] || 0} max={maxStatus} color="var(--gold)" />
+              <StatusBar label="Delivery note printed" value={data.counts[STATUS_DONE] || 0} max={maxStatus} color="var(--accent)" />
             </div>
           </div>
         </div>

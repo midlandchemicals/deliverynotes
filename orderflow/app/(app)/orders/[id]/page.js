@@ -2,8 +2,9 @@
 import { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import { computeLine, docTotals, fmt, prettyDate, splitContact, labelCount, PRICE_LEVELS, seasonalActive, resolveLinePpl, parseTiers, VAT_RATE, VAT_LABEL, ORDER_STATUSES, STATUS_NEW, STATUS_DONE, normalizeStatus } from '@/lib/calc'
+import { computeLine, docTotals, fmt, prettyDate, splitContact, labelCount, PRICE_LEVELS, seasonalActive, resolveLinePpl, parseTiers, VAT_RATE, VAT_LABEL, ORDER_STATUSES, STATUS_NEW, STATUS_BOARD, STATUS_DONE, normalizeStatus, extractDeliveryInstructions } from '@/lib/calc'
 import { generateDispatchPDF, generateOfficeCopyPDF, reprintPDF } from '@/lib/pdf'
+import { printBoardNote } from '@/lib/boardnote'
 import { toast, ok } from '@/lib/notify'
 import PricingGuard, { usePricingCheck } from '@/app/(app)/PricingGuard'
 import { StatusBadge } from '../page'
@@ -61,6 +62,7 @@ export default function OrderDetailPage() {
   const [invoiceTo, setInvoiceTo] = useState('')
   const [options, setOptions] = useState('')
   const [pallets, setPallets] = useState('')
+  const [palletsTouched, setPalletsTouched] = useState(false)
   const [noPallets, setNoPallets] = useState(false)
   const [palletsFlash, setPalletsFlash] = useState(false)
   const [showHazard, setShowHazard] = useState(true)
@@ -306,43 +308,10 @@ export default function OrderDetailPage() {
     generateOfficeCopyPDF(doc_, lh, products, packaging, prices, snapDelivery, snapLabels, priceTiers, tierBasis, seasonMap)
   }
 
+  // Print the 80mm board note; a New order moves to "On Board" once printed.
   function printNote() {
-    const items = lines.map((l) => {
-      const c = computeLine(l, products, packaging)
-      return { name: c.productName, qty: c.qty, pack: c.packaging?.name || '' }
-    })
-    const html = `<!DOCTYPE html>
-<html><head><meta charset="utf-8"><title>${order.order_no}</title>
-<style>
-@page{size:80mm auto;margin:4mm}
-*{box-sizing:border-box;margin:0;padding:0}
-body{font-family:Arial,Helvetica,sans-serif;font-size:13pt;color:#000;background:#fff;width:72mm}
-.dn{font-size:15pt;font-weight:700;border-bottom:2px solid #000;padding-bottom:2.5mm;margin-bottom:3mm}
-.cust{font-size:18pt;font-weight:700;margin-bottom:3mm;line-height:1.2}
-.dates{font-size:11pt;margin-bottom:4mm;line-height:1.6}
-.ph{font-size:10pt;font-weight:700;text-transform:uppercase;letter-spacing:.05em;
-    border-bottom:1px solid #000;padding-bottom:1mm;margin-bottom:2.5mm}
-ul{list-style:disc;padding-left:5mm}
-li{font-size:13pt;margin-bottom:2.5mm;line-height:1.3}
-b{font-weight:700}
-</style>
-</head><body>
-<div class="dn">${order.order_no}</div>
-<div class="cust">${order.customer_snapshot?.name || ''}</div>
-<div class="dates">
-  <div>Ordered: <b>${prettyDate(order.order_date)}</b></div>
-  ${order.requested_date ? `<div>Required: <b>${prettyDate(order.requested_date)}</b></div>` : ''}
-</div>
-<div class="ph">Products</div>
-<ul>
-${items.map((it) => `  <li>${it.name}${it.pack ? ` — ${it.qty} x ${it.pack}` : ` (qty ${it.qty})`}</li>`).join('\n')}
-</ul>
-</body></html>`
-    const w = window.open('', '_blank', 'width=420,height=600')
-    w.document.write(html)
-    w.document.close()
-    w.focus()
-    w.print()
+    printBoardNote({ ...order, lines }, products, packaging)
+    if (normalizeStatus(order.status) === STATUS_NEW) setStatus(STATUS_BOARD)
   }
 
   // Per-pallet delivery, summed per product: each line is charged its own
@@ -365,6 +334,17 @@ ${items.map((it) => `  <li>${it.name}${it.pack ? ` — ${it.qty} x ${it.pack}` :
       return sum + rate * (c.qty || 0)
     }, 0)
   }
+
+  // Every 600 L / 1000 L IBC is one pallet — prefill the pallet count so it
+  // doesn't need typing. Stops auto-filling as soon as the user edits the box.
+  useEffect(() => {
+    if (palletsTouched || noPallets) return
+    const ibc = lines.reduce((sum, l) => {
+      const c = computeLine(l, products, packaging)
+      return sum + (((c.vol || 0) > 500) ? (c.qty || 0) : 0)
+    }, 0)
+    if (ibc > 0) setPallets(String(ibc))
+  }, [lines, products, packaging, palletsTouched, noPallets])
 
   // Step 1 — validate, then open the batch-number modal
   // Re-evaluate delivery charge whenever anything that affects it changes.
@@ -502,8 +482,8 @@ ${items.map((it) => `  <li>${it.name}${it.pack ? ` — ${it.qty} x ${it.pack}` :
     // If that was the last copy, drop the order back out of "generated" status
     // and unlock editing again.
     if (next.length === 0) {
-      ok(await supabase.from('orders').update({ status: STATUS_NEW }).eq('id', id), 'updating order status')
-      setOrder((o) => ({ ...o, status: STATUS_NEW }))
+      ok(await supabase.from('orders').update({ status: STATUS_BOARD }).eq('id', id), 'updating order status')
+      setOrder((o) => ({ ...o, status: STATUS_BOARD }))
       setEditLocked(false)
     }
     toast('Delivery note deleted')
@@ -550,6 +530,15 @@ ${items.map((it) => `  <li>${it.name}${it.pack ? ` — ${it.qty} x ${it.pack}` :
                 <b style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted)' }}>Contact</b>{'\n'}{contactLines(orderContact(order)).join('\n')}
               </div>
             )}
+            {(() => {
+              const ins = extractDeliveryInstructions(order.customer_snapshot?.deliver || '').instructions
+              return ins.length ? (
+                <div style={{ marginTop: 8, padding: '12px 14px', border: '2px solid var(--warn)', borderRadius: 10, background: '#FCF4E2', fontWeight: 800, fontSize: 15, color: '#7A5511', lineHeight: 1.35 }}>
+                  🚚 DELIVERY INSTRUCTIONS{'\n'}
+                  <span style={{ whiteSpace: 'pre-line' }}>{ins.join('\n')}</span>
+                </div>
+              ) : null
+            })()}
           </div>
         </div>
         {order.notes ? <p className="hint"><b>Notes:</b> {order.notes}</p> : null}
@@ -797,7 +786,7 @@ ${items.map((it) => `  <li>${it.name}${it.pack ? ` — ${it.qty} x ${it.pack}` :
               className={'mono' + (palletsFlash ? ' flash-error' : '')}
               type="number" min="0" value={pallets}
               disabled={noPallets}
-              onChange={(e) => { setPallets(e.target.value); setPalletsFlash(false) }}
+              onChange={(e) => { setPallets(e.target.value); setPalletsTouched(true); setPalletsFlash(false) }}
               placeholder={noPallets ? 'no pallets' : 'required'} />
             <label style={{ display: 'inline-flex', flexDirection: 'row', alignItems: 'center', gap: 6, textTransform: 'none', letterSpacing: 0, fontSize: 12, cursor: 'pointer', marginTop: 6 }}>
               <input type="checkbox" checked={noPallets}

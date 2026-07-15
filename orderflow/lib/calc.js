@@ -18,15 +18,33 @@ export function seasonalActive(fromD, toD, dateStr) {
 }
 
 // ---- order statuses ----------------------------------------------------
-// Just two: an order is either open or its delivery note has been created.
-// Older rows may still hold 'In progress' / 'Delivery Note Generated' until
-// migration 010 runs — normalizeStatus maps them so the app treats both eras
-// the same.
-export const STATUS_NEW = 'New'
-export const STATUS_DONE = 'Delivery Note Created'
-export const ORDER_STATUSES = [STATUS_NEW, STATUS_DONE]
+// Three stages: entered → printed to the board → delivery note printed.
+// Older rows may hold legacy values until migration 011 runs — normalizeStatus
+// maps them so the app treats both eras the same.
+export const STATUS_NEW = 'New Order'
+export const STATUS_BOARD = 'On Board'
+export const STATUS_DONE = 'Delivery Note Printed'
+export const ORDER_STATUSES = [STATUS_NEW, STATUS_BOARD, STATUS_DONE]
 export function normalizeStatus(s) {
-  return (s === 'Delivery Note Generated' || s === STATUS_DONE) ? STATUS_DONE : STATUS_NEW
+  if (s === 'Delivery Note Generated' || s === 'Delivery Note Created' || s === STATUS_DONE) return STATUS_DONE
+  if (s === STATUS_BOARD) return STATUS_BOARD
+  return STATUS_NEW // 'New', 'New Order', 'In progress', anything else
+}
+
+// ---- delivery instructions ------------------------------------------------
+// Customers bury driver instructions inside the delivery address ("PLEASE CALL
+// 1HR BEFORE", "24HRS NOTICE REQUIRED", …), usually after the postcode. Pull
+// those lines out so they can be shown prominently instead of being missed.
+const INSTRUCTION_RE = /\b(call|ring|phone|tel|contact|notice|advance|prior|booking|book in|appointment|before deliver|before del|hrs? before|hours? before|hr notice|deliver between|am only|pm only|fork ?lift|tail ?lift)\b/i
+export function extractDeliveryInstructions(text) {
+  const lines = String(text || '').split('\n').map((l) => l.trim()).filter(Boolean)
+  const address = [], instructions = []
+  lines.forEach((line, i) => {
+    // Never treat the first line (the name) as an instruction
+    if (i > 0 && INSTRUCTION_RE.test(line)) instructions.push(line)
+    else address.push(line)
+  })
+  return { address: address.join('\n'), instructions }
 }
 
 export function num(v) {
