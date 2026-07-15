@@ -34,6 +34,16 @@ export default function Combobox({ options, value, onSelect, placeholder }) {
     return () => document.removeEventListener('mousedown', handleClick)
   }, [])
 
+  // Keep the dropdown glued to the input while the page scrolls or resizes —
+  // it's position:fixed, so without this it drifts away from the field.
+  useEffect(() => {
+    if (!open) return
+    const sync = () => calcDrop()
+    window.addEventListener('scroll', sync, true)
+    window.addEventListener('resize', sync)
+    return () => { window.removeEventListener('scroll', sync, true); window.removeEventListener('resize', sync) }
+  }, [open])
+
   function handleFocus() { calcDrop(); setOpen(true); setQuery('') }
   function handleChange(e) { setQuery(e.target.value); calcDrop(); setOpen(true) }
   function handleSelect(opt) { onSelect(opt.id); setQuery(''); setOpen(false) }

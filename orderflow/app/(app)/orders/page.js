@@ -265,20 +265,23 @@ export default function OrdersPage() {
                   </div>
                 )}
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexShrink: 0 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '116px 168px', alignItems: 'center', gap: 12, flexShrink: 0 }}>
                 <button
                   onClick={(e) => printForBoard(e, o)}
                   title="Print this order for the wall board"
                   style={{
-                    display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2,
+                    display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4,
+                    width: 116, padding: '9px 0',
                     background: 'var(--panel)', border: '1.5px solid var(--line-solid)', borderRadius: 10,
-                    padding: '8px 14px', cursor: 'pointer', fontFamily: 'inherit', color: 'var(--heading)',
+                    cursor: 'pointer', fontFamily: 'inherit', color: 'var(--heading)',
                   }}
                 >
-                  <span style={{ fontSize: 22, lineHeight: 1 }}>🖨</span>
+                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M6 9V3h12v6" /><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" /><rect x="6" y="14" width="12" height="7" rx="1" />
+                  </svg>
                   <span style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.04em', color: 'var(--muted)' }}>Print for board</span>
                 </button>
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', justifyContent: 'space-between', gap: 10 }}>
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 8 }}>
                   <StatusBadge status={o.status} />
                   <button className="btn-dl" onClick={(e) => remove(e, o)} title="Delete">×</button>
                 </div>
