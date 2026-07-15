@@ -511,7 +511,7 @@ export default function OrderDetailPage() {
         <div className="ttl">
           <h2>{order.order_no} <StatusBadge status={order.status} /></h2>
           <div style={{ display: 'flex', gap: 8 }}>
-            <button className="btn btn-g btn-sm" onClick={printNote}>🖨 Print note</button>
+            <button className="btn btn-g btn-sm" onClick={printNote}>🖨 Print for board</button>
             <button className="btn btn-g btn-sm" onClick={() => router.push('/orders')}>← Back to log</button>
           </div>
         </div>

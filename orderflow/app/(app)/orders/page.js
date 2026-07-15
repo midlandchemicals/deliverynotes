@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { prettyDate, normalizeStatus, STATUS_NEW, STATUS_BOARD, STATUS_DONE } from '@/lib/calc'
 import { printBoardNote } from '@/lib/boardnote'
+import { generatePurchaseOrderPDF } from '@/lib/pdf'
 import { ok, toast } from '@/lib/notify'
 
 const STATUSES = ['All', STATUS_NEW, STATUS_BOARD, STATUS_DONE]
@@ -104,6 +105,25 @@ export default function OrdersPage() {
     })
     setLoadedMonths((lm) => ({ ...lm, [mKey]: true }))
     setLoadingMonth(null)
+  }
+
+  // Purchase order PDF for buying the stock in — uses the customer's default
+  // letterhead (else Midland); the logo is fetched on demand to keep the list fast.
+  async function printPurchaseOrder(e, order) {
+    e.stopPropagation()
+    const lhId = orderLhIdOf(order) || defaultLhOf()?.id
+    let lh = {}
+    if (lhId) {
+      const { data } = await supabase.from('letterheads').select('*').eq('id', lhId).single()
+      lh = data || {}
+    }
+    generatePurchaseOrderPDF(order, products, packaging, lh)
+  }
+  function orderLhIdOf(o) { return (o.customer_id && custLhMap[o.customer_id]) || null }
+  function defaultLhOf() {
+    return letterheads.find((l) =>
+      l.name.toLowerCase().includes('midland') || l.company.toLowerCase().includes('midland')
+    ) || letterheads[0]
   }
 
   // Print the 80mm post-it for the wall board; a New order moves to On Board.
@@ -265,7 +285,22 @@ export default function OrdersPage() {
                   </div>
                 )}
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '116px 168px', alignItems: 'center', gap: 12, flexShrink: 0 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '116px 116px 168px', alignItems: 'center', gap: 12, flexShrink: 0 }}>
+                <button
+                  onClick={(e) => printPurchaseOrder(e, o)}
+                  title="Download a purchase order for this order's products"
+                  style={{
+                    display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4,
+                    width: 116, padding: '9px 0',
+                    background: 'var(--panel)', border: '1.5px solid var(--line-solid)', borderRadius: 10,
+                    cursor: 'pointer', fontFamily: 'inherit', color: 'var(--heading)',
+                  }}
+                >
+                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><path d="M14 2v6h6" /><path d="M9 13h6" /><path d="M9 17h6" />
+                  </svg>
+                  <span style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.04em', color: 'var(--muted)' }}>Purchase order</span>
+                </button>
                 <button
                   onClick={(e) => printForBoard(e, o)}
                   title="Print this order for the wall board"
