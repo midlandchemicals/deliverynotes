@@ -223,20 +223,30 @@ function renderDeliveryNote(doc, doc_, lh, products, packaging) {
     cy += ih + 5
   }
 
+  // Date of Manufacture gets its own slim column (only when any line has one)
+  // so batch rows stay a single line tall.
+  const hasMfg = (doc_.mfgDates || []).some(Boolean)
   autoTable(doc, {
     startY: cy,
     margin: { left: M, right: M, bottom: 45 },
-    head: [['Batch', 'Qty', 'Product', 'UN / PG', 'Net (kg)', 'Gross (kg)']],
+    head: [['Batch', ...(hasMfg ? ['Date of Manufacture'] : []), 'Qty', 'Product', 'UN / PG', 'Net (kg)', 'Gross (kg)']],
     body: doc_.lines.map((l, i) => {
       const c = computeLine(l, products, packaging)
       const batch = (doc_.batches && doc_.batches[i]) || ''
       const mfg = (doc_.mfgDates && doc_.mfgDates[i]) || ''
-      return [batch + (mfg ? `\nDate of Manufacture\n${ukShort(mfg)}` : ''), c.packQty, c.productName, c.hazardShort, fmt(c.net), fmt(c.gross)]
+      return [batch, ...(hasMfg ? [mfg ? ukShort(mfg) : ''] : []), c.packQty, c.productName, c.hazardShort, fmt(c.net), fmt(c.gross)]
     }),
     styles: { font: FONT, fontSize: 9, cellPadding: 1.6, lineColor: [210, 220, 215], lineWidth: 0.15 },
     headStyles: { fillColor: [r, g, b], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 8 },
-    columnStyles: {
-      0: { cellWidth: 28 },
+    columnStyles: hasMfg ? {
+      0: { cellWidth: 20 },
+      1: { cellWidth: 24 },
+      2: { cellWidth: 18 },
+      4: { cellWidth: 26 },
+      5: { halign: 'right' },
+      6: { halign: 'right', fontStyle: 'bold' },
+    } : {
+      0: { cellWidth: 20 },
       1: { cellWidth: 18 },
       3: { cellWidth: 26 },
       4: { halign: 'right' },
@@ -407,8 +417,7 @@ export function generateOfficeCopyPDF(doc_, lh, products, packaging, pricing = {
     })
     const unitPrice = ppl * (c.vol || 0)
     const lineTotal = unitPrice * c.qty
-    const mfg = doc_.mfgDates?.[i] || ''
-    return { c, unitPrice, lineTotal, batch: (doc_.batches?.[i] || '') + (mfg ? `\nDate of Manufacture\n${ukShort(mfg)}` : '') }
+    return { c, unitPrice, lineTotal, batch: doc_.batches?.[i] || '', mfg: doc_.mfgDates?.[i] || '' }
   })
   const subtotal = lineData.reduce((s, d) => s + d.lineTotal, 0)
   const delivery = parseFloat(deliveryCharge) || 0
@@ -416,19 +425,26 @@ export function generateOfficeCopyPDF(doc_, lh, products, packaging, pricing = {
   const vat = Math.round((subtotal + labels + delivery) * VAT_RATE * 100) / 100
   const grandTotal = subtotal + labels + delivery + vat
 
+  const hasMfg = lineData.some((ld) => ld.mfg)
   autoTable(doc, {
     startY: cy,
     margin: { left: M, right: M, bottom: 20 },
-    head: [['Batch', 'Qty', 'Product', 'Unit (£)', 'Total (£)']],
-    body: lineData.map(({ c, unitPrice, lineTotal, batch }) => [
-      batch, c.packQty, c.productName,
+    head: [['Batch', ...(hasMfg ? ['Date of Manufacture'] : []), 'Qty', 'Product', 'Unit (£)', 'Total (£)']],
+    body: lineData.map(({ c, unitPrice, lineTotal, batch, mfg }) => [
+      batch, ...(hasMfg ? [mfg ? ukShort(mfg) : ''] : []), c.packQty, c.productName,
       unitPrice > 0 ? fmtGBP(unitPrice) : '—',
       lineTotal > 0 ? fmtGBP(lineTotal) : '—',
     ]),
     styles: { font: FONT, fontSize: 9, cellPadding: 1.6, lineColor: [180, 180, 180], lineWidth: 0.15, textColor: BK },
     headStyles: { fillColor: [40, 40, 40], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 8 },
-    columnStyles: {
-      0: { cellWidth: 28 },
+    columnStyles: hasMfg ? {
+      0: { cellWidth: 20 },
+      1: { cellWidth: 24 },
+      2: { cellWidth: 18 },
+      4: { halign: 'right' },
+      5: { halign: 'right', fontStyle: 'bold' },
+    } : {
+      0: { cellWidth: 20 },
       1: { cellWidth: 18 },
       3: { halign: 'right' },
       4: { halign: 'right', fontStyle: 'bold' },
@@ -646,9 +662,10 @@ export async function reprintPDF(d) {
           .text(insLines, M + 5, cy + 11.5)
         cy += ih + 5
       }
+      const hasMfg = (d.lines_snapshot || []).some((s) => s.mfg_date)
       autoTable(doc, {
         startY: cy, margin: { left: M, right: M, bottom: 45 },
-        head: [['Batch', 'Qty', 'Product', 'UN / PG', 'Net (kg)', 'Gross (kg)']],
+        head: [['Batch', ...(hasMfg ? ['Date of Manufacture'] : []), 'Qty', 'Product', 'UN / PG', 'Net (kg)', 'Gross (kg)']],
         body: (d.lines_snapshot || []).map((s) => {
           const pgNorm = String(s.pg || '').replace(/^PG\s*/i, '').trim()
           const hazardShort = s.un_number ? `${s.un_number}${pgNorm ? ` PG ${pgNorm}` : ''}` : (s.pg || '—')
@@ -657,12 +674,15 @@ export async function reprintPDF(d) {
             const m = s.packDesc.match(/^\s*(\d+(?:\.\d+)?)\s*[×x]\s*(.+)$/)
             packQty = m ? `${m[1]}x${packSize(m[2]) || m[2].trim()}` : s.packDesc.replace('×', 'x')
           }
-          return [(s.batch || '') + (s.mfg_date ? `\nDate of Manufacture\n${ukShort(s.mfg_date)}` : ''), packQty || '', s.productName, hazardShort, n2(s.net), n2(s.gross)]
+          return [s.batch || '', ...(hasMfg ? [s.mfg_date ? ukShort(s.mfg_date) : ''] : []), packQty || '', s.productName, hazardShort, n2(s.net), n2(s.gross)]
         }),
         styles: { font: FONT, fontSize: 9, cellPadding: 1.6, lineColor: [210, 220, 215], lineWidth: 0.15 },
         headStyles: { fillColor: [r, g, b], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 8 },
-        columnStyles: {
-          0: { cellWidth: 28 }, 1: { cellWidth: 18 }, 3: { cellWidth: 26 },
+        columnStyles: hasMfg ? {
+          0: { cellWidth: 20 }, 1: { cellWidth: 24 }, 2: { cellWidth: 18 }, 4: { cellWidth: 26 },
+          5: { halign: 'right' }, 6: { halign: 'right', fontStyle: 'bold' },
+        } : {
+          0: { cellWidth: 20 }, 1: { cellWidth: 18 }, 3: { cellWidth: 26 },
           4: { halign: 'right' }, 5: { halign: 'right', fontStyle: 'bold' },
         },
         alternateRowStyles: { fillColor: [242, 249, 245] },

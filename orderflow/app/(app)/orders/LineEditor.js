@@ -29,6 +29,16 @@ function InlineCombo({ options, value, onChange }) {
     return () => document.removeEventListener('mousedown', handleClick)
   }, [])
 
+  // Keep the dropdown glued to the input while the page scrolls or resizes —
+  // it's position:fixed, so without this it drifts away from the field.
+  useEffect(() => {
+    if (!open) return
+    const sync = () => calcDrop()
+    window.addEventListener('scroll', sync, true)
+    window.addEventListener('resize', sync)
+    return () => { window.removeEventListener('scroll', sync, true); window.removeEventListener('resize', sync) }
+  }, [open])
+
   const dropdown = open && filtered.length > 0 && dropStyle ? createPortal(
     <div className="combo-list" style={dropStyle}>
       {filtered.map((opt) => (

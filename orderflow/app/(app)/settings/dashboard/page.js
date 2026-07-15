@@ -184,17 +184,27 @@ export default function DashboardPage() {
         }
       }
 
-      // Financial year (April–March) series, with the FY label and total
-      const fyStartYear = now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1
-      const fyLabel = `${fyStartYear}-${String((fyStartYear + 1) % 100).padStart(2, '0')}`
-      const monthSeries = []
-      let fyTotal = 0
-      for (let i = 0; i < 12; i++) {
-        const dt = new Date(fyStartYear, 3 + i, 1)
-        const mk = `${dt.getFullYear()}-${dt.getMonth()}`
-        const v = byMonth[mk] || 0
-        fyTotal += v
-        monthSeries.push({ label: MONTHS[dt.getMonth()], year: dt.getFullYear(), value: v })
+      // Two revenue series: calendar year (Jan–Dec, default) and UK financial
+      // year (Apr–Mar) — the chart toggles between them.
+      function buildSeries(startYear, startMonth) {
+        const series = []
+        let total = 0
+        for (let i = 0; i < 12; i++) {
+          const dt = new Date(startYear, startMonth + i, 1)
+          const mk = `${dt.getFullYear()}-${dt.getMonth()}`
+          const v = byMonth[mk] || 0
+          total += v
+          series.push({ label: MONTHS[dt.getMonth()], year: dt.getFullYear(), value: v })
+        }
+        return { series, total }
+      }
+      const calYear = now.getFullYear()
+      const cal = buildSeries(calYear, 0)
+      const fyStartYear = now.getMonth() >= 3 ? calYear : calYear - 1
+      const fy = buildSeries(fyStartYear, 3)
+      const revenueViews = {
+        cal: { label: String(calYear), name: 'Calendar year', series: cal.series, total: cal.total },
+        fy: { label: `${fyStartYear}-${String((fyStartYear + 1) % 100).padStart(2, '0')}`, name: 'Financial year', series: fy.series, total: fy.total },
       }
 
       // Top-8 lists per company key ('all' + each company with any revenue)
@@ -229,7 +239,7 @@ export default function DashboardPage() {
 
       setData({
         totalRevenue, dispatchedRevenue, pipelineValue, orderCount,
-        monthSeries, fyLabel, fyTotal, topCustomersBy, topProductsBy, companyOptions, companies,
+        revenueViews, topCustomersBy, topProductsBy, companyOptions, companies,
         hasPrices: prices.length > 0,
       })
     })()
@@ -248,6 +258,7 @@ export default function DashboardPage() {
 
 function Dashboard({ d }) {
   const [co, setCo] = useState('all') // company filter for the top panels
+  const [revView, setRevView] = useState('cal') // 'cal' (default) | 'fy'
   const topCustomers = d.topCustomersBy[co] || d.topCustomersBy.all || []
   const topProducts = d.topProductsBy[co] || d.topProductsBy.all || []
 
@@ -273,13 +284,16 @@ function Dashboard({ d }) {
         </div>
       </div>
 
-      {/* Revenue for the financial year */}
+      {/* Revenue — calendar year by default, toggleable to financial year */}
       <div className="card" style={{ marginTop: 12 }}>
         <div className="ttl" style={{ marginBottom: 16 }}>
-          <h3 style={{ margin: 0 }}>Revenue — {d.fyLabel} <span style={{ color: 'var(--accent)', marginLeft: 8 }}>{gbp(d.fyTotal)}</span></h3>
-          <span className="muted" style={{ fontSize: 12 }}>April to March, ex VAT</span>
+          <h3 style={{ margin: 0 }}>Revenue — {d.revenueViews[revView].label} <span style={{ color: 'var(--accent)', marginLeft: 8 }}>{gbp(d.revenueViews[revView].total)}</span></h3>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <span className={'chip' + (revView === 'cal' ? ' on' : '')} onClick={() => setRevView('cal')}>Calendar year</span>
+            <span className={'chip' + (revView === 'fy' ? ' on' : '')} onClick={() => setRevView('fy')}>Financial year</span>
+          </div>
         </div>
-        <MonthBars series={d.monthSeries} />
+        <MonthBars series={d.revenueViews[revView].series} />
       </div>
 
       {/* Company toggle for the top-customer / top-product panels */}
