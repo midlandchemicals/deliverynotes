@@ -410,11 +410,14 @@ export function generateOfficeCopyPDF(doc_, lh, products, packaging, pricing = {
   const lineData = doc_.lines.map((l, i) => {
     const c = computeLine(l, products, packaging)
     const key = `${c.product?.id}::${c.packaging?.id}`
-    const ppl = resolveLinePpl({
-      base: pricing[key], tiers: tiersByKey[key] || [], basis: basisByKey[key],
-      season: seasonByKey[key] || null, orderDate: doc_.orderDate,
-      lineQty: c.qty, combinedQty,
-    })
+    // A negotiated per-order agreed price on the line wins over everything.
+    const ppl = (l.ppl_override != null && l.ppl_override !== '' && !isNaN(parseFloat(l.ppl_override)))
+      ? parseFloat(l.ppl_override)
+      : resolveLinePpl({
+          base: pricing[key], tiers: tiersByKey[key] || [], basis: basisByKey[key],
+          season: seasonByKey[key] || null, orderDate: doc_.orderDate,
+          lineQty: c.qty, combinedQty,
+        })
     const unitPrice = ppl * (c.vol || 0)
     const lineTotal = unitPrice * c.qty
     return { c, unitPrice, lineTotal, batch: doc_.batches?.[i] || '', mfg: doc_.mfgDates?.[i] || '' }

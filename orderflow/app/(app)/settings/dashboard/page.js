@@ -113,11 +113,14 @@ export default function DashboardPage() {
           const s = seasonMap[key]
           const seasonP = s && seasonalActive(s.from, s.to, o.order_date) ? s.ppl : null
           const lvlPrice = threeTier ? levelMap[key]?.[lvlCol] : null
-          const ppl = seasonP != null
-            ? seasonP
-            : threeTier
-              ? (lvlPrice != null ? lvlPrice : (priceMap[key] || 0))
-              : resolveLinePpl({ base: priceMap[key], tiers: tierMap[key] || [], basis: basisMap[key], lineQty: c.qty, combinedQty: combined })
+          const override = (l.ppl_override != null && l.ppl_override !== '' && !isNaN(parseFloat(l.ppl_override))) ? parseFloat(l.ppl_override) : null
+          const ppl = override != null
+            ? override
+            : seasonP != null
+              ? seasonP
+              : threeTier
+                ? (lvlPrice != null ? lvlPrice : (priceMap[key] || 0))
+                : resolveLinePpl({ base: priceMap[key], tiers: tierMap[key] || [], basis: basisMap[key], lineQty: c.qty, combinedQty: combined })
           const lineVal = ppl * (c.vol || 0) * c.qty
           total += lineVal
           byName[c.productName] = (byName[c.productName] || 0) + lineVal

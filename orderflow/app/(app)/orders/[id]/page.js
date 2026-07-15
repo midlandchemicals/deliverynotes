@@ -269,14 +269,24 @@ export default function OrderDetailPage() {
     return seasonalActive(s.from, s.to, order?.order_date) ? s.ppl : null
   }
 
-  // Effective £/litre for a line — shared resolver (seasonal > tiers > base).
-  function pplFor(productId, packagingId, lineQty) {
+  // Effective £/litre for a line — a negotiated per-order agreed price wins
+  // over everything; otherwise the shared resolver (seasonal > tiers > base).
+  function pplFor(productId, packagingId, lineQty, override) {
+    if (override != null && override !== '' && !isNaN(parseFloat(override))) return parseFloat(override)
     const key = `${productId}::${packagingId}`
     return resolveLinePpl({
       base: prices[key], tiers: priceTiers[key] || [], basis: tierBasis[key],
       season: seasonMap[key] || null, orderDate: order?.order_date,
       lineQty, combinedQty: combinedSchemeQty(),
     })
+  }
+
+  // Set / update / clear the one-off agreed price on a line. Persists straight
+  // to the order (it lives on the order, not the customer's price list).
+  async function setAgreedPrice(i, value) {
+    const next = lines.map((x, idx) => (idx === i ? { ...x, ppl_override: value } : x))
+    setLines(next)
+    ok(await supabase.from('orders').update({ lines: next }).eq('id', id), 'saving agreed price')
   }
 
   function printOfficeCopy(d) {
@@ -354,7 +364,7 @@ export default function OrderDetailPage() {
     if (!custFreeAbove && !custDeliveryTiers.length && !usePerPallet) return
     const subtotal = lines.reduce((sum, l) => {
       const c = computeLine(l, products, packaging)
-      const ppl = pplFor(c.product?.id, c.packaging?.id, c.qty)
+      const ppl = pplFor(c.product?.id, c.packaging?.id, c.qty, l.ppl_override)
       return sum + ppl * (c.vol || 0) * c.qty
     }, 0)
     // Free-delivery threshold takes highest priority
@@ -431,7 +441,7 @@ export default function OrderDetailPage() {
     const { totals } = generateDispatchPDF(docData, lh, products, packaging, prices)
     const linesSnap = lines.map((l, i) => {
       const c = computeLine(l, products, packaging)
-      const ppl = pplFor(c.product?.id, c.packaging?.id, c.qty)
+      const ppl = pplFor(c.product?.id, c.packaging?.id, c.qty, l.ppl_override)
       const unitPrice = ppl * (c.vol || 0)
       return {
         productName: c.productName, pg: c.pg, un_number: c.un_number,
@@ -497,7 +507,7 @@ export default function OrderDetailPage() {
 
   const orderTotal = lines.reduce((sum, l) => {
     const c = computeLine(l, products, packaging)
-    const ppl = pplFor(c.product?.id, c.packaging?.id, c.qty)
+    const ppl = pplFor(c.product?.id, c.packaging?.id, c.qty, l.ppl_override)
     return sum + ppl * (c.vol || 0) * c.qty
   }, 0)
 
@@ -613,7 +623,8 @@ export default function OrderDetailPage() {
                 if (!c.product) return null
                 const priceKey = `${c.product.id}::${c.packaging?.id}`
                 const ppl = parseFloat(prices[priceKey]) || 0     // base/list price (editable)
-                const effPpl = pplFor(c.product.id, c.packaging?.id, c.qty) // resolved price
+                const effPpl = pplFor(c.product.id, c.packaging?.id, c.qty, l.ppl_override) // resolved price
+                const hasOverride = l.ppl_override != null && l.ppl_override !== ''
                 const season = seasonMap[priceKey]
                 const seasonApplied = seasonalPpl(priceKey) != null
                 const tierApplied = !seasonApplied && (priceTiers[priceKey] || []).length > 0 && effPpl !== ppl
@@ -635,7 +646,18 @@ export default function OrderDetailPage() {
                     </td>
                     <td>{c.packaging?.name || '—'}</td>
                     <td>
-                      {seasonApplied ? (
+                      {hasOverride ? (
+                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2 }}>
+                          <input className="mono" style={{ textAlign: 'right', borderColor: 'var(--gold)', fontWeight: 700 }}
+                            value={l.ppl_override}
+                            onChange={(e) => setLines((ls) => ls.map((x, idx) => (idx === i ? { ...x, ppl_override: e.target.value } : x)))}
+                            onBlur={(e) => setAgreedPrice(i, e.target.value)}
+                          />
+                          <span style={{ fontSize: 10.5, color: 'var(--gold)', fontWeight: 700 }}>
+                            ✎ agreed price · <a style={{ cursor: 'pointer', textDecoration: 'underline' }} onClick={() => setAgreedPrice(i, null)}>remove</a>
+                          </span>
+                        </div>
+                      ) : seasonApplied ? (
                         // Seasonal price is active for the order date — it wins.
                         <div
                           style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2 }}
@@ -643,6 +665,9 @@ export default function OrderDetailPage() {
                         >
                           <span className="mono" style={{ fontWeight: 700, fontSize: 15, color: 'var(--accent)' }}>£{effPpl.toFixed(4)}</span>
                           <span style={{ fontSize: 10.5, color: 'var(--accent)' }}>🗓 seasonal · {prettyDate(season.from)} – {prettyDate(season.to)}</span>
+                          <a style={{ fontSize: 10.5, color: 'var(--muted)', cursor: 'pointer', textDecoration: 'underline' }}
+                            title="Set a negotiated one-off price for this order — the price list is not changed"
+                            onClick={() => setAgreedPrice(i, effPpl ? effPpl.toFixed(4) : '')}>✎ agreed price</a>
                         </div>
                       ) : tierApplied ? (
                         // A quantity tier is in effect — show ONLY the charged price.
@@ -655,18 +680,26 @@ export default function OrderDetailPage() {
                         >
                           <span className="mono" style={{ fontWeight: 700, fontSize: 15, color: 'var(--accent)' }}>£{effPpl.toFixed(4)}</span>
                           <span style={{ fontSize: 10.5, color: 'var(--accent)' }}>⇅ tier price · {isOrderBasis ? `${bandQty} combined` : `${c.qty} packs`}</span>
+                          <a style={{ fontSize: 10.5, color: 'var(--muted)', cursor: 'pointer', textDecoration: 'underline' }}
+                            title="Set a negotiated one-off price for this order — the price list is not changed"
+                            onClick={() => setAgreedPrice(i, effPpl ? effPpl.toFixed(4) : '')}>✎ agreed price</a>
                         </div>
                       ) : (
-                        <input className="mono" style={{ textAlign: 'right' }}
-                          value={prices[priceKey] ?? ''}
-                          placeholder="0.0000"
-                          onChange={(e) => setPrices((p) => ({ ...p, [priceKey]: e.target.value }))}
-                          onBlur={(e) => {
-                            const v = parseFloat(e.target.value) || 0
-                            setPrices((p) => ({ ...p, [priceKey]: v }))
-                            savePrice(c.product.id, c.packaging?.id, v)
-                          }}
-                        />
+                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2 }}>
+                          <input className="mono" style={{ textAlign: 'right' }}
+                            value={prices[priceKey] ?? ''}
+                            placeholder="0.0000"
+                            onChange={(e) => setPrices((p) => ({ ...p, [priceKey]: e.target.value }))}
+                            onBlur={(e) => {
+                              const v = parseFloat(e.target.value) || 0
+                              setPrices((p) => ({ ...p, [priceKey]: v }))
+                              savePrice(c.product.id, c.packaging?.id, v)
+                            }}
+                          />
+                          <a style={{ fontSize: 10.5, color: 'var(--muted)', cursor: 'pointer', textDecoration: 'underline' }}
+                            title="Set a negotiated one-off price for this order — the price list is not changed"
+                            onClick={() => setAgreedPrice(i, effPpl ? effPpl.toFixed(4) : '')}>✎ agreed price</a>
+                        </div>
                       )}
                     </td>
                     <td className="mono" style={{ textAlign: 'right' }}>{unitPrice > 0 ? `£${unitPrice.toFixed(2)}` : '—'}</td>
