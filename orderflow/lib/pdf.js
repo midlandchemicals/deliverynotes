@@ -364,17 +364,19 @@ export function generateOfficeCopyPDF(doc_, lh, products, packaging, pricing = {
   doc.setFont(FONT, 'normal').setFontSize(8).setTextColor(...MU).text(addrLines, M, y + 7)
 
   const titleY = y + 2
-  doc.setFont(FONT, 'bold').setFontSize(22).setTextColor(...BK).text('DELIVERY NOTE', W - M, titleY, { align: 'right' })
+  doc.setFont(FONT, 'bold').setFontSize(17).setTextColor(...BK).text('FAO: ACCOUNTS DEPT', W - M, titleY, { align: 'right' })
   doc.setFont(FONT, 'normal').setFontSize(10).setTextColor(...MU)
-  doc.text(`No.           ${doc_.docNo || ''}`, W - M, titleY + 9, { align: 'right' })
+  let iy = titleY + 8
+  doc.text(`Del. note no.   ${doc_.docNo || ''}`, W - M, iy, { align: 'right' }); iy += 6
+  if (doc_.poRef) { doc.text(`Your ref        ${doc_.poRef}`, W - M, iy, { align: 'right' }); iy += 6 }
   if (doc_.orderDate) {
-    doc.text(`Date ordered  ${ukDate(doc_.orderDate)}`, W - M, titleY + 15, { align: 'right' })
-    doc.text(`Note date     ${ukDate(doc_.date)}`, W - M, titleY + 21, { align: 'right' })
+    doc.text(`Date ordered    ${ukDate(doc_.orderDate)}`, W - M, iy, { align: 'right' }); iy += 6
+    doc.text(`Note date       ${ukDate(doc_.date)}`, W - M, iy, { align: 'right' }); iy += 6
   } else {
-    doc.text(`Date  ${ukDate(doc_.date)}`, W - M, titleY + 15, { align: 'right' })
+    doc.text(`Date            ${ukDate(doc_.date)}`, W - M, iy, { align: 'right' }); iy += 6
   }
 
-  const barY = Math.max(y + addrLines.length * 3.4 + 5, doc_.orderDate ? titleY + 25 : titleY + 18)
+  const barY = Math.max(y + addrLines.length * 3.4 + 5, iy)
   doc.setFillColor(80, 80, 80).rect(M, barY, W - 2 * M, 1.2, 'F')
   let cy = barY + 7
   const colW = (W - 2 * M - 5) / 2
