@@ -21,7 +21,7 @@ export default function NewOrderPage() {
   const [busy, setBusy] = useState(false)
   const [step, setStep] = useState(1)
 
-  const [orderNo, setOrderNo] = useState('DN-1001')
+  const [orderNo, setOrderNo] = useState('ORD-1001')
   const [customerId, setCustomerId] = useState('')
   const [custDetails, setCustDetails] = useState('')
   const [custDeliver, setCustDeliver] = useState('')
@@ -47,7 +47,10 @@ export default function NewOrderPage() {
         supabase.from('products').select('*').order('name'),
         supabase.from('packaging').select('*').order('volume'),
         supabase.from('customers').select('*').order('name'),
-        supabase.from('orders').select('order_no').order('created_at', { ascending: false }).limit(1),
+        // Orders carry an ORD- reference at entry; the DN number is only
+        // allocated when the delivery note is generated (so DN numbers follow
+        // dispatch order, not entry order).
+        supabase.from('orders').select('order_no').ilike('order_no', 'ORD-%').order('created_at', { ascending: false }).limit(1),
       ])
       const prods = p.data || [], packs = k.data || [], custs = c.data || []
       setProducts(prods); setPackaging(packs); setCustomers(custs)
@@ -164,15 +167,27 @@ export default function NewOrderPage() {
     // label defaults to the first line (usually the head office / site name).
     if (customerId) {
       const queue = []
-      const matches = (opts, text) => opts.some((a) =>
+      const matchIdx = (opts, text) => opts.findIndex((a) =>
         normAddr(a.text) === normAddr(text) || normAddr(splitContact(a.text || '').address) === normAddr(text))
-      if (custDetails.trim() && !matches(invoiceOptions, custDetails)) {
-        queue.push({ kind: 'invoice', label: firstLine(custDetails), text: custDetails.trim() })
+      // Invoice: unknown text → offer to save; known but never verified (e.g.
+      // AI-imported from a screenshot) → one-time verification check.
+      const invIdx = custDetails.trim() ? matchIdx(invoiceOptions, custDetails) : -1
+      if (custDetails.trim() && invIdx === -1) {
+        queue.push({ mode: 'save', kind: 'invoice', label: firstLine(custDetails), text: custDetails.trim() })
+      } else if (invIdx >= 0 && !invoiceOptions[invIdx].verified) {
+        queue.push({ mode: 'verify', kind: 'invoice', idx: invIdx, label: invoiceOptions[invIdx].label || '', text: invoiceOptions[invIdx].text || '' })
       }
-      if (custDeliver.trim() && !matches(deliveryOptions, custDeliver)) {
+      const delIdx = custDeliver.trim() ? matchIdx(deliveryOptions, custDeliver) : -1
+      if (custDeliver.trim() && delIdx === -1) {
         queue.push({
-          kind: 'delivery', label: firstLine(custDeliver), text: custDeliver.trim(),
+          mode: 'save', kind: 'delivery', label: firstLine(custDeliver), text: custDeliver.trim(),
           contact: { name: contactName || '', email: contactEmail || '', phone: contactPhone || '' },
+        })
+      } else if (delIdx >= 0 && !deliveryOptions[delIdx].verified) {
+        const e = deliveryOptions[delIdx]
+        queue.push({
+          mode: 'verify', kind: 'delivery', idx: delIdx, label: e.label || '', text: e.text || '',
+          contact: { name: e.contact?.name || '', email: e.contact?.email || '', phone: e.contact?.phone || '' },
         })
       }
       if (queue.length) { setAddrQueue(queue); return } // modal takes over, then proceeds
@@ -190,6 +205,35 @@ export default function NewOrderPage() {
     if (rest.length === 0) proceedToStep2()
   }
 
+  // One-time verification of an AI-imported address: persist edits + the
+  // verified flag onto the customer record, then update the form fields.
+  async function confirmVerify() {
+    const item = addrPrompt
+    const c = customers.find((x) => x.id === customerId)
+    if (!item || !c) { advanceAddrQueue(); return }
+    const { data: { user } } = await supabase.auth.getUser()
+    const stamp = { verified: true, verified_at: new Date().toISOString(), verified_by: user?.email || '' }
+    if (item.kind === 'invoice') {
+      const next = invoiceOptions.map((a, ix) => (ix === item.idx ? { ...a, label: item.label || a.label, text: item.text, ...stamp } : a))
+      if (ok(await supabase.from('customers').update({ invoice_addresses: next, details: next[0]?.text || '' }).eq('id', customerId), 'saving verification')) {
+        setCustomers((cs) => cs.map((x) => (x.id === customerId ? { ...x, invoice_addresses: next } : x)))
+        setInvoiceOptions(next)
+        setCustDetails(splitContact(item.text).address)
+        toast('Invoice address verified ✓')
+      }
+    } else {
+      const next = deliveryOptions.map((a, ix) => (ix === item.idx ? { ...a, label: item.label || a.label, text: item.text, contact: item.contact, ...stamp } : a))
+      if (ok(await supabase.from('customers').update({ delivery_addresses: next, deliver: next[0]?.text || '' }).eq('id', customerId), 'saving verification')) {
+        setCustomers((cs) => cs.map((x) => (x.id === customerId ? { ...x, delivery_addresses: next } : x)))
+        setDeliveryOptions(next)
+        setCustDeliver(splitContact(item.text).address)
+        setContactName(item.contact?.name || ''); setContactEmail(item.contact?.email || ''); setContactPhone(item.contact?.phone || '')
+        toast('Delivery address verified ✓')
+      }
+    }
+    advanceAddrQueue()
+  }
+
   async function saveAddrPrompt() {
     const item = addrPrompt
     const c = customers.find((x) => x.id === customerId)
@@ -199,7 +243,7 @@ export default function NewOrderPage() {
       const cur = (Array.isArray(c.invoice_addresses) && c.invoice_addresses.length)
         ? c.invoice_addresses
         : (c.details ? [{ label: firstLine(c.details), text: c.details }] : [])
-      const next = [...cur.filter((a) => a.text), { label: entryLabel, text: item.text }]
+      const next = [...cur.filter((a) => a.text), { label: entryLabel, text: item.text, verified: true, verified_at: new Date().toISOString() }]
       if (ok(await supabase.from('customers').update({ invoice_addresses: next }).eq('id', customerId), 'saving the invoice address')) {
         setCustomers((cs) => cs.map((x) => (x.id === customerId ? { ...x, invoice_addresses: next } : x)))
         setInvoiceOptions(next)
@@ -209,7 +253,7 @@ export default function NewOrderPage() {
       const cur = (Array.isArray(c.delivery_addresses) && c.delivery_addresses.length)
         ? c.delivery_addresses
         : (c.deliver ? [{ label: firstLine(c.deliver), text: c.deliver, contact: { name: c.contact_name || '', email: c.email || '', phone: c.phone || '' } }] : [])
-      const next = [...cur.filter((a) => a.text), { label: entryLabel, text: item.text, contact: item.contact || { name: '', email: '', phone: '' } }]
+      const next = [...cur.filter((a) => a.text), { label: entryLabel, text: item.text, contact: item.contact || { name: '', email: '', phone: '' }, verified: true, verified_at: new Date().toISOString() }]
       if (ok(await supabase.from('customers').update({ delivery_addresses: next }).eq('id', customerId), 'saving the delivery address')) {
         setCustomers((cs) => cs.map((x) => (x.id === customerId ? { ...x, delivery_addresses: next } : x)))
         setDeliveryOptions(next)
@@ -283,8 +327,9 @@ export default function NewOrderPage() {
           </Field>
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 14 }}>
-            <Field label="Delivery Note Number">
+            <Field label="Order Reference">
               <input className="mono" value={orderNo} onChange={(e) => setOrderNo(e.target.value)} />
+              <p className="hint" style={{ marginTop: 4, marginBottom: 0 }}>The DN number is assigned when the delivery note is created, so notes are numbered in dispatch order.</p>
             </Field>
             <Field label="Customer Order Number">
               <input value={poRef} onChange={(e) => setPoRef(e.target.value)} placeholder="optional" />
@@ -306,7 +351,7 @@ export default function NewOrderPage() {
             {invoiceOptions.length > 1 && (
               <div style={{ marginBottom: 6 }}>
                 <Combobox
-                  options={invoiceOptions.map((a, i) => ({ id: String(i), label: a.label || firstLine(a.text) || `Address ${i + 1}` }))}
+                  options={invoiceOptions.map((a, i) => ({ id: String(i), label: `${a.verified ? '✓ ' : ''}${a.label || firstLine(a.text) || `Address ${i + 1}`}` }))}
                   value={String(invoiceIdx)}
                   onSelect={(id) => pickInvoiceAddr(+id)}
                   placeholder="Type to search saved invoice addresses…"
@@ -320,7 +365,7 @@ export default function NewOrderPage() {
             {deliveryOptions.length > 1 && (
               <div style={{ marginBottom: 6 }}>
                 <Combobox
-                  options={deliveryOptions.map((a, i) => ({ id: String(i), label: a.label || firstLine(a.text) || `Address ${i + 1}` }))}
+                  options={deliveryOptions.map((a, i) => ({ id: String(i), label: `${a.verified ? '✓ ' : ''}${a.label || firstLine(a.text) || `Address ${i + 1}`}` }))}
                   value={String(deliveryIdx)}
                   onSelect={(id) => pickDeliveryAddr(+id)}
                   placeholder="Type to search saved delivery addresses…"
@@ -501,14 +546,21 @@ export default function NewOrderPage() {
       {addrPrompt && (() => {
         const custName = customers.find((x) => x.id === customerId)?.name || 'this customer'
         const isInv = addrPrompt.kind === 'invoice'
+        const isVerify = addrPrompt.mode === 'verify'
         return (
           <div className="modal-bg">
             <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 480, textAlign: 'left' }}>
-              <h2 style={{ marginBottom: 6 }}>New {isInv ? 'invoice' : 'delivery'} address</h2>
+              <h2 style={{ marginBottom: 6 }}>{isVerify ? `Verify ${isInv ? 'invoice' : 'delivery'} address` : `New ${isInv ? 'invoice' : 'delivery'} address`}</h2>
+              {isVerify ? (
+                <p className="hint" style={{ marginTop: 0, marginBottom: 14, background: '#FCF4E2', border: '1px solid var(--warn)', borderRadius: 8, padding: '10px 12px', color: '#7A5511' }}>
+                  ⚠ First time this address is being used. It was imported automatically — please <b>check it against the customer’s purchase order or a previous delivery note</b>, correct anything wrong, then mark it verified. This only needs doing once.
+                </p>
+              ) : (
               <p className="hint" style={{ marginTop: 0, marginBottom: 14 }}>
                 Do you wish to store this as {isInv ? 'an invoice' : 'a delivery'} address for <b>{custName}</b>?
                 Check it one last time — it will appear in their address list on future orders.
               </p>
+              )}
               <div className="field" style={{ marginBottom: 10 }}>
                 <label>Label</label>
                 <input value={addrPrompt.label} placeholder="e.g. Head Office"
@@ -530,10 +582,21 @@ export default function NewOrderPage() {
                 </div>
               )}
               <div style={{ display: 'flex', gap: 10, marginTop: 14, justifyContent: 'flex-end' }}>
-                <button className="btn btn-g" onClick={advanceAddrQueue}>Don’t save</button>
-                <button className="btn btn-a" onClick={saveAddrPrompt} disabled={!addrPrompt.text.trim()}>
-                  Save to {custName}
-                </button>
+                {isVerify ? (
+                  <>
+                    <button className="btn btn-g" onClick={advanceAddrQueue}>Skip for now</button>
+                    <button className="btn btn-a" onClick={confirmVerify} disabled={!addrPrompt.text.trim()}>
+                      ✓ Verified — checked against PO / delivery note
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button className="btn btn-g" onClick={advanceAddrQueue}>Don’t save</button>
+                    <button className="btn btn-a" onClick={saveAddrPrompt} disabled={!addrPrompt.text.trim()}>
+                      Save to {custName}
+                    </button>
+                  </>
+                )}
               </div>
             </div>
           </div>

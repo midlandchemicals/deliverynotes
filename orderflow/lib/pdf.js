@@ -589,6 +589,149 @@ export function generatePriceListPDF(entries, fallbackLh = {}) {
 }
 
 
+
+// Proforma invoice — priced request for payment ahead of the VAT invoice.
+// Same pricing resolution as the office copy (agreed price > seasonal > tier
+// > base), plus bank details and the mandatory "not a VAT invoice" notice.
+const BANK_DETAILS = [
+  ['BANK A/C NAME', 'MIDLAND CHEMICALS LTD.'],
+  ['BANK A/C NO.', '50847015'],
+  ['SORT CODE', '60-07-41'],
+  ['SWIFT CODE', 'NWBKGB2L'],
+  ['IBAN NO.', 'GB43NWBK60074150847015'],
+]
+
+export function generateProformaPDF(doc_, lh, products, packaging, pricing = {}, deliveryCharge = 0, labelTotal = 0, tiersByKey = {}, basisByKey = {}, seasonByKey = {}) {
+  const doc = new jsPDF({ unit: 'mm', format: 'a4' })
+  FONT = registerFonts(doc)
+  const W = 210, M = 16
+  const [r, g, b] = hexToRgb(lh.color)
+  const f2 = (n) => `£${(Math.round(n * 100) / 100).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+  let y = 16
+
+  if (lh.logo) {
+    try {
+      const props = doc.getImageProperties(lh.logo)
+      const maxW = 40, maxH = 14
+      let lw = maxW
+      let logoH = (lw * props.height) / props.width
+      if (logoH > maxH) { logoH = maxH; lw = (logoH * props.width) / props.height }
+      const imgFmt = (lh.logo.match(/data:image\/(\w+)/) || [])[1]?.toUpperCase() || 'PNG'
+      doc.addImage(lh.logo, imgFmt, M, y, lw, logoH); y += logoH + 2
+    } catch (e) {}
+  }
+  doc.setFont(FONT, 'bold').setFontSize(13).setTextColor(20, 20, 20).text(lh.company || '', M, y + 2)
+  const addrLines = String(lh.address || '').split('\n')
+  doc.setFont(FONT, 'normal').setFontSize(8).setTextColor(90, 90, 90).text(addrLines, M, y + 7)
+
+  doc.setFont(FONT, 'bold').setFontSize(21).setTextColor(r, g, b)
+    .text('PROFORMA INVOICE', W - M, 20, { align: 'right' })
+  doc.setFont(FONT, 'normal').setFontSize(10).setTextColor(40, 40, 40)
+  doc.text(`Ref   ${doc_.docNo || ''}`, W - M, 28, { align: 'right' })
+  doc.text(`Date  ${ukDate(doc_.date || new Date().toISOString().slice(0, 10))}`, W - M, 34, { align: 'right' })
+
+  const barY = Math.max(y + addrLines.length * 3.4 + 5, 38)
+  doc.setFillColor(r, g, b).rect(M, barY, W - 2 * M, 1.2, 'F')
+  let cy = barY + 7
+  const colW = (W - 2 * M - 5) / 2
+  function block(x, title, text, yPos = cy) {
+    doc.setDrawColor(r, g, b).setLineWidth(0.25)
+    const bLines = doc.splitTextToSize(compactAddress(text || ''), colW - 10)
+    const h = 11 + bLines.length * 3.9
+    doc.roundedRect(x, yPos, colW, h, 2, 2, 'S')
+    doc.setFont(FONT, 'bold').setFontSize(7).setTextColor(r, g, b).text(title.toUpperCase(), x + 5, yPos + 5.5)
+    doc.setFont(FONT, 'normal').setFontSize(8).setTextColor(25, 25, 25).text(bLines, x + 5, yPos + 10.5, { lineHeightFactor: 1.25 })
+    return h
+  }
+  const bh1 = block(M, 'Invoice To', doc_.invoiceTo)
+  const bh2 = block(M + colW + 5, 'Deliver To', doc_.deliver)
+  cy += Math.max(bh1, bh2) + 5
+
+  // Combined pack qty for 'order'-basis tier rows
+  const combinedQty = doc_.lines.reduce((sum, l) => {
+    const c = computeLine(l, products, packaging)
+    if (!c.product || !c.packaging) return sum
+    const k = `${c.product.id}::${c.packaging.id}`
+    return basisByKey[k] === 'order' ? sum + (c.qty || 0) : sum
+  }, 0)
+  const lineData = doc_.lines.map((l) => {
+    const c = computeLine(l, products, packaging)
+    const key = `${c.product?.id}::${c.packaging?.id}`
+    const ppl = (l.ppl_override != null && l.ppl_override !== '' && !isNaN(parseFloat(l.ppl_override)))
+      ? parseFloat(l.ppl_override)
+      : resolveLinePpl({
+          base: pricing[key], tiers: tiersByKey[key] || [], basis: basisByKey[key],
+          season: seasonByKey[key] || null, orderDate: doc_.orderDate,
+          lineQty: c.qty, combinedQty,
+        })
+    const unitPrice = ppl * (c.vol || 0)
+    return { c, unitPrice, lineTotal: unitPrice * c.qty }
+  })
+  const subtotal = lineData.reduce((x, d) => x + d.lineTotal, 0)
+  const delivery = parseFloat(deliveryCharge) || 0
+  const labels = parseFloat(labelTotal) || 0
+  const vat = Math.round((subtotal + labels + delivery) * VAT_RATE * 100) / 100
+  const grandTotal = subtotal + labels + delivery + vat
+
+  autoTable(doc, {
+    startY: cy,
+    margin: { left: M, right: M, bottom: 70 },
+    head: [['Qty', 'Product', 'Unit (£)', 'Total (£)']],
+    body: lineData.map(({ c, unitPrice, lineTotal }) => [
+      c.packQty, c.productName,
+      unitPrice > 0 ? fmtGBP(unitPrice) : '—',
+      lineTotal > 0 ? fmtGBP(lineTotal) : '—',
+    ]),
+    styles: { font: FONT, fontSize: 9.5, cellPadding: 2, lineColor: [210, 220, 215], lineWidth: 0.15, textColor: [25, 25, 25] },
+    headStyles: { fillColor: [r, g, b], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 8.5 },
+    columnStyles: { 0: { cellWidth: 24 }, 2: { halign: 'right', cellWidth: 28 }, 3: { halign: 'right', cellWidth: 30, fontStyle: 'bold' } },
+    alternateRowStyles: { fillColor: [242, 249, 245] },
+  })
+
+  let ty = doc.lastAutoTable.finalY + 5
+  const tx = W - M - 78
+  const totRows = [
+    { label: 'Subtotal', val: f2(subtotal) },
+    ...(labels > 0 ? [{ label: 'Labels', val: f2(labels) }] : []),
+    ...(delivery > 0 ? [{ label: 'Delivery', val: f2(delivery) }] : []),
+    { label: 'Total (ex VAT)', val: f2(subtotal + labels + delivery), semi: true },
+    { label: VAT_LABEL, val: f2(vat) },
+    { label: 'Total due', val: f2(grandTotal), bold: true },
+  ]
+  if (ty + totRows.length * 7 + 55 > 285) { doc.addPage(); ty = 20 }
+  totRows.forEach(({ label, val, bold, semi }) => {
+    doc.setFont(FONT, (bold || semi) ? 'bold' : 'normal').setFontSize(bold ? 13 : 11).setTextColor(25, 25, 25)
+    if (bold) doc.setDrawColor(180, 180, 180).setLineWidth(0.3).line(tx, ty - 4, W - M, ty - 4)
+    doc.text(label, tx, ty); doc.text(val, W - M, ty, { align: 'right' })
+    ty += bold ? 7 : 6
+  })
+
+  // Bank details for payment
+  ty += 4
+  const bankH = 8 + BANK_DETAILS.length * 5.4
+  doc.setDrawColor(r, g, b).setLineWidth(0.4).setFillColor(248, 252, 250)
+  doc.roundedRect(M, ty, 110, bankH, 2, 2, 'FD')
+  doc.setFont(FONT, 'bold').setFontSize(7.5).setTextColor(r, g, b).text('PAYMENT DETAILS', M + 5, ty + 5.5)
+  let by = ty + 11
+  BANK_DETAILS.forEach(([k, v]) => {
+    doc.setFont(FONT, 'normal').setFontSize(9).setTextColor(80, 80, 80).text(k, M + 5, by)
+    doc.setFont(FONT, 'bold').setFontSize(9).setTextColor(20, 20, 20).text(v, M + 42, by)
+    by += 5.4
+  })
+
+  // Mandatory notice — big and unmissable
+  ty += bankH + 8
+  doc.setFont(FONT, 'bold').setFontSize(12).setTextColor(175, 45, 35)
+    .text('PLEASE NOTE THIS IS NOT A V.A.T. INVOICE', W / 2, ty, { align: 'center' })
+
+  const fy = 287
+  doc.setDrawColor(210, 220, 215).setLineWidth(0.2).line(M, fy - 5, W - M, fy - 5)
+  doc.setFont(FONT, 'normal').setFontSize(7.5).setTextColor(130, 130, 130)
+    .text(doc.splitTextToSize(lh.footer || '', W - 2 * M), W / 2, fy, { align: 'center' })
+
+  window.open(URL.createObjectURL(new Blob([doc.output('arraybuffer')], { type: 'application/pdf' })), '_blank')
+}
+
 // Purchase order laid out as the CUSTOMER's PO to us — the customer is the
 // issuer at the top, the supplying company (from the order's letterhead) is
 // the addressee. No prices: products, sizes, quantities and delivery details.

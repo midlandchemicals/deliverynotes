@@ -99,6 +99,7 @@ function AddressListEditor({ list, kind, withContact, onChange, onCommit }) {
           return (
             <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 11px', border: '1px solid var(--border)', borderRadius: 9, background: 'var(--panel)' }}>
               <div style={{ flex: 1, minWidth: 0, fontSize: 12.5, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                {e.verified && <span title={`Verified${e.verified_by ? ' by ' + e.verified_by : ''}`} style={{ color: 'var(--ok)', fontWeight: 800, marginRight: 5 }}>✓</span>}
                 <b style={{ color: 'var(--heading)' }}>{e.label || firstLine(e.text) || `Address ${i + 1}`}</b>
                 {e.label && firstLine(e.text) && e.label.trim() !== firstLine(e.text) ? <span style={{ color: 'var(--muted)' }}> · {firstLine(e.text)}</span> : null}
                 {withContact && e.contact?.name ? <span style={{ color: 'var(--faint)' }}> · {e.contact.name}</span> : null}

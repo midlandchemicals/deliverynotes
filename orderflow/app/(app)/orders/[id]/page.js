@@ -2,8 +2,8 @@
 import { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import { computeLine, docTotals, fmt, prettyDate, splitContact, labelCount, PRICE_LEVELS, seasonalActive, resolveLinePpl, parseTiers, VAT_RATE, VAT_LABEL, ORDER_STATUSES, STATUS_NEW, STATUS_BOARD, STATUS_DONE, normalizeStatus, extractDeliveryInstructions } from '@/lib/calc'
-import { generateDispatchPDF, generateOfficeCopyPDF, reprintPDF, generatePurchaseOrderPDF } from '@/lib/pdf'
+import { computeLine, docTotals, fmt, prettyDate, splitContact, labelCount, PRICE_LEVELS, seasonalActive, resolveLinePpl, parseTiers, VAT_RATE, VAT_LABEL, ORDER_STATUSES, STATUS_NEW, STATUS_BOARD, STATUS_DONE, normalizeStatus, extractDeliveryInstructions, nextNo } from '@/lib/calc'
+import { generateDispatchPDF, generateOfficeCopyPDF, reprintPDF, generatePurchaseOrderPDF, generateProformaPDF } from '@/lib/pdf'
 import { printBoardNote } from '@/lib/boardnote'
 import { toast, ok } from '@/lib/notify'
 import PricingGuard, { usePricingCheck } from '@/app/(app)/PricingGuard'
@@ -74,6 +74,7 @@ export default function OrderDetailPage() {
   const [custFreeAbove, setCustFreeAbove] = useState(0)
   const [custPerPallet, setCustPerPallet] = useState(0)          // customer £/pallet base rate
   const [perPalletByKey, setPerPalletByKey] = useState({})       // { key: £/pallet } per-product override
+  const [editInfo, setEditInfo] = useState(null) // null | {po_ref, order_date, requested_date, notes}
   const [unpricedItems, setUnpricedItems] = useState([]) // lines missing a price for this customer
   const [unpricedModal, setUnpricedModal] = useState(null) // currently open item
   const [unpricedPackPrice, setUnpricedPackPrice] = useState('')
@@ -194,6 +195,20 @@ export default function OrderDetailPage() {
       }
     })()
   }, [id])
+
+  // Order header details stay editable after saving to the log.
+  async function saveInfo() {
+    const patch = {
+      po_ref: editInfo.po_ref,
+      order_date: editInfo.order_date || null,
+      requested_date: editInfo.requested_date || null,
+      notes: editInfo.notes,
+    }
+    if (!ok(await supabase.from('orders').update(patch).eq('id', id), 'saving order details')) return
+    setOrder({ ...order, ...patch })
+    setEditInfo(null)
+    toast('Order details saved')
+  }
 
   async function setStatus(status) {
     if (!ok(await supabase.from('orders').update({ status }).eq('id', id), 'updating status')) return
@@ -424,7 +439,26 @@ export default function OrderDetailPage() {
     if (incomplete) { toast('Enter a batch number or tick Not Applicable for each product'); return }
     setBusy(true)
     const lh = letterheads[lhIndex]
-    const docNo = order.order_no
+    // DN numbers are allocated HERE, at delivery-note creation, so notes are
+    // numbered in dispatch order. Orders entered earlier keep their ORD- ref
+    // until their note is made. Once allocated, the number sticks.
+    let docNo = order.order_no
+    if (!/^DN-\d+$/i.test(docNo)) {
+      const [a, b] = await Promise.all([
+        supabase.from('orders').select('order_no').ilike('order_no', 'DN-%').order('created_at', { ascending: false }).limit(100),
+        supabase.from('dispatch_notes').select('doc_no').order('created_at', { ascending: false }).limit(100),
+      ])
+      const nums = [...(a.data || []).map((x) => x.order_no), ...(b.data || []).map((x) => x.doc_no)]
+        .map((v) => String(v || '').match(/^DN-(\d+)$/i)).filter(Boolean).map((m) => +m[1])
+      docNo = `DN-${(nums.length ? Math.max(...nums) : 1000) + 1}`
+      for (let attempt = 0; attempt < 5; attempt++) {
+        const res = await supabase.from('orders').update({ order_no: docNo }).eq('id', id)
+        if (res.error && res.error.code === '23505') { docNo = nextNo(docNo); continue }
+        if (!ok(res, 'assigning the DN number')) { setBusy(false); return }
+        break
+      }
+      setOrder((o) => ({ ...o, order_no: docNo }))
+    }
     const contact = orderContact(order)
     const batches = batchModal.map((r) => (r.na ? 'N/A' : r.batch.trim()))
     const mfgDates = batchModal.map((r) => (r.na ? '' : (r.mfg || '')))
@@ -520,17 +554,37 @@ export default function OrderDetailPage() {
       <div className="card">
         <div className="ttl">
           <h2>{order.order_no} <StatusBadge status={order.status} /></h2>
-          <div style={{ display: 'flex', gap: 8 }}>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <button className="btn btn-g btn-sm" onClick={() => setEditInfo({ po_ref: order.po_ref || '', order_date: order.order_date || '', requested_date: order.requested_date || '', notes: order.notes || '' })}>✏️ Edit details</button>
             <button className="btn btn-g btn-sm" onClick={() => generatePurchaseOrderPDF({ ...order, lines }, products, packaging, letterheads[lhIndex] || {})}>📄 Purchase order</button>
             <button className="btn btn-g btn-sm" onClick={printNote}>🖨 Print for board</button>
             <button className="btn btn-g btn-sm" onClick={() => router.push('/orders')}>← Back to log</button>
           </div>
         </div>
+        {editInfo ? (
+          <div style={{ border: '1.5px solid var(--accent)', borderRadius: 10, padding: 14, marginBottom: 12 }}>
+            <div className="row c3">
+              <div className="field"><label>Customer Order Number</label>
+                <input value={editInfo.po_ref} onChange={(e) => setEditInfo((x) => ({ ...x, po_ref: e.target.value }))} /></div>
+              <div className="field"><label>Order date</label>
+                <input className="mono" type="date" value={editInfo.order_date} onChange={(e) => setEditInfo((x) => ({ ...x, order_date: e.target.value }))} /></div>
+              <div className="field"><label>Requested delivery date</label>
+                <input className="mono" type="date" value={editInfo.requested_date} onChange={(e) => setEditInfo((x) => ({ ...x, requested_date: e.target.value }))} /></div>
+            </div>
+            <div className="field"><label>Notes</label>
+              <textarea value={editInfo.notes} onChange={(e) => setEditInfo((x) => ({ ...x, notes: e.target.value }))} /></div>
+            <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+              <button className="btn btn-a btn-sm" onClick={saveInfo}>Save details</button>
+              <button className="btn btn-g btn-sm" onClick={() => setEditInfo(null)}>Cancel</button>
+            </div>
+          </div>
+        ) : (
         <div className="row c3">
           <Info label="Customer" value={order.customer_snapshot?.name} />
           <Info label="Customer Order Number" value={order.po_ref || '—'} />
-          <Info label="Ordered" value={prettyDate(order.order_date)} />
+          <Info label="Ordered" value={`${prettyDate(order.order_date)}${order.requested_date ? ` · required ${prettyDate(order.requested_date)}` : ''}`} />
         </div>
+        )}
         <div className="row c2" style={{ marginTop: 4 }}>
           <div className="field"><label>Invoice to</label>
             <div className="paper" style={{ background: 'var(--panel-2)', color: 'var(--ink)', boxShadow: 'none', whiteSpace: 'pre-line', fontFamily: 'inherit' }}>{splitContact(order.customer_snapshot?.details || '').address}</div></div>
@@ -802,6 +856,18 @@ export default function OrderDetailPage() {
             </div>
           )}
           <p className="hint">Enter £ per litre — unit price and line total are calculated automatically. Prices are saved against this customer for future orders. Products marked with * attract a label charge — set the £/label rate above (pre-filled from customer settings).</p>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 10 }}>
+            <button className="btn btn-a" onClick={() => generateProformaPDF(
+              {
+                docNo: order.order_no, date: new Date().toISOString().slice(0, 10),
+                orderDate: order.order_date || null,
+                invoiceTo, deliver: splitContact(order.customer_snapshot?.deliver || '').address,
+                lines,
+              },
+              letterheads[lhIndex] || {}, products, packaging, prices,
+              parseFloat(deliveryCharge) || 0, labelTotal, priceTiers, tierBasis, seasonMap,
+            )}>📄 Proforma invoice</button>
+          </div>
         </div>
         </PricingGuard>
       )}
