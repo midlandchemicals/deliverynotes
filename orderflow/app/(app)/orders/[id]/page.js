@@ -266,7 +266,10 @@ export default function OrderDetailPage() {
       const token = (crypto.randomUUID().replace(/-/g, '')).slice(0, 14)
       const linkIns = await supabase.from('proforma_links').insert({ token, order_id: order.id, doc_no: order.order_no, path, expires_at: expires })
       if (!linkIns.error) {
-        link = `${window.location.origin}/p/${token}`
+        // Always use the branded domain for customer links when configured
+        // (NEXT_PUBLIC_APP_URL), regardless of which URL staff are browsing on.
+        const base = (process.env.NEXT_PUBLIC_APP_URL || window.location.origin).replace(/\/$/, '')
+        link = `${base}/p/${token}`
       } else {
         const signed = await supabase.storage.from('proformas').createSignedUrl(path, 60 * 60 * 24 * 90)
         if (signed.error || !signed.data?.signedUrl) { setEmailModal(null); toastError('Uploaded, but could not create the link.'); return }
