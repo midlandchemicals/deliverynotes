@@ -173,7 +173,8 @@ export default function DashboardPage() {
         if (mk === thisMonthKey) thisMonthRev += total
         if (mk === lastMonthKey) lastMonthRev += total
 
-        const coKey = (o.customer_id && custLh[o.customer_id]) || 'default'
+        let coKey = (o.customer_id && custLh[o.customer_id]) || 'default'
+        if (coKey === defaultLh?.id) coKey = 'default' // explicit Midland = default
         byCompany[coKey] = (byCompany[coKey] || 0) + total
         if (!custByCo[coKey]) custByCo[coKey] = {}
         if (!prodByCo[coKey]) prodByCo[coKey] = {}
