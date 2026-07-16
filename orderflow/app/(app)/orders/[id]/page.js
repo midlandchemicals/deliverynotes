@@ -856,7 +856,9 @@ export default function OrderDetailPage() {
             </div>
           )}
           <p className="hint">Enter £ per litre — unit price and line total are calculated automatically. Prices are saved against this customer for future orders. Products marked with * attract a label charge — set the £/label rate above (pre-filled from customer settings).</p>
-          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 10 }}>
+          {/* zIndex lifts this above the edit-lock overlay — the proforma is a
+              read-only document, so it must stay printable on locked orders */}
+          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 10, position: 'relative', zIndex: 6 }}>
             <button className="btn btn-a" onClick={() => generateProformaPDF(
               {
                 docNo: order.order_no, date: new Date().toISOString().slice(0, 10),
