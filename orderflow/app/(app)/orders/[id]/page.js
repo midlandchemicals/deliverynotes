@@ -64,6 +64,7 @@ export default function OrderDetailPage() {
   const [pallets, setPallets] = useState('')
   const [palletsTouched, setPalletsTouched] = useState(false)
   const [docNoOverride, setDocNoOverride] = useState('') // optional manual DN number
+  const [deliveryTouched, setDeliveryTouched] = useState(false) // user typed a delivery charge by hand
   const [noPallets, setNoPallets] = useState(false)
   const [palletsFlash, setPalletsFlash] = useState(false)
   const [showHazard, setShowHazard] = useState(true)
@@ -484,6 +485,7 @@ export default function OrderDetailPage() {
   // Re-evaluate delivery charge whenever anything that affects it changes.
   // Priority: free-delivery threshold (£0) > per-pallet rate (× pallets) > banded tiers.
   useEffect(() => {
+    if (deliveryTouched) return // a manually-typed charge must never be overwritten
     const usePerPallet = hasPerPalletPricing()
     if (!custFreeAbove && !custDeliveryTiers.length && !usePerPallet) return
     const subtotal = lines.reduce((sum, l) => {
@@ -510,7 +512,7 @@ export default function OrderDetailPage() {
       if (tier != null) setDeliveryCharge(Number(tier.charge).toFixed(2))
       else setDeliveryCharge('')
     }
-  }, [custFreeAbove, custDeliveryTiers, custPerPallet, perPalletByKey, pallets, noPallets, lines, prices, priceTiers, tierBasis])
+  }, [deliveryTouched, custFreeAbove, custDeliveryTiers, custPerPallet, perPalletByKey, pallets, noPallets, lines, prices, priceTiers, tierBasis])
 
   function startDispatch() {
     const lh = letterheads[lhIndex]
@@ -911,16 +913,18 @@ export default function OrderDetailPage() {
                 <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
                   <span className="muted" style={{ fontSize: 12 }}>
                     Delivery charge
-                    {hasPerPalletPricing()
+                    {deliveryTouched ? (
+                      <span style={{ marginLeft: 5, color: 'var(--gold)', fontSize: 11 }}>✎ manual · <a style={{ cursor: 'pointer', textDecoration: 'underline' }} onClick={() => setDeliveryTouched(false)}>reset to auto</a></span>
+                    ) : hasPerPalletPricing()
                       ? <span style={{ marginLeft: 5, color: 'var(--accent)', fontSize: 11 }}>⚡ per-pallet rate (per product)</span>
                       : custDeliveryTiers.length > 0 && <span style={{ marginLeft: 5, color: 'var(--accent)', fontSize: 11 }}>⚡ auto from pallet tiers</span>}
-                    {custFreeAbove > 0 && <span style={{ marginLeft: 5, color: 'var(--accent)', fontSize: 11 }}>· free above £{custFreeAbove}</span>}
+                    {!deliveryTouched && custFreeAbove > 0 && <span style={{ marginLeft: 5, color: 'var(--accent)', fontSize: 11 }}>· free above £{custFreeAbove}</span>}
                   </span>
                   <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
                     <span style={{ position: 'absolute', left: 8, color: 'var(--muted)', fontSize: 13 }}>£</span>
                     <input className="mono" style={{ textAlign: 'right', paddingLeft: 20, width: 90 }}
                       value={deliveryCharge} placeholder="0.00"
-                      onChange={(e) => setDeliveryCharge(e.target.value)} />
+                      onChange={(e) => { setDeliveryCharge(e.target.value); setDeliveryTouched(true) }} />
                   </div>
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 3, borderTop: '1px solid var(--border)', paddingTop: 8, minWidth: 220 }}>
