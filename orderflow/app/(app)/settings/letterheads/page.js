@@ -4,6 +4,27 @@ import { createClient } from '@/lib/supabase/client'
 
 const PALETTE = ['#e8853a', '#0f6b62', '#1d3f72', '#7a2f2f', '#3a3a3a', '#5a3d7a', '#1f6f3a', '#8a6d1f']
 
+// Logos are embedded into every PDF, so a full-res upload makes 8 MB files.
+// Downscale to a print-sharp width and re-encode (keeps transparency as PNG),
+// which shrinks both the PDFs and the database. ~600px ≈ 300 dpi at 50 mm wide.
+function downscaleLogo(dataUrl, maxW = 600) {
+  return new Promise((resolve) => {
+    const img = new Image()
+    img.onload = () => {
+      if (img.width <= maxW) { resolve(dataUrl); return } // already small
+      const scale = maxW / img.width
+      const c = document.createElement('canvas')
+      c.width = maxW
+      c.height = Math.round(img.height * scale)
+      const ctx = c.getContext('2d')
+      ctx.drawImage(img, 0, 0, c.width, c.height)
+      try { resolve(c.toDataURL('image/png')) } catch { resolve(dataUrl) }
+    }
+    img.onerror = () => resolve(dataUrl)
+    img.src = dataUrl
+  })
+}
+
 export default function LetterheadsPage() {
   const supabase = createClient()
   const [rows, setRows] = useState(null)
@@ -13,6 +34,17 @@ export default function LetterheadsPage() {
   async function load() {
     const { data } = await supabase.from('letterheads').select('*').order('created_at')
     setRows(data || [])
+    // One-time cleanup: shrink any oversized logos already stored (they bloat
+    // every PDF). Runs quietly in the background and saves the smaller version.
+    for (const lh of (data || [])) {
+      if (lh.logo && lh.logo.length > 120000) {
+        const small = await downscaleLogo(lh.logo)
+        if (small && small.length < lh.logo.length) {
+          await supabase.from('letterheads').update({ logo: small }).eq('id', lh.id)
+          setRows((r) => r.map((x) => (x.id === lh.id ? { ...x, logo: small } : x)))
+        }
+      }
+    }
   }
   async function update(id, patch) {
     setRows((r) => r.map((x) => (x.id === id ? { ...x, ...patch } : x)))
@@ -32,7 +64,10 @@ export default function LetterheadsPage() {
   function onLogo(id, file) {
     if (!file) return
     const reader = new FileReader()
-    reader.onload = (ev) => update(id, { logo: ev.target.result })
+    reader.onload = async (ev) => {
+      const small = await downscaleLogo(ev.target.result)
+      update(id, { logo: small })
+    }
     reader.readAsDataURL(file)
   }
 

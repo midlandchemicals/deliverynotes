@@ -63,6 +63,7 @@ export default function OrderDetailPage() {
   const [options, setOptions] = useState('')
   const [pallets, setPallets] = useState('')
   const [palletsTouched, setPalletsTouched] = useState(false)
+  const [docNoOverride, setDocNoOverride] = useState('') // optional manual DN number
   const [noPallets, setNoPallets] = useState(false)
   const [palletsFlash, setPalletsFlash] = useState(false)
   const [showHazard, setShowHazard] = useState(true)
@@ -259,7 +260,7 @@ export default function OrderDetailPage() {
       const path = `${order.id}/${safe}-${Date.now()}.pdf`
       const up = await supabase.storage.from('proformas').upload(path, blob, { contentType: 'application/pdf', upsert: true })
       if (up.error) { setEmailModal(null); toastError(`Couldn't upload the proforma: ${up.error.message}. Is the private 'proformas' storage bucket set up?`); return }
-      const expires = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString()
+      const expires = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString() // link inactive after 14 days
       // Prefer a short, on-our-domain link (/p/<token>); fall back to the raw
       // signed URL if the link table isn't set up yet.
       let link = ''
@@ -271,7 +272,7 @@ export default function OrderDetailPage() {
         const base = (process.env.NEXT_PUBLIC_APP_URL || window.location.origin).replace(/\/$/, '')
         link = `${base}/p/${token}`
       } else {
-        const signed = await supabase.storage.from('proformas').createSignedUrl(path, 60 * 60 * 24 * 90)
+        const signed = await supabase.storage.from('proformas').createSignedUrl(path, 60 * 60 * 24 * 14)
         if (signed.error || !signed.data?.signedUrl) { setEmailModal(null); toastError('Uploaded, but could not create the link.'); return }
         link = signed.data.signedUrl
       }
@@ -426,7 +427,7 @@ export default function OrderDetailPage() {
     const batches = (d.lines_snapshot || []).map((s) => s.batch || '')
     const mfgDates = (d.lines_snapshot || []).map((s) => s.mfg_date || '')
     const doc_ = {
-      docNo: d.doc_no, date: d.doc_date,
+      docNo: d.doc_no, poRef: order.po_ref || '', date: d.doc_date,
       orderDate: order.order_date || null,
       invoiceTo: d.customer, deliver: d.deliver,
       contact: d.totals?.contact,
@@ -551,7 +552,15 @@ export default function OrderDetailPage() {
     // numbered in dispatch order. Orders entered earlier keep their ORD- ref
     // until their note is made. Once allocated, the number sticks.
     let docNo = order.order_no
-    if (!/^DN-\d+$/i.test(docNo)) {
+    const manual = docNoOverride.trim()
+    if (manual && manual !== order.order_no) {
+      // User set their own DN number — use it exactly (must be unique).
+      const res = await supabase.from('orders').update({ order_no: manual }).eq('id', id)
+      if (res.error && res.error.code === '23505') { toast(`Delivery note number ${manual} is already in use — pick another.`); setBusy(false); return }
+      if (!ok(res, 'setting the DN number')) { setBusy(false); return }
+      docNo = manual
+      setOrder((o) => ({ ...o, order_no: manual }))
+    } else if (!/^DN-\d+$/i.test(docNo)) {
       const [a, b] = await Promise.all([
         supabase.from('orders').select('order_no').ilike('order_no', 'DN-%').order('created_at', { ascending: false }).limit(100),
         supabase.from('dispatch_notes').select('doc_no').order('created_at', { ascending: false }).limit(100),
@@ -990,7 +999,13 @@ export default function OrderDetailPage() {
 
       <div className="card">
         <div className="ttl"><h2>Create delivery note</h2></div>
-        <div className="row c3">
+        <div className="row c3" style={{ marginBottom: 4 }}>
+          <div className="field"><label>Delivery note number</label>
+            <input className="mono" value={docNoOverride}
+              placeholder={/^DN-\d+$/i.test(order.order_no) ? order.order_no : 'auto (next DN number)'}
+              onChange={(e) => setDocNoOverride(e.target.value)} />
+            <p className="hint" style={{ marginTop: 4, marginBottom: 0 }}>Leave blank to use {/^DN-\d+$/i.test(order.order_no) ? `${order.order_no}` : 'the next number automatically'}. Type here to set your own.</p>
+          </div>
           <div className="field"><label>Letterhead</label>
             <select value={lhIndex} onChange={(e) => setLhIndex(+e.target.value)}>
               {letterheads.map((l, i) => <option key={l.id} value={i}>{l.name} — {l.company}</option>)}
