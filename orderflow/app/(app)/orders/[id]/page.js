@@ -944,7 +944,22 @@ export default function OrderDetailPage() {
                   <button className="btn btn-g btn-sm" onClick={() => generatePurchaseOrderPDF({ ...order, lines }, products, packaging, letterheads[lhIndex] || {})}>Purchase order</button>
                   <button className="btn btn-g btn-sm" onClick={() => reprintPDF(d)}>Delivery Note</button>
                   {isAdmin && (
-                    <button className="btn btn-g btn-sm" onClick={() => printOfficeCopy(d)}>For Invoicing</button>
+                    <>
+                      <button className="btn btn-g btn-sm" onClick={() => generateProformaPDF(
+                        {
+                          docNo: d.doc_no || order.order_no, date: new Date().toISOString().slice(0, 10),
+                          orderDate: order.order_date || null,
+                          invoiceTo: d.customer || invoiceTo,
+                          deliver: d.deliver || splitContact(order.customer_snapshot?.deliver || '').address,
+                          lines,
+                        },
+                        letterheads[lhIndex] || {}, products, packaging, prices,
+                        Number(d.totals?.delivery_charge || 0),
+                        d.totals?.label_total != null ? Number(d.totals.label_total) : labelTotal,
+                        priceTiers, tierBasis, seasonMap,
+                      )}>Proforma</button>
+                      <button className="btn btn-g btn-sm" onClick={() => printOfficeCopy(d)}>For Invoicing</button>
+                    </>
                   )}
                   <button className="btn-dl" style={{ width: 34, height: 30, fontSize: 14, flexShrink: 0 }} onClick={() => deleteDispatchNote(d)} title="Delete this copy">🗑</button>
                 </div>

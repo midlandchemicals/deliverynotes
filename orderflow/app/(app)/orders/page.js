@@ -162,9 +162,12 @@ export default function OrdersPage() {
     return `${names.slice(0, 2).join(', ')} +${names.length - 2} more`
   }
 
-  // Which letterhead does this order's customer default to? null = Midland/default
+  // Which letterhead does this order's customer default to? null = Midland/default.
+  // A customer with the Midland letterhead EXPLICITLY set counts as default too —
+  // otherwise their orders vanish (no tab exists for the default letterhead).
   function orderLhId(o) {
-    return (o.customer_id && custLhMap[o.customer_id]) || null
+    const lhId = (o.customer_id && custLhMap[o.customer_id]) || null
+    return lhId && lhId === defaultLh?.id ? null : lhId
   }
 
   // The "main" letterhead (Midland or first in list)
