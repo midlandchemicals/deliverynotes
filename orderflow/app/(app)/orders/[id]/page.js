@@ -196,18 +196,51 @@ export default function OrderDetailPage() {
     })()
   }, [id])
 
-  // Order header details stay editable after saving to the log.
+  // Order header details stay editable after saving to the log. The order keeps
+  // its own snapshot of the customer's contact (frozen at order time), so we
+  // update that here too when the contact fields change.
   async function saveInfo() {
+    const contact = {
+      name: editInfo.contact?.name || '',
+      email: editInfo.contact?.email || '',
+      phone: editInfo.contact?.phone || '',
+    }
+    const snapshot = { ...(order.customer_snapshot || {}), contact }
     const patch = {
       po_ref: editInfo.po_ref,
       order_date: editInfo.order_date || null,
       requested_date: editInfo.requested_date || null,
       notes: editInfo.notes,
+      customer_snapshot: snapshot,
     }
     if (!ok(await supabase.from('orders').update(patch).eq('id', id), 'saving order details')) return
     setOrder({ ...order, ...patch })
     setEditInfo(null)
     toast('Order details saved')
+  }
+
+  // Pull the customer's CURRENT contact from the address book into this order.
+  // Matches the delivery address in use to its stored contact; falls back to
+  // the first delivery address, then the legacy contact columns.
+  async function refreshContactFromCustomer() {
+    if (!order.customer_id) { toast('This order has no linked customer'); return }
+    const { data: c } = await supabase.from('customers')
+      .select('delivery_addresses, contact_name, email, phone').eq('id', order.customer_id).single()
+    if (!c) { toast('Could not load the customer'); return }
+    const norm = (t) => splitContact(String(t || '')).address.replace(/\s+/g, ' ').trim().toLowerCase()
+    const target = norm(order.customer_snapshot?.deliver)
+    const list = Array.isArray(c.delivery_addresses) ? c.delivery_addresses : []
+    const match = list.find((a) => norm(a.text) === target) || list[0]
+    const ct = match?.contact || {}
+    setEditInfo((x) => ({
+      ...x,
+      contact: {
+        name: ct.name || c.contact_name || '',
+        email: ct.email || c.email || '',
+        phone: ct.phone || c.phone || '',
+      },
+    }))
+    toast('Pulled latest contact — review, then Save details')
   }
 
   async function setStatus(status) {
@@ -555,7 +588,7 @@ export default function OrderDetailPage() {
         <div className="ttl">
           <h2>{order.order_no} <StatusBadge status={order.status} /></h2>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            <button className="btn btn-g btn-sm" onClick={() => setEditInfo({ po_ref: order.po_ref || '', order_date: order.order_date || '', requested_date: order.requested_date || '', notes: order.notes || '' })}>✏️ Edit details</button>
+            <button className="btn btn-g btn-sm" onClick={() => { const c = orderContact(order) || {}; setEditInfo({ po_ref: order.po_ref || '', order_date: order.order_date || '', requested_date: order.requested_date || '', notes: order.notes || '', contact: { name: c.name || '', email: c.email || '', phone: c.phone || '' } }) }}>✏️ Edit details</button>
             <button className="btn btn-g btn-sm" onClick={() => generatePurchaseOrderPDF({ ...order, lines }, products, packaging, letterheads[lhIndex] || {})}>📄 Purchase order</button>
             <button className="btn btn-g btn-sm" onClick={printNote}>🖨 Print for board</button>
             <button className="btn btn-g btn-sm" onClick={() => router.push('/orders')}>← Back to log</button>
@@ -570,6 +603,18 @@ export default function OrderDetailPage() {
                 <input className="mono" type="date" value={editInfo.order_date} onChange={(e) => setEditInfo((x) => ({ ...x, order_date: e.target.value }))} /></div>
               <div className="field"><label>Requested delivery date</label>
                 <input className="mono" type="date" value={editInfo.requested_date} onChange={(e) => setEditInfo((x) => ({ ...x, requested_date: e.target.value }))} /></div>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', margin: '4px 0 6px' }}>
+              <label style={{ margin: 0 }}>Contact for this order</label>
+              <button className="btn btn-g btn-sm" style={{ padding: '3px 10px', fontSize: 11.5 }} onClick={refreshContactFromCustomer}>↻ Pull latest from address book</button>
+            </div>
+            <div className="row c3">
+              <div className="field"><label>Name</label>
+                <input value={editInfo.contact?.name || ''} onChange={(e) => setEditInfo((x) => ({ ...x, contact: { ...x.contact, name: e.target.value } }))} /></div>
+              <div className="field"><label>Email</label>
+                <input value={editInfo.contact?.email || ''} onChange={(e) => setEditInfo((x) => ({ ...x, contact: { ...x.contact, email: e.target.value } }))} /></div>
+              <div className="field"><label>Telephone</label>
+                <input value={editInfo.contact?.phone || ''} onChange={(e) => setEditInfo((x) => ({ ...x, contact: { ...x.contact, phone: e.target.value } }))} /></div>
             </div>
             <div className="field"><label>Notes</label>
               <textarea value={editInfo.notes} onChange={(e) => setEditInfo((x) => ({ ...x, notes: e.target.value }))} /></div>
