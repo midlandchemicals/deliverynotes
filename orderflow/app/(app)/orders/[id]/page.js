@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import { computeLine, docTotals, fmt, prettyDate, splitContact, labelCount, PRICE_LEVELS, seasonalActive, resolveLinePpl, parseTiers, VAT_RATE, VAT_LABEL, ORDER_STATUSES, STATUS_NEW, STATUS_BOARD, STATUS_DONE, normalizeStatus, extractDeliveryInstructions, nextNo } from '@/lib/calc'
 import { generateDispatchPDF, generateOfficeCopyPDF, reprintPDF, generatePurchaseOrderPDF, generateProformaPDF } from '@/lib/pdf'
 import { printBoardNote } from '@/lib/boardnote'
-import { toast, ok } from '@/lib/notify'
+import { toast, toastError, ok } from '@/lib/notify'
 import PricingGuard, { usePricingCheck } from '@/app/(app)/PricingGuard'
 import { StatusBadge } from '../page'
 import LineEditor from '../LineEditor'
@@ -75,6 +75,7 @@ export default function OrderDetailPage() {
   const [custPerPallet, setCustPerPallet] = useState(0)          // customer £/pallet base rate
   const [perPalletByKey, setPerPalletByKey] = useState({})       // { key: £/pallet } per-product override
   const [editInfo, setEditInfo] = useState(null) // null | {po_ref, order_date, requested_date, notes}
+  const [emailModal, setEmailModal] = useState(null) // null | { to, name, link, busy }
   const [unpricedItems, setUnpricedItems] = useState([]) // lines missing a price for this customer
   const [unpricedModal, setUnpricedModal] = useState(null) // currently open item
   const [unpricedPackPrice, setUnpricedPackPrice] = useState('')
@@ -233,25 +234,50 @@ export default function OrderDetailPage() {
     )
   }
 
-  // Generate the proforma PDF and open the mail client addressed to the
-  // customer with a ready-written message. NB: mailto can't attach files, so
-  // the PDF opens for the user to attach manually (one drag).
-  function emailProforma() {
+  // Build the proforma, upload it to Supabase Storage, and open a compose popup
+  // with a secure 90-day link so it can be emailed with the mail client's own
+  // signature (mailto hands off to the client, which appends the signature).
+  async function emailProforma() {
     const c = orderContact(order) || {}
     const email = (c.email || '').trim()
     if (!email) { toast('No email address on file for this order'); return }
-    runProforma() // opens the PDF to attach
     const greetName = c.name || order.customer_snapshot?.name || 'Sir/Madam'
+    setEmailModal({ to: email, name: greetName, link: '', busy: true })
+    try {
+      const blob = generateProformaPDF(
+        {
+          docNo: order.order_no, date: new Date().toISOString().slice(0, 10),
+          orderDate: order.order_date || null,
+          invoiceTo, deliver: splitContact(order.customer_snapshot?.deliver || '').address,
+          lines,
+        },
+        letterheads[lhIndex] || {}, products, packaging, prices,
+        parseFloat(deliveryCharge) || 0, labelTotal, priceTiers, tierBasis, seasonMap,
+        { returnBlob: true },
+      )
+      const safe = String(order.order_no || 'proforma').replace(/[^a-z0-9\-_]/gi, '_')
+      const path = `${order.id}/${safe}-${Date.now()}.pdf`
+      const up = await supabase.storage.from('proformas').upload(path, blob, { contentType: 'application/pdf', upsert: true })
+      if (up.error) { setEmailModal(null); toastError(`Couldn't upload the proforma: ${up.error.message}. Is the private 'proformas' storage bucket set up?`); return }
+      const signed = await supabase.storage.from('proformas').createSignedUrl(path, 60 * 60 * 24 * 90) // 90 days
+      if (signed.error || !signed.data?.signedUrl) { setEmailModal(null); toastError('Uploaded, but could not create the secure link.'); return }
+      setEmailModal((m) => ({ ...m, link: signed.data.signedUrl, busy: false }))
+    } catch (e) {
+      setEmailModal(null); toastError('Could not prepare the proforma: ' + (e?.message || 'unknown'))
+    }
+  }
+
+  // Compose the message body and hand off to the mail client (adds signature).
+  function sendProformaEmail() {
+    const m = emailModal
     const subject = `Proforma Invoice ${order.order_no} — Midland Chemicals Ltd`
     const body =
-      `Dear ${greetName},\n\n` +
-      `Please find attached our proforma invoice (${order.order_no}) for your order.\n\n` +
-      `Payment details are shown on the proforma. Please note this is not a V.A.T. invoice.\n\n` +
-      `Once payment has been received we will arrange dispatch. If you have any questions please don't hesitate to get in touch.\n\n` +
-      `Kind regards,\n` +
-      `Midland Chemicals Ltd`
-    window.location.href = `mailto:${encodeURIComponent(email)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`
-    toast('Proforma opened — attach it to the email that just opened')
+      `Dear ${m.name},\n\n` +
+      `Please find your proforma invoice for your order at the link below:\n${m.link}\n\n` +
+      `Please note this is not a V.A.T. invoice.\n\n` +
+      `Once payment has been received we will arrange dispatch. If you have any questions please don't hesitate to get in touch.`
+    window.location.href = `mailto:${encodeURIComponent(m.to)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`
+    setEmailModal(null)
   }
 
   // Pull the customer's CURRENT contact from the address book into this order.
@@ -1099,6 +1125,39 @@ export default function OrderDetailPage() {
           </div>
         )
       })()}
+
+      {emailModal && (
+        <div className="modal-bg" onClick={() => !emailModal.busy && setEmailModal(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 460, textAlign: 'left' }}>
+            <h2 style={{ marginBottom: 6 }}>Email proforma</h2>
+            {emailModal.busy ? (
+              <p className="hint" style={{ marginTop: 0 }}>Preparing the secure link…</p>
+            ) : (
+              <>
+                <p className="hint" style={{ marginTop: 0, marginBottom: 14 }}>
+                  Opens your mail app with the message below and a secure link (valid 90 days). Your own email signature is added by your mail app.
+                </p>
+                <div className="field" style={{ marginBottom: 10 }}>
+                  <label>To</label>
+                  <input value={emailModal.to} onChange={(e) => setEmailModal((m) => ({ ...m, to: e.target.value }))} />
+                </div>
+                <div className="field" style={{ marginBottom: 10 }}>
+                  <label>Greeting name (Dear …)</label>
+                  <input value={emailModal.name} onChange={(e) => setEmailModal((m) => ({ ...m, name: e.target.value }))} />
+                </div>
+                <div className="field" style={{ marginBottom: 4 }}>
+                  <label>Secure link</label>
+                  <input className="mono" style={{ fontSize: 11 }} readOnly value={emailModal.link} onFocus={(e) => e.target.select()} />
+                </div>
+                <div style={{ display: 'flex', gap: 8, marginTop: 14, justifyContent: 'flex-end' }}>
+                  <button className="btn btn-g" onClick={() => setEmailModal(null)}>Cancel</button>
+                  <button className="btn btn-a" onClick={sendProformaEmail} disabled={!emailModal.to.trim() || !emailModal.link}>✉ Open email</button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
 
       {PricingModal}
 
