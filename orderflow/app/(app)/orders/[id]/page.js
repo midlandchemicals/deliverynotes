@@ -219,6 +219,41 @@ export default function OrderDetailPage() {
     toast('Order details saved')
   }
 
+  // Build the proforma PDF for the current order (opens it in a new tab).
+  function runProforma() {
+    generateProformaPDF(
+      {
+        docNo: order.order_no, date: new Date().toISOString().slice(0, 10),
+        orderDate: order.order_date || null,
+        invoiceTo, deliver: splitContact(order.customer_snapshot?.deliver || '').address,
+        lines,
+      },
+      letterheads[lhIndex] || {}, products, packaging, prices,
+      parseFloat(deliveryCharge) || 0, labelTotal, priceTiers, tierBasis, seasonMap,
+    )
+  }
+
+  // Generate the proforma PDF and open the mail client addressed to the
+  // customer with a ready-written message. NB: mailto can't attach files, so
+  // the PDF opens for the user to attach manually (one drag).
+  function emailProforma() {
+    const c = orderContact(order) || {}
+    const email = (c.email || '').trim()
+    if (!email) { toast('No email address on file for this order'); return }
+    runProforma() // opens the PDF to attach
+    const greetName = c.name || order.customer_snapshot?.name || 'Sir/Madam'
+    const subject = `Proforma Invoice ${order.order_no} — Midland Chemicals Ltd`
+    const body =
+      `Dear ${greetName},\n\n` +
+      `Please find attached our proforma invoice (${order.order_no}) for your order.\n\n` +
+      `Payment details are shown on the proforma. Please note this is not a V.A.T. invoice.\n\n` +
+      `Once payment has been received we will arrange dispatch. If you have any questions please don't hesitate to get in touch.\n\n` +
+      `Kind regards,\n` +
+      `Midland Chemicals Ltd`
+    window.location.href = `mailto:${encodeURIComponent(email)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`
+    toast('Proforma opened — attach it to the email that just opened')
+  }
+
   // Pull the customer's CURRENT contact from the address book into this order.
   // Matches the delivery address in use to its stored contact; falls back to
   // the first delivery address, then the legacy contact columns.
@@ -903,17 +938,11 @@ export default function OrderDetailPage() {
           <p className="hint">Enter £ per litre — unit price and line total are calculated automatically. Prices are saved against this customer for future orders. Products marked with * attract a label charge — set the £/label rate above (pre-filled from customer settings).</p>
           {/* zIndex lifts this above the edit-lock overlay — the proforma is a
               read-only document, so it must stay printable on locked orders */}
-          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 10, position: 'relative', zIndex: 6 }}>
-            <button className="btn btn-a" onClick={() => generateProformaPDF(
-              {
-                docNo: order.order_no, date: new Date().toISOString().slice(0, 10),
-                orderDate: order.order_date || null,
-                invoiceTo, deliver: splitContact(order.customer_snapshot?.deliver || '').address,
-                lines,
-              },
-              letterheads[lhIndex] || {}, products, packaging, prices,
-              parseFloat(deliveryCharge) || 0, labelTotal, priceTiers, tierBasis, seasonMap,
-            )}>📄 Proforma invoice</button>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 10, position: 'relative', zIndex: 6 }}>
+            {(orderContact(order)?.email || '').trim() && (
+              <button className="btn btn-g" onClick={emailProforma} title={`Email proforma to ${orderContact(order).email}`}>✉ Email proforma</button>
+            )}
+            <button className="btn btn-a" onClick={runProforma}>📄 Proforma invoice</button>
           </div>
         </div>
         </PricingGuard>
