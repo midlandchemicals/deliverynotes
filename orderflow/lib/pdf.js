@@ -601,7 +601,7 @@ const BANK_DETAILS = [
   ['IBAN NO.', 'GB43NWBK60074150847015'],
 ]
 
-export function generateProformaPDF(doc_, lh, products, packaging, pricing = {}, deliveryCharge = 0, labelTotal = 0, tiersByKey = {}, basisByKey = {}, seasonByKey = {}) {
+export function generateProformaPDF(doc_, lh, products, packaging, pricing = {}, deliveryCharge = 0, labelTotal = 0, tiersByKey = {}, basisByKey = {}, seasonByKey = {}, opts = {}) {
   const doc = new jsPDF({ unit: 'mm', format: 'a4' })
   FONT = registerFonts(doc)
   const W = 210, M = 16
@@ -729,7 +729,9 @@ export function generateProformaPDF(doc_, lh, products, packaging, pricing = {},
   doc.setFont(FONT, 'normal').setFontSize(7.5).setTextColor(130, 130, 130)
     .text(doc.splitTextToSize(lh.footer || '', W - 2 * M), W / 2, fy, { align: 'center' })
 
-  window.open(URL.createObjectURL(new Blob([doc.output('arraybuffer')], { type: 'application/pdf' })), '_blank')
+  const blob = new Blob([doc.output('arraybuffer')], { type: 'application/pdf' })
+  if (opts.returnBlob) return blob   // caller uploads it (e.g. for a secure email link)
+  window.open(URL.createObjectURL(blob), '_blank')
 }
 
 // Purchase order laid out as the CUSTOMER's PO to us — the customer is the
