@@ -259,9 +259,20 @@ export default function OrderDetailPage() {
       const path = `${order.id}/${safe}-${Date.now()}.pdf`
       const up = await supabase.storage.from('proformas').upload(path, blob, { contentType: 'application/pdf', upsert: true })
       if (up.error) { setEmailModal(null); toastError(`Couldn't upload the proforma: ${up.error.message}. Is the private 'proformas' storage bucket set up?`); return }
-      const signed = await supabase.storage.from('proformas').createSignedUrl(path, 60 * 60 * 24 * 90) // 90 days
-      if (signed.error || !signed.data?.signedUrl) { setEmailModal(null); toastError('Uploaded, but could not create the secure link.'); return }
-      setEmailModal((m) => ({ ...m, link: signed.data.signedUrl, busy: false }))
+      const expires = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString()
+      // Prefer a short, on-our-domain link (/p/<token>); fall back to the raw
+      // signed URL if the link table isn't set up yet.
+      let link = ''
+      const token = (crypto.randomUUID().replace(/-/g, '')).slice(0, 14)
+      const linkIns = await supabase.from('proforma_links').insert({ token, order_id: order.id, doc_no: order.order_no, path, expires_at: expires })
+      if (!linkIns.error) {
+        link = `${window.location.origin}/p/${token}`
+      } else {
+        const signed = await supabase.storage.from('proformas').createSignedUrl(path, 60 * 60 * 24 * 90)
+        if (signed.error || !signed.data?.signedUrl) { setEmailModal(null); toastError('Uploaded, but could not create the link.'); return }
+        link = signed.data.signedUrl
+      }
+      setEmailModal((m) => ({ ...m, link, busy: false }))
     } catch (e) {
       setEmailModal(null); toastError('Could not prepare the proforma: ' + (e?.message || 'unknown'))
     }

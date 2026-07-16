@@ -22,3 +22,4 @@ a new numbered file appears here — run just that one.
 | 010_order_status_rename.sql | folds 'In progress' into 'New', renames generated → created |
 | 011_three_stage_status.sql | three stages: New Order → On Board → Delivery Note Printed |
 | 012_proformas_storage.sql | storage policies for the private 'proformas' bucket (proforma email links) |
+| 013_proforma_links.sql | short public /p/<token> links for proformas (needs SUPABASE_SERVICE_ROLE_KEY env var) |
