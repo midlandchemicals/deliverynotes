@@ -992,9 +992,10 @@ export default function OrderDetailPage() {
           {/* zIndex lifts this above the edit-lock overlay — the proforma is a
               read-only document, so it must stay printable on locked orders */}
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 10, position: 'relative', zIndex: 6 }}>
-            {(orderContact(order)?.email || '').trim() && (
-              <button className="btn btn-g" onClick={emailProforma} title={`Email proforma to ${orderContact(order).email}`}>✉ Email proforma</button>
-            )}
+            <button className="btn btn-g" onClick={emailProforma}
+              title={(orderContact(order)?.email || '').trim() ? `Email proforma to ${orderContact(order).email}` : 'No email on file — add one via Edit details'}>
+              ✉ Email proforma
+            </button>
             <button className="btn btn-a" onClick={runProforma}>📄 Proforma invoice</button>
           </div>
         </div>
