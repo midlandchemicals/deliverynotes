@@ -208,7 +208,9 @@ export default function OrderDetailPage() {
       email: editInfo.contact?.email || '',
       phone: editInfo.contact?.phone || '',
     }
-    const snapshot = { ...(order.customer_snapshot || {}), contact }
+    // Store it in all three slots so it flows to the delivery note AND the
+    // proforma/invoicing regardless of which resolver reads it.
+    const snapshot = { ...(order.customer_snapshot || {}), contact, delivery_contact: contact, invoice_contact: contact }
     const patch = {
       po_ref: editInfo.po_ref,
       order_date: editInfo.order_date || null,
@@ -714,7 +716,13 @@ export default function OrderDetailPage() {
         )}
         <div className="row c2" style={{ marginTop: 4 }}>
           <div className="field"><label>Invoice to</label>
-            <div className="paper" style={{ background: 'var(--panel-2)', color: 'var(--ink)', boxShadow: 'none', whiteSpace: 'pre-line', fontFamily: 'inherit' }}>{splitContact(order.customer_snapshot?.details || '').address}</div></div>
+            <div className="paper" style={{ background: 'var(--panel-2)', color: 'var(--ink)', boxShadow: 'none', whiteSpace: 'pre-line', fontFamily: 'inherit' }}>{splitContact(order.customer_snapshot?.details || '').address}</div>
+            {contactLines(invoiceContact(order)).length > 0 && (
+              <div className="paper" style={{ background: 'var(--panel-2)', color: 'var(--ink)', boxShadow: 'none', whiteSpace: 'pre-line', fontFamily: 'inherit', marginTop: 6, fontSize: 12 }}>
+                <b style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted)' }}>Accounts contact</b>{'\n'}{contactLines(invoiceContact(order)).join('\n')}
+              </div>
+            )}
+          </div>
           <div className="field"><label>Deliver to</label>
             <div className="paper" style={{ background: 'var(--panel-2)', color: 'var(--ink)', boxShadow: 'none', whiteSpace: 'pre-line', fontFamily: 'inherit' }}>{splitContact(order.customer_snapshot?.deliver || '').address}</div>
             {contactLines(orderContact(order)).length > 0 && (
@@ -1247,27 +1255,41 @@ function contactLines(contact) {
 
 // Contact for an order: use the stored snapshot contact if present,
 // otherwise extract it from the address text (older orders embed it there).
-// The delivery-side contact (for the driver / delivery note).
-function orderContact(order) {
-  const c = order?.customer_snapshot?.delivery_contact || order?.customer_snapshot?.contact
-  if (c && (c.name || c.email || c.phone)) return c
-  const fromDetails = splitContact(order?.customer_snapshot?.details || '').contact
-  const fromDeliver = splitContact(order?.customer_snapshot?.deliver || '').contact
-  const merged = {
-    name: fromDeliver.name || fromDetails.name,
-    email: fromDeliver.email || fromDetails.email,
-    phone: fromDeliver.phone || fromDetails.phone,
-  }
-  return (merged.name || merged.email || merged.phone) ? merged : null
+// Merge a contact field (name/email/phone) from several possible sources,
+// taking the first non-empty value for EACH field independently — so an email
+// held in one source isn't lost just because another source has a name.
+function mergeContactField(field, ...sources) {
+  for (const s of sources) { const v = s?.[field]; if (v) return v }
+  return ''
 }
 
-// The invoice-side contact (for the proforma / invoicing). Falls back to the
-// delivery contact, then to anything extractable from the addresses.
+// The delivery-side contact (for the driver / delivery note).
+function orderContact(order) {
+  const s = order?.customer_snapshot || {}
+  const del = s.delivery_contact || s.contact || {}
+  const fromDeliver = splitContact(s.deliver || '').contact
+  const fromDetails = splitContact(s.details || '').contact
+  const m = {
+    name: mergeContactField('name', del, fromDeliver, fromDetails),
+    email: mergeContactField('email', del, fromDeliver, fromDetails),
+    phone: mergeContactField('phone', del, fromDeliver, fromDetails),
+  }
+  return (m.name || m.email || m.phone) ? m : null
+}
+
+// The invoice-side contact (for the proforma / invoicing). Draws each field
+// from the invoice contact, then the invoice address text, then the delivery
+// contact — so the email is found wherever it happens to be stored.
 function invoiceContact(order) {
-  const c = order?.customer_snapshot?.invoice_contact
-  if (c && (c.name || c.email || c.phone)) return c
-  const fromDetails = splitContact(order?.customer_snapshot?.details || '').contact
-  if (fromDetails.name || fromDetails.email || fromDetails.phone) return fromDetails
-  return orderContact(order)
+  const s = order?.customer_snapshot || {}
+  const inv = s.invoice_contact || {}
+  const fromDetails = splitContact(s.details || '').contact
+  const del = orderContact(order) || {}
+  const m = {
+    name: mergeContactField('name', inv, fromDetails, del),
+    email: mergeContactField('email', inv, fromDetails, del),
+    phone: mergeContactField('phone', inv, fromDetails, del),
+  }
+  return (m.name || m.email || m.phone) ? m : null
 }
 
