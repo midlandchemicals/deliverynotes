@@ -23,3 +23,4 @@ a new numbered file appears here — run just that one.
 | 011_three_stage_status.sql | three stages: New Order → On Board → Delivery Note Printed |
 | 012_proformas_storage.sql | storage policies for the private 'proformas' bucket (proforma email links) |
 | 013_proforma_links.sql | short public /p/<token> links for proformas (needs SUPABASE_SERVICE_ROLE_KEY env var) |
+| 014_unified_addresses.sql | single `addresses` list per customer (merges invoice + delivery) |

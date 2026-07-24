@@ -1,7 +1,7 @@
 'use client'
 import React, { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { splitContact } from '@/lib/calc'
+import { splitContact, unifiedAddresses } from '@/lib/calc'
 import Combobox from '@/app/(app)/Combobox'
 import { ok, toastError } from '@/lib/notify'
 
@@ -154,7 +154,7 @@ function AddressListEditor({ list, kind, withContact, onChange, onCommit }) {
           </div>
         )
       })}
-      <button className="addrow" style={{ fontSize: 12.5, padding: '7px 10px', marginTop: 2 }} onClick={addEntry}>+ Add {kind} address</button>
+      <button className="addrow" style={{ fontSize: 12.5, padding: '7px 10px', marginTop: 2 }} onClick={addEntry}>+ Add {kind ? kind + ' ' : ''}address</button>
     </div>
   )
 }
@@ -192,6 +192,22 @@ export default function CustomersPage() {
   // Local-only update while typing — persisted on blur / Done via update()
   function updateLocal(id, patch) {
     setRows((r) => r.map((x) => (x.id === id ? { ...x, ...patch } : x)))
+  }
+
+  // Build the DB patch when the unified address list changes: write `addresses`,
+  // and keep the legacy fields mirrored so anything still reading them works.
+  function addrPatch(list) {
+    const first = list.find((a) => a.text) || {}
+    return {
+      addresses: list,
+      invoice_addresses: list,
+      delivery_addresses: list,
+      details: first.text || '',
+      deliver: first.text || '',
+      contact_name: first.contact?.name || '',
+      email: first.contact?.email || '',
+      phone: first.contact?.phone || '',
+    }
   }
 
   // Paste a delivery-note screenshot → read it with Claude vision → preview
@@ -239,24 +255,21 @@ export default function CustomersPage() {
     const fl = (t) => String(t || '').split('\n').map((s) => s.trim()).filter(Boolean)[0] || ''
 
     const delText = (d.address || d.name || '').trim()
-    const delEntry = { label: (d.name || fl(delText)).trim(), text: delText, contact: c(d.contact) }  // first line → label
+    const delEntry = { label: (d.name || fl(delText)).trim(), text: delText, contact: c(d.contact) }
     const invText = (i.address && i.address.trim()) ? i.address.trim() : cust.name  // blank invoice → company name
     const invEntry = { label: (i.name || fl(invText)).trim(), text: invText, contact: c(i.contact) }
 
-    const curDel = deliveryAddrList(cust).filter((a) => a.text)
-    const curInv = addrList(cust.invoice_addresses, cust.details).filter((a) => a.text)
-    const nextDel = sortAddrs(delEntry.text ? [...curDel, delEntry] : curDel)
-    const nextInv = sortAddrs([...curInv, invEntry])
-
-    await update(cust.id, {
-      delivery_addresses: nextDel,
-      deliver: nextDel[0]?.text || '',
-      contact_name: nextDel[0]?.contact?.name || '',
-      email: nextDel[0]?.contact?.email || '',
-      phone: nextDel[0]?.contact?.phone || '',
-      invoice_addresses: nextInv,
-      details: nextInv[0]?.text || '',
-    })
+    // One unified list: add both new addresses, de-duplicated by text.
+    const cur = unifiedAddresses(cust).filter((a) => a.text)
+    const norm = (t) => String(t || '').replace(/\s+/g, ' ').trim().toLowerCase()
+    const merged = [...cur]
+    for (const e of [delEntry, invEntry]) {
+      if (!e.text) continue
+      const hit = merged.find((a) => norm(a.text) === norm(e.text))
+      if (hit) { if (!(hit.contact?.email || hit.contact?.phone || hit.contact?.name) && (e.contact.email || e.contact.phone || e.contact.name)) hit.contact = e.contact }
+      else merged.push(e)
+    }
+    await update(cust.id, addrPatch(sortAddrs(merged)))
     setImpData(null)
     setImpMsg(`Added to ${cust.name}. Paste the next screenshot when ready.`)
   }
@@ -264,7 +277,7 @@ export default function CustomersPage() {
   async function add() {
     const { data } = await supabase.from('customers')
       .insert({ name: 'New customer', details: '', deliver: '', contact_name: '', email: '', phone: '',
-                invoice_addresses: [], delivery_addresses: [], default_delivery_charge: 0, free_delivery_above: 0 })
+                addresses: [], invoice_addresses: [], delivery_addresses: [], default_delivery_charge: 0, free_delivery_above: 0 })
       .select('*').single()
     setRows((r) => [data, ...r])
     setQ('')
@@ -320,10 +333,9 @@ export default function CustomersPage() {
   const filtered = rows.filter((it) => !q || (it.name || '').toLowerCase().includes(q.toLowerCase()))
 
   function customerSummary(it) {
-    const inv = addrList(it.invoice_addresses, it.details).filter((a) => a.text).length
-    const del = deliveryAddrList(it).filter((a) => a.text).length
+    const n = unifiedAddresses(it).filter((a) => a.text).length
     const bits = []
-    if (del) bits.push(`${del} delivery address${del !== 1 ? 'es' : ''}`)
+    if (n) bits.push(`${n} address${n !== 1 ? 'es' : ''}`)
     if (it.delivery_per_pallet > 0) bits.push(`£${Number(it.delivery_per_pallet).toFixed(2)}/pallet`)
     else if ((tierRows[it.id] || []).length) bits.push('pallet tiers')
     else if (it.default_delivery_charge > 0) bits.push(`£${Number(it.default_delivery_charge).toFixed(2)} delivery`)
@@ -440,38 +452,15 @@ export default function CustomersPage() {
                     onBlur={(e) => update(it.id, { name: e.target.value })} />
                 </div>
 
-                <div className="row c2" style={{ marginBottom: 4 }}>
-                  <div style={{ minWidth: 0 }}>
-                    <label>Invoice addresses</label>
-                    <AddressListEditor
-                      list={addrList(it.invoice_addresses, it.details)}
-                      kind="invoice"
-                      onChange={(list) => updateLocal(it.id, { invoice_addresses: list, details: list[0]?.text || '' })}
-                      onCommit={(list) => update(it.id, { invoice_addresses: list, details: list[0]?.text || '' })}
-                    />
-                  </div>
-                  <div style={{ minWidth: 0 }}>
-                    <label>Delivery addresses (each with its own contact)</label>
-                    <AddressListEditor
-                      list={deliveryAddrList(it)}
-                      kind="delivery"
-                      withContact
-                      onChange={(list) => updateLocal(it.id, {
-                        delivery_addresses: list,
-                        deliver: list[0]?.text || '',
-                        contact_name: list[0]?.contact?.name || '',
-                        email: list[0]?.contact?.email || '',
-                        phone: list[0]?.contact?.phone || '',
-                      })}
-                      onCommit={(list) => update(it.id, {
-                        delivery_addresses: list,
-                        deliver: list[0]?.text || '',
-                        contact_name: list[0]?.contact?.name || '',
-                        email: list[0]?.contact?.email || '',
-                        phone: list[0]?.contact?.phone || '',
-                      })}
-                    />
-                  </div>
+                <div style={{ marginBottom: 4, maxWidth: 640 }}>
+                  <label>Addresses <span style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0, color: 'var(--muted)' }}>— one list; each has its own contact. On an order you choose which is the invoice and which is the delivery address.</span></label>
+                  <AddressListEditor
+                    list={unifiedAddresses(it)}
+                    kind=""
+                    withContact
+                    onChange={(list) => updateLocal(it.id, addrPatch(list))}
+                    onCommit={(list) => update(it.id, addrPatch(list))}
+                  />
                 </div>
 
                 <div style={{ marginTop: 20, paddingTop: 18, borderTop: '1px solid var(--line)' }}>
