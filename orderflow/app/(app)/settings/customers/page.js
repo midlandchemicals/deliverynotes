@@ -292,11 +292,41 @@ export default function CustomersPage() {
   async function toggleTiers(customerId) {
     if (expandedTiersId === customerId) { setExpandedTiersId(null); return }
     setExpandedTiersId(customerId)
+    backfillContacts(customerId)
     if (!tierRows[customerId]) {
       const { data } = await supabase.from('customer_delivery_tiers')
         .select('*').eq('customer_id', customerId).order('pallets_from')
       setTierRows((t) => ({ ...t, [customerId]: data || [] }))
     }
+  }
+
+  // When a customer is opened, make sure every address has its contact filled
+  // in the structured fields — deriving from the address text AND the legacy
+  // deliver/details text (some addresses were saved with the text stripped of
+  // contact lines, so we look across every source). Persists if anything fills.
+  async function backfillContacts(customerId) {
+    const c = rows.find((x) => x.id === customerId)
+    if (!c) return
+    const legacyBlobs = [c.deliver, c.details,
+      ...((Array.isArray(c.invoice_addresses) ? c.invoice_addresses : []).map((a) => a.text)),
+      ...((Array.isArray(c.delivery_addresses) ? c.delivery_addresses : []).map((a) => a.text))]
+      .filter(Boolean)
+    const norm = (t) => splitContact(String(t || '')).address.replace(/\s+/g, ' ').trim().toLowerCase()
+    const list = unifiedAddresses(c)
+    let changed = false
+    const next = list.map((e) => {
+      const has = e.contact && (e.contact.name || e.contact.email || e.contact.phone)
+      if (has) return e
+      // try this entry's own text, then any legacy blob whose stripped address matches
+      let ct = splitContact(e.text || '').contact
+      if (!(ct.name || ct.email || ct.phone)) {
+        const blob = legacyBlobs.find((b) => norm(b) === norm(e.text))
+        if (blob) ct = splitContact(blob).contact
+      }
+      if (ct.name || ct.email || ct.phone) { changed = true; return { ...e, contact: { name: ct.name || '', email: ct.email || '', phone: ct.phone || '' } } }
+      return e
+    })
+    if (changed) await update(customerId, addrPatch(next))
   }
 
   function setCustomerTiers(customerId, tiers) {
