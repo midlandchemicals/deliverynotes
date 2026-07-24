@@ -240,7 +240,7 @@ export default function OrderDetailPage() {
   // with a secure 90-day link so it can be emailed with the mail client's own
   // signature (mailto hands off to the client, which appends the signature).
   async function emailProforma() {
-    const c = orderContact(order) || {}
+    const c = invoiceContact(order) || {}
     const email = (c.email || '').trim()
     if (!email) { toast('No email address on file for this order'); return }
     const greetName = c.name || order.customer_snapshot?.name || 'Sir/Madam'
@@ -993,7 +993,7 @@ export default function OrderDetailPage() {
               read-only document, so it must stay printable on locked orders */}
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 10, position: 'relative', zIndex: 6 }}>
             <button className="btn btn-g" onClick={emailProforma}
-              title={(orderContact(order)?.email || '').trim() ? `Email proforma to ${orderContact(order).email}` : 'No email on file — add one via Edit details'}>
+              title={(invoiceContact(order)?.email || '').trim() ? `Email proforma to ${invoiceContact(order).email}` : 'No email on file — add one via Edit details'}>
               ✉ Email proforma
             </button>
             <button className="btn btn-a" onClick={runProforma}>📄 Proforma invoice</button>
@@ -1251,16 +1251,27 @@ function contactLines(contact) {
 
 // Contact for an order: use the stored snapshot contact if present,
 // otherwise extract it from the address text (older orders embed it there).
+// The delivery-side contact (for the driver / delivery note).
 function orderContact(order) {
-  const c = order?.customer_snapshot?.contact
+  const c = order?.customer_snapshot?.delivery_contact || order?.customer_snapshot?.contact
   if (c && (c.name || c.email || c.phone)) return c
   const fromDetails = splitContact(order?.customer_snapshot?.details || '').contact
   const fromDeliver = splitContact(order?.customer_snapshot?.deliver || '').contact
   const merged = {
-    name: fromDetails.name || fromDeliver.name,
-    email: fromDetails.email || fromDeliver.email,
-    phone: fromDetails.phone || fromDeliver.phone,
+    name: fromDeliver.name || fromDetails.name,
+    email: fromDeliver.email || fromDetails.email,
+    phone: fromDeliver.phone || fromDetails.phone,
   }
   return (merged.name || merged.email || merged.phone) ? merged : null
+}
+
+// The invoice-side contact (for the proforma / invoicing). Falls back to the
+// delivery contact, then to anything extractable from the addresses.
+function invoiceContact(order) {
+  const c = order?.customer_snapshot?.invoice_contact
+  if (c && (c.name || c.email || c.phone)) return c
+  const fromDetails = splitContact(order?.customer_snapshot?.details || '').contact
+  if (fromDetails.name || fromDetails.email || fromDetails.phone) return fromDetails
+  return orderContact(order)
 }
 

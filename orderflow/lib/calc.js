@@ -52,6 +52,43 @@ export function num(v) {
   return isNaN(n) ? 0 : n
 }
 
+// ---- unified address book -------------------------------------------------
+// One address list per customer. Each entry: { label, text, contact:{name,
+// email,phone}, verified, verified_at, verified_by }. On the order the same
+// address can be used for invoicing and/or delivery.
+const normAddrKey = (t) => String(t || '').replace(/\s+/g, ' ').trim().toLowerCase()
+
+export function unifiedAddresses(c) {
+  if (Array.isArray(c?.addresses) && c.addresses.length) return c.addresses
+  // Lazily merge the legacy invoice + delivery lists (and legacy single fields),
+  // de-duplicated by address text, so old data flows into the one list.
+  const out = []
+  const seen = new Map()
+  const blankContact = () => ({ name: '', email: '', phone: '' })
+  const add = (e) => {
+    if (!e || !String(e.text || '').trim()) return
+    const key = normAddrKey(e.text)
+    const ct = { name: e.contact?.name || '', email: e.contact?.email || '', phone: e.contact?.phone || '' }
+    if (seen.has(key)) {
+      const ex = out[seen.get(key)]
+      const exEmpty = !(ex.contact.name || ex.contact.email || ex.contact.phone)
+      if (exEmpty && (ct.name || ct.email || ct.phone)) ex.contact = ct
+      if (!ex.label && e.label) ex.label = e.label
+      if (e.verified && !ex.verified) { ex.verified = true; ex.verified_at = e.verified_at || null; ex.verified_by = e.verified_by || '' }
+      return
+    }
+    seen.set(key, out.length)
+    out.push({ label: e.label || '', text: e.text, contact: ct, verified: !!e.verified, verified_at: e.verified_at || null, verified_by: e.verified_by || '' })
+  }
+  ;(Array.isArray(c?.invoice_addresses) ? c.invoice_addresses : []).forEach(add)
+  ;(Array.isArray(c?.delivery_addresses) ? c.delivery_addresses : []).forEach(add)
+  if (!out.length) {
+    if (c?.details) add({ text: c.details, contact: blankContact() })
+    if (c?.deliver) add({ text: c.deliver, contact: { name: c?.contact_name || '', email: c?.email || '', phone: c?.phone || '' } })
+  }
+  return out
+}
+
 export function fmt(n) {
   return (Math.round(n * 100) / 100).toLocaleString(undefined, { maximumFractionDigits: 2 })
 }

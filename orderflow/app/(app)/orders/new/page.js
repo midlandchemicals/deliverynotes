@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import { nextNo, splitContact } from '@/lib/calc'
+import { nextNo, splitContact, unifiedAddresses } from '@/lib/calc'
 import { ok, toast, toastError } from '@/lib/notify'
 import { useIsAdmin } from '@/app/(app)/PricingGuard'
 import LineEditor from '../LineEditor'
@@ -30,9 +30,10 @@ export default function NewOrderPage() {
   const [deliveryOptions, setDeliveryOptions] = useState([])
   const [invoiceIdx, setInvoiceIdx] = useState(0)
   const [deliveryIdx, setDeliveryIdx] = useState(0)
-  const [contactName, setContactName] = useState('')
+  const [contactName, setContactName] = useState('')       // delivery contact
   const [contactEmail, setContactEmail] = useState('')
   const [contactPhone, setContactPhone] = useState('')
+  const [invContact, setInvContact] = useState({ name: '', email: '', phone: '' }) // invoice contact
   const [poRef, setPoRef] = useState('')
   const [orderDate, setOrderDate] = useState(new Date().toISOString().slice(0, 10))
   const [requestedDate, setRequestedDate] = useState('')
@@ -177,26 +178,24 @@ export default function NewOrderPage() {
     loadAvailablePackaging(id)
     const c = customers.find((x) => x.id === id)
     if (!c) return
-    const inv = splitContact(c.details || '')
-    const del = splitContact(c.deliver || '')
-    const invList = (Array.isArray(c.invoice_addresses) && c.invoice_addresses.length)
-      ? c.invoice_addresses : [{ label: 'Main', text: inv.address }]
-    const delList = (Array.isArray(c.delivery_addresses) && c.delivery_addresses.length)
-      ? c.delivery_addresses
-      : [{ label: 'Main', text: del.address, contact: { name: c.contact_name || del.contact.name || '', email: c.email || del.contact.email || '', phone: c.phone || del.contact.phone || '' } }]
-    setInvoiceOptions(invList); setDeliveryOptions(delList)
+    // One address pool; the same list serves both invoice and delivery pickers.
+    const list = unifiedAddresses(c)
+    const options = list.length ? list : [{ label: 'Main', text: c.details || c.deliver || '', contact: { name: c.contact_name || '', email: c.email || '', phone: c.phone || '' } }]
+    setInvoiceOptions(options); setDeliveryOptions(options)
     setInvoiceIdx(0); setDeliveryIdx(0)
-    setCustDetails(splitContact(invList[0]?.text || '').address)
-    setCustDeliver(splitContact(delList[0]?.text || '').address)
-    const ct0 = delList[0]?.contact || {}
-    setContactName(ct0.name || c.contact_name || inv.contact.name || '')
-    setContactEmail(ct0.email || c.email || inv.contact.email || '')
-    setContactPhone(ct0.phone || c.phone || del.contact.phone || '')
+    setCustDetails(splitContact(options[0]?.text || '').address)
+    setCustDeliver(splitContact(options[0]?.text || '').address)
+    const ct0 = options[0]?.contact || {}
+    setInvContact({ name: ct0.name || '', email: ct0.email || '', phone: ct0.phone || '' })
+    setContactName(ct0.name || ''); setContactEmail(ct0.email || ''); setContactPhone(ct0.phone || '')
   }
 
   function pickInvoiceAddr(i) {
     setInvoiceIdx(i)
-    setCustDetails(splitContact(invoiceOptions[i]?.text || '').address)
+    const opt = invoiceOptions[i] || {}
+    setCustDetails(splitContact(opt.text || '').address)
+    const ct = opt.contact || {}
+    setInvContact({ name: ct.name || '', email: ct.email || '', phone: ct.phone || '' })
   }
 
   function pickDeliveryAddr(i) {
@@ -262,31 +261,31 @@ export default function NewOrderPage() {
     if (rest.length === 0) proceedToStep2()
   }
 
+  // Persist the unified address list to the customer, mirroring legacy fields.
+  function addrPatch(list) {
+    const first = list.find((a) => a.text) || {}
+    return {
+      addresses: list, invoice_addresses: list, delivery_addresses: list,
+      details: first.text || '', deliver: first.text || '',
+      contact_name: first.contact?.name || '', email: first.contact?.email || '', phone: first.contact?.phone || '',
+    }
+  }
+
   // One-time verification of an AI-imported address: persist edits + the
-  // verified flag onto the customer record, then update the form fields.
+  // verified flag onto the customer's address book, then update the form.
   async function confirmVerify() {
     const item = addrPrompt
     const c = customers.find((x) => x.id === customerId)
     if (!item || !c) { advanceAddrQueue(); return }
     const { data: { user } } = await supabase.auth.getUser()
     const stamp = { verified: true, verified_at: new Date().toISOString(), verified_by: user?.email || '' }
-    if (item.kind === 'invoice') {
-      const next = invoiceOptions.map((a, ix) => (ix === item.idx ? { ...a, label: item.label || a.label, text: item.text, ...stamp } : a))
-      if (ok(await supabase.from('customers').update({ invoice_addresses: next, details: next[0]?.text || '' }).eq('id', customerId), 'saving verification')) {
-        setCustomers((cs) => cs.map((x) => (x.id === customerId ? { ...x, invoice_addresses: next } : x)))
-        setInvoiceOptions(next)
-        setCustDetails(splitContact(item.text).address)
-        toast('Invoice address verified ✓')
-      }
-    } else {
-      const next = deliveryOptions.map((a, ix) => (ix === item.idx ? { ...a, label: item.label || a.label, text: item.text, contact: item.contact, ...stamp } : a))
-      if (ok(await supabase.from('customers').update({ delivery_addresses: next, deliver: next[0]?.text || '' }).eq('id', customerId), 'saving verification')) {
-        setCustomers((cs) => cs.map((x) => (x.id === customerId ? { ...x, delivery_addresses: next } : x)))
-        setDeliveryOptions(next)
-        setCustDeliver(splitContact(item.text).address)
-        setContactName(item.contact?.name || ''); setContactEmail(item.contact?.email || ''); setContactPhone(item.contact?.phone || '')
-        toast('Delivery address verified ✓')
-      }
+    const next = unifiedAddresses(c).map((a, ix) => (ix === item.idx ? { ...a, label: item.label || a.label, text: item.text, contact: item.contact || a.contact, ...stamp } : a))
+    if (ok(await supabase.from('customers').update(addrPatch(next)).eq('id', customerId), 'saving verification')) {
+      setCustomers((cs) => cs.map((x) => (x.id === customerId ? { ...x, ...addrPatch(next) } : x)))
+      setInvoiceOptions(next); setDeliveryOptions(next)
+      if (item.kind === 'invoice') { setCustDetails(splitContact(item.text).address); setInvContact(item.contact || { name: '', email: '', phone: '' }) }
+      else { setCustDeliver(splitContact(item.text).address); setContactName(item.contact?.name || ''); setContactEmail(item.contact?.email || ''); setContactPhone(item.contact?.phone || '') }
+      toast(`${item.kind === 'invoice' ? 'Invoice' : 'Delivery'} address verified ✓`)
     }
     advanceAddrQueue()
   }
@@ -296,26 +295,17 @@ export default function NewOrderPage() {
     const c = customers.find((x) => x.id === customerId)
     if (!item || !c) { advanceAddrQueue(); return }
     const entryLabel = (item.label || firstLine(item.text)).trim()
-    if (item.kind === 'invoice') {
-      const cur = (Array.isArray(c.invoice_addresses) && c.invoice_addresses.length)
-        ? c.invoice_addresses
-        : (c.details ? [{ label: firstLine(c.details), text: c.details }] : [])
-      const next = [...cur.filter((a) => a.text), { label: entryLabel, text: item.text, verified: true, verified_at: new Date().toISOString() }]
-      if (ok(await supabase.from('customers').update({ invoice_addresses: next }).eq('id', customerId), 'saving the invoice address')) {
-        setCustomers((cs) => cs.map((x) => (x.id === customerId ? { ...x, invoice_addresses: next } : x)))
-        setInvoiceOptions(next)
-        toast(`Invoice address saved to ${c.name}`)
-      }
-    } else {
-      const cur = (Array.isArray(c.delivery_addresses) && c.delivery_addresses.length)
-        ? c.delivery_addresses
-        : (c.deliver ? [{ label: firstLine(c.deliver), text: c.deliver, contact: { name: c.contact_name || '', email: c.email || '', phone: c.phone || '' } }] : [])
-      const next = [...cur.filter((a) => a.text), { label: entryLabel, text: item.text, contact: item.contact || { name: '', email: '', phone: '' }, verified: true, verified_at: new Date().toISOString() }]
-      if (ok(await supabase.from('customers').update({ delivery_addresses: next }).eq('id', customerId), 'saving the delivery address')) {
-        setCustomers((cs) => cs.map((x) => (x.id === customerId ? { ...x, delivery_addresses: next } : x)))
-        setDeliveryOptions(next)
-        toast(`Delivery address saved to ${c.name}`)
-      }
+    const norm = (t) => String(t || '').replace(/\s+/g, ' ').trim().toLowerCase()
+    const cur = unifiedAddresses(c).filter((a) => a.text)
+    const entry = { label: entryLabel, text: item.text, contact: item.contact || { name: '', email: '', phone: '' }, verified: true, verified_at: new Date().toISOString() }
+    const hitIdx = cur.findIndex((a) => norm(a.text) === norm(item.text))
+    const next = hitIdx >= 0
+      ? cur.map((a, ix) => (ix === hitIdx ? { ...a, label: a.label || entry.label, verified: true, contact: (a.contact?.email || a.contact?.phone || a.contact?.name) ? a.contact : entry.contact } : a))
+      : [...cur, entry]
+    if (ok(await supabase.from('customers').update(addrPatch(next)).eq('id', customerId), 'saving the address')) {
+      setCustomers((cs) => cs.map((x) => (x.id === customerId ? { ...x, ...addrPatch(next) } : x)))
+      setInvoiceOptions(next); setDeliveryOptions(next)
+      toast(`Address saved to ${c.name}`)
     }
     advanceAddrQueue()
   }
@@ -341,7 +331,12 @@ export default function NewOrderPage() {
       ;({ data, error } = await supabase.from('orders').insert({
         order_no: useNo,
         customer_id: customerId || null,
-        customer_snapshot: { name, details: custDetails, deliver: custDeliver, contact: { name: contactName, email: contactEmail, phone: contactPhone } },
+        customer_snapshot: {
+          name, details: custDetails, deliver: custDeliver,
+          contact: { name: contactName, email: contactEmail, phone: contactPhone }, // delivery contact (driver)
+          delivery_contact: { name: contactName, email: contactEmail, phone: contactPhone },
+          invoice_contact: { name: invContact.name, email: invContact.email, phone: invContact.phone },
+        },
         po_ref: poRef,
         order_date: orderDate || null,
         requested_date: requestedDate || null,
@@ -411,7 +406,7 @@ export default function NewOrderPage() {
                   options={invoiceOptions.map((a, i) => ({ id: String(i), label: `${a.verified ? '✓ ' : ''}${a.label || firstLine(a.text) || `Address ${i + 1}`}` }))}
                   value={String(invoiceIdx)}
                   onSelect={(id) => pickInvoiceAddr(+id)}
-                  placeholder="Type to search saved invoice addresses…"
+                  placeholder="Choose the invoice address…"
                 />
               </div>
             )}
@@ -425,7 +420,7 @@ export default function NewOrderPage() {
                   options={deliveryOptions.map((a, i) => ({ id: String(i), label: `${a.verified ? '✓ ' : ''}${a.label || firstLine(a.text) || `Address ${i + 1}`}` }))}
                   value={String(deliveryIdx)}
                   onSelect={(id) => pickDeliveryAddr(+id)}
-                  placeholder="Type to search saved delivery addresses…"
+                  placeholder="Choose the delivery address…"
                 />
               </div>
             )}
