@@ -58,15 +58,26 @@ export function num(v) {
 // address can be used for invoicing and/or delivery.
 const normAddrKey = (t) => String(t || '').replace(/\s+/g, ' ').trim().toLowerCase()
 
+// Ensure an address entry has a usable contact: if its structured contact is
+// empty, pull name/email/phone out of the address text (many were typed as
+// "Contact: … Tel: … Email: …" lines rather than into the fields).
+function withContact(e) {
+  const c = e?.contact || {}
+  if (c.name || c.email || c.phone) return { ...e, contact: { name: c.name || '', email: c.email || '', phone: c.phone || '' } }
+  const derived = splitContact(e?.text || '').contact
+  return { ...e, contact: { name: derived.name || '', email: derived.email || '', phone: derived.phone || '' } }
+}
+
 export function unifiedAddresses(c) {
-  if (Array.isArray(c?.addresses) && c.addresses.length) return c.addresses
+  if (Array.isArray(c?.addresses) && c.addresses.length) return c.addresses.map(withContact)
   // Lazily merge the legacy invoice + delivery lists (and legacy single fields),
   // de-duplicated by address text, so old data flows into the one list.
   const out = []
   const seen = new Map()
   const blankContact = () => ({ name: '', email: '', phone: '' })
-  const add = (e) => {
-    if (!e || !String(e.text || '').trim()) return
+  const add = (e0) => {
+    if (!e0 || !String(e0.text || '').trim()) return
+    const e = withContact(e0) // fill contact from address text if the fields were empty
     const key = normAddrKey(e.text)
     const ct = { name: e.contact?.name || '', email: e.contact?.email || '', phone: e.contact?.phone || '' }
     if (seen.has(key)) {

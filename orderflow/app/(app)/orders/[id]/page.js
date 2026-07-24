@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import { computeLine, docTotals, fmt, prettyDate, splitContact, labelCount, PRICE_LEVELS, seasonalActive, resolveLinePpl, parseTiers, VAT_RATE, VAT_LABEL, ORDER_STATUSES, STATUS_NEW, STATUS_BOARD, STATUS_DONE, normalizeStatus, extractDeliveryInstructions, nextNo } from '@/lib/calc'
+import { computeLine, docTotals, fmt, prettyDate, splitContact, labelCount, PRICE_LEVELS, seasonalActive, resolveLinePpl, parseTiers, VAT_RATE, VAT_LABEL, ORDER_STATUSES, STATUS_NEW, STATUS_BOARD, STATUS_DONE, normalizeStatus, extractDeliveryInstructions, nextNo, unifiedAddresses } from '@/lib/calc'
 import { generateDispatchPDF, generateOfficeCopyPDF, reprintPDF, generatePurchaseOrderPDF, generateProformaPDF } from '@/lib/pdf'
 import { printBoardNote } from '@/lib/boardnote'
 import { toast, toastError, ok } from '@/lib/notify'
@@ -301,23 +301,19 @@ export default function OrderDetailPage() {
   // the first delivery address, then the legacy contact columns.
   async function refreshContactFromCustomer() {
     if (!order.customer_id) { toast('This order has no linked customer'); return }
-    const { data: c } = await supabase.from('customers')
-      .select('delivery_addresses, contact_name, email, phone').eq('id', order.customer_id).single()
+    const { data: c } = await supabase.from('customers').select('*').eq('id', order.customer_id).single()
     if (!c) { toast('Could not load the customer'); return }
     const norm = (t) => splitContact(String(t || '')).address.replace(/\s+/g, ' ').trim().toLowerCase()
-    const target = norm(order.customer_snapshot?.deliver)
-    const list = Array.isArray(c.delivery_addresses) ? c.delivery_addresses : []
-    const match = list.find((a) => norm(a.text) === target) || list[0]
-    const ct = match?.contact || {}
+    const list = unifiedAddresses(c) // contact is derived from address text when the fields were blank
+    // Match the delivery address in use; else the invoice address; else the first.
+    const target = norm(order.customer_snapshot?.deliver) || norm(order.customer_snapshot?.details)
+    const match = list.find((a) => norm(a.text) === target) || list[0] || {}
+    const ct = match.contact || {}
     setEditInfo((x) => ({
       ...x,
-      contact: {
-        name: ct.name || c.contact_name || '',
-        email: ct.email || c.email || '',
-        phone: ct.phone || c.phone || '',
-      },
+      contact: { name: ct.name || '', email: ct.email || '', phone: ct.phone || '' },
     }))
-    toast('Pulled latest contact — review, then Save details')
+    toast(ct.email || ct.phone || ct.name ? 'Pulled latest contact — review, then Save details' : 'No contact found on this customer’s address')
   }
 
   async function setStatus(status) {
