@@ -22,8 +22,11 @@ export async function middleware(request) {
   const { data: { user } } = await supabase.auth.getUser()
   const path = request.nextUrl.pathname
   const isAuthRoute = path.startsWith('/login')
+  // Public routes — no login required. /p/<token> serves proforma links to
+  // customers who have no account; /api handles its own auth per-route.
+  const isPublic = path.startsWith('/p/') || path.startsWith('/api/')
 
-  if (!user && !isAuthRoute) {
+  if (!user && !isAuthRoute && !isPublic) {
     const url = request.nextUrl.clone()
     url.pathname = '/login'
     return NextResponse.redirect(url)
