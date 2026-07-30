@@ -1451,7 +1451,8 @@ export default function OrderDetailPage() {
       {linesDirty && !batchModal && !priceScope && !unpricedModal && (
         <div style={{
           position: 'fixed', left: 0, right: 0, bottom: 0, zIndex: 40,
-          display: 'flex', justifyContent: 'center', pointerEvents: 'none', padding: '0 12px 16px',
+          display: 'flex', justifyContent: 'center', pointerEvents: 'none',
+          padding: '0 12px calc(16px + env(safe-area-inset-bottom))',
         }}>
           <div style={{
             pointerEvents: 'auto', display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap',
