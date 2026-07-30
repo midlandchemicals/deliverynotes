@@ -65,6 +65,23 @@ export default function NewOrderPage() {
     })()
   }, [])
 
+  // Refresh product/packaging catalogues on tab focus so SG/weight edits made
+  // in the admin reflect here without a reload.
+  useEffect(() => {
+    async function refresh() {
+      if (document.visibilityState !== 'visible') return
+      const [p, k] = await Promise.all([
+        supabase.from('products').select('*').order('name'),
+        supabase.from('packaging').select('*').order('volume'),
+      ])
+      if (p.data) setProducts(p.data)
+      if (k.data) setPackaging(k.data)
+    }
+    document.addEventListener('visibilitychange', refresh)
+    window.addEventListener('focus', refresh)
+    return () => { document.removeEventListener('visibilitychange', refresh); window.removeEventListener('focus', refresh) }
+  }, [])
+
   async function loadAvailablePackaging(cid) {
     const { data } = await supabase.from('customer_product_prices')
       .select('product_id, packaging_id').eq('customer_id', cid)
