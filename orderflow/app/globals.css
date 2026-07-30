@@ -186,6 +186,15 @@ table.tbl input,table.tbl select{padding:7px 10px;font-size:12.5px;border-radius
 .list-row .meta{font-size:12px;color:var(--muted);margin-top:3px}
 .list-row .ono{font-family:"IBM Plex Mono";font-weight:600;font-size:13.5px;color:var(--heading)}
 
+/* order-row action buttons (order book) */
+.list-actions{display:grid;grid-template-columns:116px 116px 168px;align-items:center;gap:12px;flex-shrink:0}
+.row-act{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;
+  width:116px;padding:9px 0;background:var(--panel);border:1.5px solid var(--line-solid);
+  border-radius:10px;cursor:pointer;font-family:inherit;color:var(--heading);transition:.15s}
+.row-act:hover{border-color:var(--accent);color:var(--accent)}
+.row-act span{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--muted)}
+.row-act-end{display:flex;flex-direction:column;align-items:flex-end;gap:8px}
+
 /* ── filters ── */
 .filters{display:flex;gap:8px;margin-bottom:18px;flex-wrap:wrap;align-items:center}
 .filters input{max-width:320px}
@@ -419,4 +428,60 @@ body{background:var(--bg-grad)}
   .main-col{padding:14px 16px 70px}
   .main-inner .card{padding:18px 0;overflow-x:auto}
   .main-inner .kpi{padding:8px 14px}
+}
+
+/* ═══ TABLET & PHONE ═══════════════════════════════════════════════════════
+   Written last so it wins over the integrated-sheet rules above, which are
+   scoped to .main-inner and would otherwise out-specify these. */
+
+/* Tablet portrait and below — the shell has already stacked at 860px. */
+@media(max-width:900px){
+  /* Order-book rows stack: details on top, actions on their own full-width
+     line, so nothing is squeezed into a 116px column on a narrow screen. */
+  .main-inner .list-row,.list-row{flex-direction:column;align-items:stretch;gap:12px;padding:14px 10px}
+  .list-actions{grid-template-columns:1fr 1fr auto;width:100%;gap:8px}
+  .row-act{width:auto;min-height:46px;flex-direction:row;gap:8px;padding:8px 10px}
+  .row-act svg{width:18px;height:18px;flex-shrink:0}
+  .row-act span{font-size:10.5px;text-align:left;line-height:1.15}
+  .row-act-end{flex-direction:row;align-items:center;gap:8px}
+
+  /* Search fills the width; the status chips sit under it and can scroll. */
+  .filters{gap:7px}
+  .filters input{flex:1 1 100%;max-width:none;order:-1}
+  .chip{padding:8px 14px}
+}
+
+/* Phones. */
+@media(max-width:600px){
+  .main-col{padding:12px 12px 84px}
+  .page-head h1{font-size:20px}
+  .card .ttl{align-items:flex-start;gap:8px}
+  .card .ttl h2{font-size:14px}
+
+  /* iOS zooms the whole page in when you focus a field smaller than 16px.
+     Bumping the field text stops that camera-lurch on every tap. */
+  input,textarea,select{font-size:16px;padding:11px 13px}
+  table.tbl input,table.tbl select{font-size:16px}
+
+  /* Comfortable thumb targets. */
+  .btn{min-height:42px;padding:10px 16px}
+  .btn-sm{min-height:38px;padding:8px 13px}
+  .btn-dl{width:38px;height:38px}
+  .sidebar nav a{padding:12px}
+
+  /* Actions go one per line — labels stay readable rather than truncating. */
+  .list-actions{grid-template-columns:1fr;gap:6px}
+  .row-act-end{justify-content:space-between;width:100%;padding-top:2px}
+  .list-customer{font-size:15px}
+  .list-row .meta,.list-date{font-size:12.5px}
+
+  /* Full-height sheet-style modals — a centred box wastes a phone screen and
+     the old 86vh cap left long forms unreachable behind browser chrome. */
+  .modal-bg{padding:0;align-items:flex-end}
+  .modal{max-width:100%;max-height:92vh;max-height:92dvh;border-radius:16px 16px 0 0;
+    padding:20px 16px calc(20px + env(safe-area-inset-bottom))}
+
+  .toast{left:12px;right:12px;bottom:calc(14px + env(safe-area-inset-bottom));
+    transform:none;text-align:center}
+  .toast.show{transform:translateY(-4px)}
 }

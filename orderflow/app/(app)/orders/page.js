@@ -288,38 +288,28 @@ export default function OrdersPage() {
                   </div>
                 )}
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '116px 116px 168px', alignItems: 'center', gap: 12, flexShrink: 0 }}>
+              <div className="list-actions">
                 <button
+                  className="row-act"
                   onClick={(e) => printPurchaseOrder(e, o)}
                   title="Download a purchase order for this order's products"
-                  style={{
-                    display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4,
-                    width: 116, padding: '9px 0',
-                    background: 'var(--panel)', border: '1.5px solid var(--line-solid)', borderRadius: 10,
-                    cursor: 'pointer', fontFamily: 'inherit', color: 'var(--heading)',
-                  }}
                 >
                   <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                     <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><path d="M14 2v6h6" /><path d="M9 13h6" /><path d="M9 17h6" />
                   </svg>
-                  <span style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.04em', color: 'var(--muted)' }}>Purchase order</span>
+                  <span>Purchase order</span>
                 </button>
                 <button
+                  className="row-act"
                   onClick={(e) => printForBoard(e, o)}
                   title="Print this order for the wall board"
-                  style={{
-                    display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4,
-                    width: 116, padding: '9px 0',
-                    background: 'var(--panel)', border: '1.5px solid var(--line-solid)', borderRadius: 10,
-                    cursor: 'pointer', fontFamily: 'inherit', color: 'var(--heading)',
-                  }}
                 >
                   <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                     <path d="M6 9V3h12v6" /><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" /><rect x="6" y="14" width="12" height="7" rx="1" />
                   </svg>
-                  <span style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.04em', color: 'var(--muted)' }}>Print for board</span>
+                  <span>Print for board</span>
                 </button>
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 8 }}>
+                <div className="row-act-end">
                   <StatusBadge status={o.status} />
                   <button className="btn-dl" onClick={(e) => remove(e, o)} title="Delete">×</button>
                 </div>
