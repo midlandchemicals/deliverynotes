@@ -9,8 +9,10 @@ import { toast, toastError, ok } from '@/lib/notify'
 import PricingGuard, { usePricingCheck } from '@/app/(app)/PricingGuard'
 import { StatusBadge } from '../page'
 import LineEditor from '../LineEditor'
+import Combobox from '@/app/(app)/Combobox'
 
 const STATUS_FLOW = ORDER_STATUSES
+const firstLineOf = (t) => String(t || '').split('\n').map((l) => l.trim()).filter(Boolean)[0] || ''
 
 // Build the productId::packagingId -> £/litre map for the active buyer level.
 // For 3-tier customers, read the level's column (falling back to price_per_litre).
@@ -78,6 +80,7 @@ export default function OrderDetailPage() {
   const [perPalletByKey, setPerPalletByKey] = useState({})       // { key: £/pallet } per-product override
   const [editInfo, setEditInfo] = useState(null) // null | {po_ref, order_date, requested_date, notes}
   const [emailModal, setEmailModal] = useState(null) // null | { to, name, link, busy }
+  const [custAddresses, setCustAddresses] = useState([]) // customer's saved addresses for the Edit-details pickers
   const [unpricedItems, setUnpricedItems] = useState([]) // lines missing a price for this customer
   const [unpricedModal, setUnpricedModal] = useState(null) // currently open item
   const [unpricedPackPrice, setUnpricedPackPrice] = useState('')
@@ -111,7 +114,7 @@ export default function OrderDetailPage() {
         const [priceData, custData, tiersData] = await Promise.all([
           supabase.from('customer_product_prices')
             .select('product_id, packaging_id, price_per_litre, delivery_charge, delivery_per_pallet, qty_tiers, tier_basis, price_trade, price_buyer_group, price_retail, season_from, season_to, season_ppl').eq('customer_id', o.data.customer_id),
-          supabase.from('customers').select('label_price, default_delivery_charge, free_delivery_above, delivery_per_pallet, default_letterhead_id, three_tier_pricing').eq('id', o.data.customer_id).single(),
+          supabase.from('customers').select('label_price, default_delivery_charge, free_delivery_above, delivery_per_pallet, default_letterhead_id, three_tier_pricing, addresses, invoice_addresses, delivery_addresses, details, deliver, contact_name, email, phone').eq('id', o.data.customer_id).single(),
           supabase.from('customer_delivery_tiers').select('*').eq('customer_id', o.data.customer_id).order('pallets_from'),
         ])
         const priceRows = priceData.data || []
@@ -123,6 +126,7 @@ export default function OrderDetailPage() {
           if (!availMap[r.product_id].includes(r.packaging_id)) availMap[r.product_id].push(r.packaging_id)
         }
         setAvailableByProduct(availMap)
+        if (custData.data) setCustAddresses(unifiedAddresses(custData.data))
         const threeTier = !!custData.data?.three_tier_pricing
         const initialLevel = o.data?.price_level || 'trade'
         setCustomerThreeTier(threeTier)
@@ -208,9 +212,14 @@ export default function OrderDetailPage() {
       email: editInfo.contact?.email || '',
       phone: editInfo.contact?.phone || '',
     }
-    // Store it in all three slots so it flows to the delivery note AND the
-    // proforma/invoicing regardless of which resolver reads it.
-    const snapshot = { ...(order.customer_snapshot || {}), contact, delivery_contact: contact, invoice_contact: contact }
+    // Store the contact in all three slots so it flows to the delivery note AND
+    // the proforma/invoicing regardless of which resolver reads it.
+    const snapshot = {
+      ...(order.customer_snapshot || {}),
+      details: editInfo.details ?? order.customer_snapshot?.details ?? '',
+      deliver: editInfo.deliver ?? order.customer_snapshot?.deliver ?? '',
+      contact, delivery_contact: contact, invoice_contact: contact,
+    }
     const patch = {
       po_ref: editInfo.po_ref,
       order_date: editInfo.order_date || null,
@@ -220,6 +229,7 @@ export default function OrderDetailPage() {
     }
     if (!ok(await supabase.from('orders').update(patch).eq('id', id), 'saving order details')) return
     setOrder({ ...order, ...patch })
+    setInvoiceTo(splitContact(snapshot.details || '').address)
     setEditInfo(null)
     toast('Order details saved')
   }
@@ -672,7 +682,7 @@ export default function OrderDetailPage() {
         <div className="ttl">
           <h2>{order.order_no} <StatusBadge status={order.status} /></h2>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            <button className="btn btn-g btn-sm" onClick={() => { const c = orderContact(order) || {}; setEditInfo({ po_ref: order.po_ref || '', order_date: order.order_date || '', requested_date: order.requested_date || '', notes: order.notes || '', contact: { name: c.name || '', email: c.email || '', phone: c.phone || '' } }) }}>✏️ Edit details</button>
+            <button className="btn btn-g btn-sm" onClick={() => { const c = orderContact(order) || {}; setEditInfo({ po_ref: order.po_ref || '', order_date: order.order_date || '', requested_date: order.requested_date || '', notes: order.notes || '', contact: { name: c.name || '', email: c.email || '', phone: c.phone || '' }, details: order.customer_snapshot?.details || '', deliver: order.customer_snapshot?.deliver || '' }) }}>✏️ Edit details</button>
             <button className="btn btn-g btn-sm" onClick={() => generatePurchaseOrderPDF({ ...order, lines }, products, packaging, letterheads[lhIndex] || {})}>📄 Purchase order</button>
             <button className="btn btn-g btn-sm" onClick={printNote}>🖨 Print for board</button>
             <button className="btn btn-g btn-sm" onClick={() => router.push('/orders')}>← Back to log</button>
@@ -688,7 +698,37 @@ export default function OrderDetailPage() {
               <div className="field"><label>Requested delivery date</label>
                 <input className="mono" type="date" value={editInfo.requested_date} onChange={(e) => setEditInfo((x) => ({ ...x, requested_date: e.target.value }))} /></div>
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', margin: '4px 0 6px' }}>
+            <div className="row c2" style={{ marginTop: 4 }}>
+              <div className="field">
+                <label>Invoice address</label>
+                {custAddresses.length > 0 && (
+                  <div style={{ marginBottom: 6 }}>
+                    <Combobox
+                      options={custAddresses.map((a, i) => ({ id: String(i), label: `${a.verified ? '✓ ' : ''}${a.label || firstLineOf(a.text) || `Address ${i + 1}`}` }))}
+                      value=""
+                      onSelect={(id) => { const a = custAddresses[+id]; if (a) setEditInfo((x) => ({ ...x, details: splitContact(a.text).address, contact: { ...x.contact } })) }}
+                      placeholder="Choose a saved address…"
+                    />
+                  </div>
+                )}
+                <textarea style={{ minHeight: 84 }} value={editInfo.details || ''} onChange={(e) => setEditInfo((x) => ({ ...x, details: e.target.value }))} placeholder="Invoice address" />
+              </div>
+              <div className="field">
+                <label>Delivery address</label>
+                {custAddresses.length > 0 && (
+                  <div style={{ marginBottom: 6 }}>
+                    <Combobox
+                      options={custAddresses.map((a, i) => ({ id: String(i), label: `${a.verified ? '✓ ' : ''}${a.label || firstLineOf(a.text) || `Address ${i + 1}`}` }))}
+                      value=""
+                      onSelect={(id) => { const a = custAddresses[+id]; if (a) { const ct = a.contact || {}; setEditInfo((x) => ({ ...x, deliver: splitContact(a.text).address, contact: { name: ct.name || '', email: ct.email || '', phone: ct.phone || '' } })) } }}
+                      placeholder="Choose a saved address…"
+                    />
+                  </div>
+                )}
+                <textarea style={{ minHeight: 84 }} value={editInfo.deliver || ''} onChange={(e) => setEditInfo((x) => ({ ...x, deliver: e.target.value }))} placeholder="Delivery address" />
+              </div>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', margin: '10px 0 6px' }}>
               <label style={{ margin: 0 }}>Contact for this order</label>
               <button className="btn btn-g btn-sm" style={{ padding: '3px 10px', fontSize: 11.5 }} onClick={refreshContactFromCustomer}>↻ Pull latest from address book</button>
             </div>
