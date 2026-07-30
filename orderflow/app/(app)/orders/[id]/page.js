@@ -375,6 +375,10 @@ export default function OrderDetailPage() {
     toast('Products saved')
   }
 
+  // order.lines is what's actually on file — anything different on screen is
+  // unsaved, and drives the sticky "you haven't saved" bar at the bottom.
+  const linesDirty = !editLocked && !!order && JSON.stringify(lines) !== JSON.stringify(order.lines || [])
+
   // The DB column the order's current buyer level writes to.
   function levelCol() {
     return (PRICE_LEVELS.find((l) => l.key === priceLevel) || PRICE_LEVELS[0]).col
@@ -491,7 +495,8 @@ export default function OrderDetailPage() {
   async function setAgreedPrice(i, value) {
     const next = lines.map((x, idx) => (idx === i ? { ...x, ppl_override: value } : x))
     setLines(next)
-    ok(await supabase.from('orders').update({ lines: next }).eq('id', id), 'saving agreed price')
+    if (!ok(await supabase.from('orders').update({ lines: next }).eq('id', id), 'saving agreed price')) return
+    setOrder((o) => (o ? { ...o, lines: next } : o))   // it's on file now — not "unsaved"
   }
 
   function printOfficeCopy(d) {
@@ -889,6 +894,14 @@ export default function OrderDetailPage() {
           <LineEditor lines={lines} setLines={setLines} products={products} packaging={packaging} availableByProduct={availableByProduct} />
         </div>
         <p className="hint">Totals: {fmt(totals.volume)} L · net {fmt(totals.net)} kg · gross {fmt(totals.gross)} kg</p>
+        {/* Repeated here so a long product list never means scrolling back up to save. */}
+        {!editLocked && (
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', borderTop: '1px solid var(--line)', paddingTop: 12, marginTop: 4 }}>
+            <button className="btn btn-g btn-sm" onClick={() => setShowAdd(true)}>＋ Add a product</button>
+            <button className={'btn btn-sm ' + (linesDirty ? 'btn-a' : 'btn-g')} onClick={saveLines}>💾 Save products</button>
+            {linesDirty && <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--bad, #C24E42)' }}>You have unsaved changes</span>}
+          </div>
+        )}
       </div>
 
       {order.customer_id && (
@@ -1430,6 +1443,25 @@ export default function OrderDetailPage() {
               <button className="btn btn-g" onClick={() => setBatchModal(null)} disabled={busy}>Cancel</button>
               <button className="btn btn-a" onClick={confirmDispatch} disabled={busy}>{busy ? 'Generating…' : 'Generate delivery note'}</button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Follows you down the page — you can save from wherever you are. */}
+      {linesDirty && !batchModal && !priceScope && !unpricedModal && (
+        <div style={{
+          position: 'fixed', left: 0, right: 0, bottom: 0, zIndex: 40,
+          display: 'flex', justifyContent: 'center', pointerEvents: 'none', padding: '0 12px 16px',
+        }}>
+          <div style={{
+            pointerEvents: 'auto', display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap',
+            background: '#C24E42', color: '#fff', borderRadius: 12, padding: '12px 18px',
+            boxShadow: '0 6px 24px rgba(0,0,0,.28)', maxWidth: '100%',
+          }}>
+            <span style={{ fontWeight: 800, fontSize: 14 }}>⚠ You have unsaved changes to the products</span>
+            <button className="btn btn-sm" style={{ background: '#fff', color: '#C24E42', fontWeight: 800, border: 'none' }} onClick={saveLines}>
+              💾 Save products
+            </button>
           </div>
         </div>
       )}
