@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { computeLine, docTotals, fmt, prettyDate, splitContact, labelCount, PRICE_LEVELS, seasonalActive, resolveLinePpl, parseTiers, VAT_RATE, VAT_LABEL, ORDER_STATUSES, STATUS_NEW, STATUS_BOARD, STATUS_DONE, normalizeStatus, extractDeliveryInstructions, nextNo, unifiedAddresses } from '@/lib/calc'
@@ -45,6 +45,11 @@ export default function OrderDetailPage() {
 
   // pricing: { [productId::packagingId]: pricePerLitre } — base/fallback price
   const [prices, setPrices] = useState({})
+  // A typed price change never saves silently — it opens the "where does this
+  // price go?" prompt below. This holds the price as it was before they typed.
+  const priceBefore = useRef({})
+  const [priceScope, setPriceScope] = useState(null)
+  const custName = order?.customer_snapshot?.name || 'this customer'
   // quantity-break tiers: { [productId::packagingId]: [{from,to,ppl}] }
   const [priceTiers, setPriceTiers] = useState({})
   // tier basis per price row: { [productId::packagingId]: 'line' | 'order' }
@@ -412,6 +417,42 @@ export default function OrderDetailPage() {
       { customer_id: order.customer_id, product_id: productId, packaging_id: packagingId, ...priceUpsertCols(price), updated_at: new Date().toISOString() },
       { onConflict: 'customer_id,product_id,packaging_id', ignoreDuplicates: false }
     ), 'saving price')
+  }
+
+  // A price was typed into the £/Litre box. Nothing is saved yet — put the box
+  // back to what it was and ask where the new price should go, because "fix it
+  // for this order" and "fix it for good" are very different things.
+  function askPriceScope(i, c, priceKey, typed) {
+    const before = parseFloat(priceBefore.current[priceKey]) || 0
+    const next = parseFloat(typed) || 0
+    if (next === before) { setPrices((p) => ({ ...p, [priceKey]: before || '' })); return }
+    setPrices((p) => ({ ...p, [priceKey]: before || '' }))
+    setPriceScope({
+      i, productId: c.product.id, packagingId: c.packaging?.id, priceKey,
+      productName: c.productName, packName: c.packaging?.name || '', vol: c.vol || 0,
+      before, next,
+    })
+  }
+
+  // "Every future order" — write it to the customer's price list on file.
+  async function commitPriceToList() {
+    const s = priceScope
+    if (!s) return
+    setPrices((p) => ({ ...p, [s.priceKey]: s.next }))
+    // A one-off agreed price on this line would hide the new list price.
+    if (lines[s.i]?.ppl_override != null && lines[s.i]?.ppl_override !== '') await setAgreedPrice(s.i, null)
+    await savePrice(s.productId, s.packagingId, s.next)
+    setPriceScope(null)
+    toast(`${custName}'s price list updated — ${s.productName} is now £${s.next.toFixed(4)}/L`)
+  }
+
+  // "This order only" — the price list on file is left exactly as it was.
+  async function commitPriceToOrderOnly() {
+    const s = priceScope
+    if (!s) return
+    await setAgreedPrice(s.i, String(s.next))
+    setPriceScope(null)
+    toast(`Agreed price for this order only — ${custName}'s price list is unchanged`)
   }
 
   // Combined pack qty across every line whose price row is in 'order' (combined)
@@ -920,6 +961,15 @@ export default function OrderDetailPage() {
                           <span style={{ fontSize: 10.5, color: 'var(--gold)', fontWeight: 700 }}>
                             ✎ agreed price · <a style={{ cursor: 'pointer', textDecoration: 'underline' }} onClick={() => setAgreedPrice(i, null)}>remove</a>
                           </span>
+                          <a style={{ fontSize: 10.5, color: 'var(--muted)', cursor: 'pointer', textDecoration: 'underline' }}
+                            title={`Make this ${custName}'s standard price for every future order`}
+                            onClick={() => setPriceScope({
+                              i, productId: c.product.id, packagingId: c.packaging?.id, priceKey,
+                              productName: c.productName, packName: c.packaging?.name || '', vol: c.vol || 0,
+                              before: ppl, next: parseFloat(l.ppl_override) || 0,
+                            })}>
+                            → make this the standard price
+                          </a>
                         </div>
                       ) : seasonApplied ? (
                         // Seasonal price is active for the order date — it wins.
@@ -953,12 +1003,9 @@ export default function OrderDetailPage() {
                           <input className="mono" style={{ textAlign: 'right' }}
                             value={prices[priceKey] ?? ''}
                             placeholder="0.0000"
+                            onFocus={() => { priceBefore.current[priceKey] = prices[priceKey] ?? '' }}
                             onChange={(e) => setPrices((p) => ({ ...p, [priceKey]: e.target.value }))}
-                            onBlur={(e) => {
-                              const v = parseFloat(e.target.value) || 0
-                              setPrices((p) => ({ ...p, [priceKey]: v }))
-                              savePrice(c.product.id, c.packaging?.id, v)
-                            }}
+                            onBlur={(e) => askPriceScope(i, c, priceKey, e.target.value)}
                           />
                           <a style={{ fontSize: 10.5, color: 'var(--muted)', cursor: 'pointer', textDecoration: 'underline' }}
                             title="Set a negotiated one-off price for this order — the price list is not changed"
@@ -1185,10 +1232,71 @@ export default function OrderDetailPage() {
         </div>
       )}
 
+      {priceScope && (() => {
+        const s = priceScope
+        const packLabel = s.packName || 'pack'
+        const perPack = (p) => (s.vol > 0 ? ` = £${(p * s.vol).toFixed(2)} per ${packLabel}` : '')
+        return (
+          <div className="modal-bg" onClick={() => setPriceScope(null)}>
+            <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 560, textAlign: 'left', padding: 0, overflow: 'hidden' }}>
+              <div style={{ background: '#C24E42', color: '#fff', padding: '14px 20px' }}>
+                <div style={{ fontSize: 18, fontWeight: 800, letterSpacing: '.02em' }}>⚠ STOP AND READ — you changed a price</div>
+                <div style={{ fontSize: 13, marginTop: 2, opacity: 0.95 }}>Choose where this new price applies. Nothing has been saved yet.</div>
+              </div>
+              <div style={{ padding: '18px 20px' }}>
+                <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 2 }}>{s.productName}</div>
+                <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 14 }}>
+                  {packLabel} · customer: <b style={{ color: 'var(--ink)' }}>{custName}</b>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 18, flexWrap: 'wrap' }}>
+                  <div>
+                    <div style={{ fontSize: 10.5, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted)', fontWeight: 700 }}>Was</div>
+                    <div className="mono" style={{ fontSize: 17, textDecoration: 'line-through', color: 'var(--muted)' }}>£{s.before.toFixed(4)}/L</div>
+                  </div>
+                  <div style={{ fontSize: 22, color: 'var(--muted)' }}>→</div>
+                  <div>
+                    <div style={{ fontSize: 10.5, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--accent)', fontWeight: 700 }}>New</div>
+                    <div className="mono" style={{ fontSize: 20, fontWeight: 800, color: 'var(--accent)' }}>£{s.next.toFixed(4)}/L{perPack(s.next)}</div>
+                  </div>
+                </div>
+
+                <button
+                  onClick={commitPriceToList}
+                  style={{
+                    display: 'block', width: '100%', textAlign: 'left', cursor: 'pointer', marginBottom: 12,
+                    border: '2px solid var(--accent)', background: 'var(--accent-soft, #E7F2EB)', borderRadius: 12, padding: '16px 18px', fontFamily: 'inherit',
+                  }}>
+                  <div style={{ fontSize: 16, fontWeight: 800, color: 'var(--accent)' }}>💾 SAVE TO {custName.toUpperCase()}&apos;S PRICE LIST</div>
+                  <div style={{ fontSize: 13, color: 'var(--ink)', marginTop: 4 }}>
+                    <b>Every future order</b> of {s.productName} in {packLabel} for {custName} will be
+                    {' '}<b>£{s.next.toFixed(4)} per litre{perPack(s.next)}</b>. This changes their price on file for good.
+                  </div>
+                </button>
+
+                <button
+                  onClick={commitPriceToOrderOnly}
+                  style={{
+                    display: 'block', width: '100%', textAlign: 'left', cursor: 'pointer',
+                    border: '2px solid var(--warn, #B07E28)', background: '#FCF4E2', borderRadius: 12, padding: '16px 18px', fontFamily: 'inherit',
+                  }}>
+                  <div style={{ fontSize: 16, fontWeight: 800, color: '#7A5511' }}>📄 THIS ORDER ONLY</div>
+                  <div style={{ fontSize: 13, color: '#7A5511', marginTop: 4 }}>
+                    A one-off agreed price for this order. {custName}&apos;s price list <b>stays at £{s.before.toFixed(4)}/L</b> for next time.
+                  </div>
+                </button>
+
+                <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 16 }}>
+                  <button className="btn btn-g" onClick={() => setPriceScope(null)}>Cancel — leave the price as it was</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
+
       {unpricedModal && (() => {
         const item = unpricedModal
         const customPPL = item.vol > 0 ? (parseFloat(unpricedPackPrice) || 0) / item.vol : 0
-        const custName = order?.customer_snapshot?.name || 'this customer'
         return (
           <div className="modal-bg" onClick={() => setUnpricedModal(null)}>
             <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 420, textAlign: 'left' }}>
