@@ -1,7 +1,7 @@
 'use client'
 import { jsPDF } from 'jspdf'
 import autoTable from 'jspdf-autotable'
-import { computeLine, docTotals, fmt, ukDate, packSize, resolveLinePpl, VAT_RATE, VAT_LABEL, extractDeliveryInstructions } from '@/lib/calc'
+import { computeLine, docTotals, fmt, ukDate, packSize, resolveLinePpl, VAT_RATE, VAT_LABEL, extractDeliveryInstructions, splitContact } from '@/lib/calc'
 import { registerFonts } from '@/lib/fonts'
 
 let FONT = 'helvetica'
@@ -782,23 +782,20 @@ export function generatePurchaseOrderPDF(order, products, packaging, lh = {}) {
   }
   // Addressee: the supplying company (letterhead), left; Deliver To right
   const supplierText = [lh.company || lh.name || '', ...(String(lh.address || '').split('\n'))].filter(Boolean).join('\n')
-  const { address: deliverAddr, instructions } = extractDeliveryInstructions(order.customer_snapshot?.deliver || '')
+  const deliverAddr = order.customer_snapshot?.deliver || ''  // full address (no red callout on a PO)
   const bh1 = block(M, 'To (Supplier)', supplierText)
   const rightX = M + colW + 5
   const bh2 = block(rightX, 'Deliver To', deliverAddr)
-  cy += Math.max(bh1, bh2) + 5
-
-  if (instructions.length) {
-    const insLines = doc.splitTextToSize(instructions.join('\n').toUpperCase(), W - 2 * M - 12)
-    const ih = 10 + insLines.length * 5.4
-    doc.setDrawColor(175, 45, 35).setLineWidth(0.8).setFillColor(255, 246, 240)
-    doc.roundedRect(M, cy, W - 2 * M, ih, 2, 2, 'FD')
-    doc.setFont(FONT, 'bold').setFontSize(7.5).setTextColor(175, 45, 35)
-      .text('DELIVERY INSTRUCTIONS — PLEASE READ', M + 5, cy + 5.5)
-    doc.setFont(FONT, 'bold').setFontSize(12).setTextColor(15, 15, 15)
-      .text(insLines, M + 5, cy + 11.5)
-    cy += ih + 5
+  let rightH = bh2
+  // Delivery contact (name / phone / email) — same as the delivery note.
+  const dc = order.customer_snapshot?.delivery_contact || order.customer_snapshot?.contact || {}
+  let cLines = contactPdfLines(dc)
+  if (!cLines.length) cLines = contactPdfLines(splitContact(order.customer_snapshot?.deliver || '').contact)
+  if (cLines.length) {
+    const cbh = block(rightX, 'Contact', cLines.join('\n'), cy + bh2 + 3)
+    rightH = bh2 + 3 + cbh
   }
+  cy += Math.max(bh1, rightH) + 5
 
   autoTable(doc, {
     startY: cy,
