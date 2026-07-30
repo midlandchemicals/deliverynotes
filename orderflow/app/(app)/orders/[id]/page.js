@@ -963,6 +963,9 @@ export default function OrderDetailPage() {
                       ? <span style={{ marginLeft: 5, color: 'var(--accent)', fontSize: 11 }}>⚡ per-pallet rate (per product)</span>
                       : custDeliveryTiers.length > 0 && <span style={{ marginLeft: 5, color: 'var(--accent)', fontSize: 11 }}>⚡ auto from pallet tiers</span>}
                     {!deliveryTouched && custFreeAbove > 0 && <span style={{ marginLeft: 5, color: 'var(--accent)', fontSize: 11 }}>· free above £{custFreeAbove}</span>}
+                    {!deliveryTouched && <a style={{ marginLeft: 8, cursor: 'pointer', textDecoration: 'underline', color: 'var(--muted)', fontSize: 11 }}
+                      title="Force no delivery charge for this order (stops the pallet-tier auto-calc adding one)"
+                      onClick={() => { setDeliveryCharge('0.00'); setDeliveryTouched(true) }}>set no charge</a>}
                   </span>
                   <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
                     <span style={{ position: 'absolute', left: 8, color: 'var(--muted)', fontSize: 13 }}>£</span>
