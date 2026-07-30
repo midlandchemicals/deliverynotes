@@ -32,6 +32,15 @@ export default function AddProductModal({ open, onClose, products, packaging, cu
   const [nPack, setNPack] = useState('')
   const [nQty, setNQty] = useState('1')
   const [nPpl, setNPpl] = useState('')
+  // full hazard / transport detail — prefilled from the ADR table or copied
+  // from another product, and always editable before the product is created.
+  const [nPg, setNPg] = useState('')
+  const [nClass, setNClass] = useState('')
+  const [nSub, setNSub] = useState('')
+  const [nTunnel, setNTunnel] = useState('')
+  const [nTcat, setNTcat] = useState('')
+  const [nPsn, setNPsn] = useState('')
+  const [hazSource, setHazSource] = useState('')  // note shown above the hazard fields
 
   if (!open) return null
 
@@ -48,12 +57,52 @@ export default function AddProductModal({ open, onClose, products, packaging, cu
     setStep('choose'); setBusy(false)
     setExProduct(''); setExPack(''); setExQty('1'); setExToRange(false); setExPpl('')
     setNName(''); setNRange(''); setNSg(''); setNUn(''); setNPack(''); setNQty('1'); setNPpl('')
+    setNPg(''); setNClass(''); setNSub(''); setNTunnel(''); setNTcat(''); setNPsn(''); setHazSource('')
   }
   function close() { reset(); onClose() }
 
   // Jump from the "new" screen straight into adding a matched existing product.
   function useExistingInstead(p) {
     setExProduct(p.id); setExPack(''); setExQty(nQty || '1'); setStep('existing')
+  }
+
+  // Copy EVERYTHING that describes the hazard from another product — UN number,
+  // packing group, class, subsidiary risk, tunnel code, transport category and
+  // the proper shipping name (which carries the "contains …" technical name).
+  function copyFrom(p) {
+    if (!p) return
+    setNSg(String(p.sg ?? ''))
+    setNUn(p.un_number || '')
+    if (!nRange) setNRange(p.category || '')
+    setNPg(p.pg || '')
+    setNClass(p.adr_class || '')
+    setNSub(p.adr_subsidiary || '')
+    setNTunnel(p.adr_tunnel || '')
+    setNTcat(p.adr_transport_cat || '')
+    setNPsn(p.adr_psn || '')
+    setHazSource(`Copied from ${p.name} — check it, and edit anything that differs.`)
+  }
+
+  // Typing a UN number fills the hazard detail from the ADR table. It never
+  // silently overwrites a "contains …" shipping name that's already been typed.
+  function changeUn(v) {
+    setNUn(v)
+    const entry = v.trim() ? lookupADR(v.trim()) : null
+    if (!entry) return
+    const pg = entry.pgOptions?.includes(String(nPg).replace(/^PG\s*/i, '').trim().toUpperCase())
+      ? nPg : (entry.pgOptions?.[0] || '')
+    setNPg(pg)
+    setNClass(entry.class || '')
+    setNSub(entry.subsidiary || '')
+    setNTunnel(adrTunnelForPG(v.trim(), pg))
+    if (!nPsn.trim()) setNPsn(entry.name || '')
+    setHazSource(`Filled in from the ADR table for UN ${v.trim()} — check it, and edit anything that differs.`)
+  }
+
+  // Keep the tunnel code in step when the packing group is changed by hand.
+  function changePg(v) {
+    setNPg(v)
+    if (nUn.trim() && lookupADR(nUn.trim())) setNTunnel(adrTunnelForPG(nUn.trim(), v))
   }
 
   async function addExisting() {
@@ -83,16 +132,13 @@ export default function AddProductModal({ open, onClose, products, packaging, cu
     if (!sg || sg <= 0) { toastError('Enter the SG (needed to work out the weights)'); return }
     if (!nPack) { toastError('Choose a packaging size'); return }
     setBusy(true)
-    const entry = nUn.trim() ? lookupADR(nUn.trim()) : null
+    // Whatever is on screen is what gets saved — the fields are prefilled from
+    // the ADR table or a copied product, but the user's edits always win.
     const patch = {
-      name: nName.trim(), sg, pg: '', un_number: nUn.trim(), category: nRange.trim(),
-      adr_class: '', adr_subsidiary: '', adr_tunnel: '', adr_psn: '', adr_transport_cat: '',
+      name: nName.trim(), sg, un_number: nUn.trim(), category: nRange.trim(),
+      pg: nPg.trim(), adr_class: nClass.trim(), adr_subsidiary: nSub.trim(),
+      adr_tunnel: nTunnel.trim(), adr_psn: nPsn.trim(), adr_transport_cat: nTcat.trim(),
       adr_verified_by: '', adr_verified_at: null,
-    }
-    if (entry) {
-      patch.adr_class = entry.class; patch.adr_subsidiary = entry.subsidiary; patch.adr_psn = entry.name
-      patch.pg = entry.pgOptions?.[0] || ''
-      patch.adr_tunnel = adrTunnelForPG(nUn.trim(), patch.pg)
     }
     const { data, error } = await supabase.from('products').insert(patch).select('*').single()
     if (error || !data) { setBusy(false); toastError('Could not create the product: ' + (error?.message || '')); return }
@@ -230,21 +276,52 @@ export default function AddProductModal({ open, onClose, products, packaging, cu
                 <datalist id="apm-ranges">{categories.map((c) => <option key={c} value={c} />)}</datalist>
               </div>
             </div>
+            <div className="field" style={{ marginBottom: 6 }}>
+              <label>Copy SG + all hazard details from an existing product (optional)</label>
+              <Combobox
+                options={products.map((p) => ({ id: p.id, label: p.category ? `${p.name} (${p.category})` : p.name }))}
+                value=""
+                onSelect={(id) => copyFrom(products.find((x) => x.id === id))}
+                placeholder="Search a similar product to copy from…"
+              />
+              <p className="hint" style={{ marginTop: 4, marginBottom: 0 }}>
+                💡 Copies the SG, UN number, packing group, class, tunnel code and the shipping name (e.g. “contains hydrochloric acid”). You can edit any of it below.
+              </p>
+            </div>
+
             <div className="row c2" style={{ marginBottom: 0 }}>
               <div className="field"><label>SG (for weights)</label>
                 <input className="mono" value={nSg} onChange={(e) => setNSg(e.target.value)} placeholder="e.g. 1.10" /></div>
               <div className="field"><label>UN number (optional)</label>
-                <input className="mono" value={nUn} onChange={(e) => setNUn(e.target.value)} placeholder="e.g. 1993" /></div>
+                <input className="mono" value={nUn} onChange={(e) => changeUn(e.target.value)} placeholder="e.g. 1993" /></div>
             </div>
-            <p className="hint" style={{ marginTop: 0 }}>💡 Not sure of SG/UN? Copy them from a similar product below.</p>
-            <div className="field" style={{ marginBottom: 6 }}>
-              <label>Copy SG / UN / range from an existing product (optional)</label>
-              <Combobox
-                options={products.map((p) => ({ id: p.id, label: p.category ? `${p.name} (${p.category})` : p.name }))}
-                value=""
-                onSelect={(id) => { const p = products.find((x) => x.id === id); if (p) { setNSg(String(p.sg ?? '')); setNUn(p.un_number || ''); if (!nRange) setNRange(p.category || '') } }}
-                placeholder="Search a similar product to copy from…"
-              />
+
+            <div style={{ border: '1px solid var(--line)', borderRadius: 8, padding: '10px 12px', marginTop: 8, marginBottom: 10 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted)', marginBottom: hazSource ? 4 : 8 }}>
+                Hazard / transport details — all editable
+              </div>
+              {hazSource && (
+                <p className="hint" style={{ marginTop: 0, marginBottom: 8, color: 'var(--accent)', fontWeight: 600 }}>✓ {hazSource}</p>
+              )}
+              <div className="row c2" style={{ marginBottom: 0 }}>
+                <div className="field"><label>Packing group</label>
+                  <input className="mono" value={nPg} onChange={(e) => changePg(e.target.value)} placeholder="e.g. II" /></div>
+                <div className="field"><label>Hazard class</label>
+                  <input className="mono" value={nClass} onChange={(e) => setNClass(e.target.value)} placeholder="e.g. 8" /></div>
+              </div>
+              <div className="row c2" style={{ marginBottom: 0 }}>
+                <div className="field"><label>Subsidiary risk</label>
+                  <input className="mono" value={nSub} onChange={(e) => setNSub(e.target.value)} placeholder="e.g. 6.1" /></div>
+                <div className="field"><label>Tunnel code</label>
+                  <input className="mono" value={nTunnel} onChange={(e) => setNTunnel(e.target.value)} placeholder="e.g. (E)" /></div>
+              </div>
+              <div className="field" style={{ marginBottom: 0 }}><label>Transport category</label>
+                <input className="mono" value={nTcat} onChange={(e) => setNTcat(e.target.value)} placeholder="e.g. 2" style={{ maxWidth: 120 }} /></div>
+              <div className="field" style={{ marginBottom: 0, marginTop: 8 }}>
+                <label>Proper shipping name</label>
+                <input value={nPsn} onChange={(e) => setNPsn(e.target.value)}
+                  placeholder="e.g. CORROSIVE LIQUID, ACIDIC, INORGANIC, N.O.S. (contains hydrochloric acid)" />
+              </div>
             </div>
 
             <div className="row c2" style={{ marginBottom: 0 }}>
