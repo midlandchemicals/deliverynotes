@@ -174,15 +174,17 @@ function renderDeliveryNote(doc, doc_, lh, products, packaging) {
   doc.setFont(FONT, 'bold').setFontSize(22).setTextColor(r, g, b)
     .text('DELIVERY NOTE', W - M, 20, { align: 'right' })
   doc.setFont(FONT, 'normal').setFontSize(10).setTextColor(40, 40, 40)
-  doc.text(`No.           ${doc_.docNo || ''}`, W - M, 28, { align: 'right' })
+  let hy = 28
+  doc.text(`No.           ${doc_.docNo || ''}`, W - M, hy, { align: 'right' }); hy += 6
+  if (doc_.poRef) { doc.text(`Your order no. ${doc_.poRef}`, W - M, hy, { align: 'right' }); hy += 6 }
   if (doc_.orderDate) {
-    doc.text(`Date ordered  ${ukDate(doc_.orderDate)}`, W - M, 34, { align: 'right' })
-    doc.text(`Note date     ${ukDate(doc_.date)}`, W - M, 40, { align: 'right' })
+    doc.text(`Date ordered  ${ukDate(doc_.orderDate)}`, W - M, hy, { align: 'right' }); hy += 6
+    doc.text(`Note date     ${ukDate(doc_.date)}`, W - M, hy, { align: 'right' }); hy += 6
   } else {
-    doc.text(`Date  ${ukDate(doc_.date)}`, W - M, 34, { align: 'right' })
+    doc.text(`Date  ${ukDate(doc_.date)}`, W - M, hy, { align: 'right' }); hy += 6
   }
 
-  const headerBottom = doc_.orderDate ? 44 : 38
+  const headerBottom = hy - 2
   const barY = Math.max(y + addrLines.length * 3.4 + 5, headerBottom)
   doc.setFillColor(r, g, b).rect(M, barY, W - 2 * M, 1.2, 'F')
   let cy = barY + 7
@@ -629,10 +631,12 @@ export function generateProformaPDF(doc_, lh, products, packaging, pricing = {},
   doc.setFont(FONT, 'bold').setFontSize(21).setTextColor(r, g, b)
     .text('PROFORMA INVOICE', W - M, 20, { align: 'right' })
   doc.setFont(FONT, 'normal').setFontSize(10).setTextColor(40, 40, 40)
-  doc.text(`Ref   ${doc_.docNo || ''}`, W - M, 28, { align: 'right' })
-  doc.text(`Date  ${ukDate(doc_.date || new Date().toISOString().slice(0, 10))}`, W - M, 34, { align: 'right' })
+  let phy = 28
+  doc.text(`Ref   ${doc_.docNo || ''}`, W - M, phy, { align: 'right' }); phy += 6
+  if (doc_.poRef) { doc.text(`Your order no. ${doc_.poRef}`, W - M, phy, { align: 'right' }); phy += 6 }
+  doc.text(`Date  ${ukDate(doc_.date || new Date().toISOString().slice(0, 10))}`, W - M, phy, { align: 'right' }); phy += 6
 
-  const barY = Math.max(y + addrLines.length * 3.4 + 5, 38)
+  const barY = Math.max(y + addrLines.length * 3.4 + 5, phy - 2)
   doc.setFillColor(r, g, b).rect(M, barY, W - 2 * M, 1.2, 'F')
   let cy = barY + 7
   const colW = (W - 2 * M - 5) / 2
@@ -862,9 +866,11 @@ export async function reprintPDF(d) {
       doc.setFont(FONT, 'bold').setFontSize(22).setTextColor(r, g, b)
         .text('DELIVERY NOTE', W - M, 20, { align: 'right' })
       doc.setFont(FONT, 'normal').setFontSize(10).setTextColor(40, 40, 40)
-      doc.text(`No.   ${d.doc_no}`, W - M, 28, { align: 'right' })
-      doc.text(`Date  ${ukDate(d.doc_date)}`, W - M, 34, { align: 'right' })
-      const barY = Math.max(y + 7 + addrLines.length * 3.4 + 5, 38)
+      let rhy = 28
+      doc.text(`No.   ${d.doc_no}`, W - M, rhy, { align: 'right' }); rhy += 6
+      if (d.totals?.po_ref) { doc.text(`Your order no. ${d.totals.po_ref}`, W - M, rhy, { align: 'right' }); rhy += 6 }
+      doc.text(`Date  ${ukDate(d.doc_date)}`, W - M, rhy, { align: 'right' }); rhy += 6
+      const barY = Math.max(y + 7 + addrLines.length * 3.4 + 5, rhy - 2)
       doc.setFillColor(r, g, b).rect(M, barY, W - 2 * M, 1.2, 'F')
       let cy = barY + 7
       const colW = (W - 2 * M - 5) / 2
