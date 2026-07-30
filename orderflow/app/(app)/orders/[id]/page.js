@@ -10,6 +10,7 @@ import PricingGuard, { usePricingCheck } from '@/app/(app)/PricingGuard'
 import { StatusBadge } from '../page'
 import LineEditor from '../LineEditor'
 import Combobox from '@/app/(app)/Combobox'
+import AddProductModal from '../AddProductModal'
 
 const STATUS_FLOW = ORDER_STATUSES
 const firstLineOf = (t) => String(t || '').split('\n').map((l) => l.trim()).filter(Boolean)[0] || ''
@@ -81,6 +82,19 @@ export default function OrderDetailPage() {
   const [editInfo, setEditInfo] = useState(null) // null | {po_ref, order_date, requested_date, notes}
   const [emailModal, setEmailModal] = useState(null) // null | { to, name, link, busy }
   const [custAddresses, setCustAddresses] = useState([]) // customer's saved addresses for the Edit-details pickers
+  const [showAdd, setShowAdd] = useState(false) // "add a product" modal
+
+  // Product added via the shared modal: register it, price it locally, add line.
+  function handleProductAdded({ line, product, packagingId, priceSaved }) {
+    if (product && !products.find((p) => p.id === product.id)) setProducts((ps) => [...ps, product])
+    if (priceSaved != null) {
+      const key = `${line.productId}::${packagingId}`
+      setPrices((p) => ({ ...p, [key]: priceSaved }))
+      setAvailableByProduct((m) => ({ ...m, [line.productId]: [...new Set([...(m[line.productId] || []), packagingId])] }))
+    }
+    setLines((ls) => [...ls, line])
+    toast('Added — remember to Save products')
+  }
   const [unpricedItems, setUnpricedItems] = useState([]) // lines missing a price for this customer
   const [unpricedModal, setUnpricedModal] = useState(null) // currently open item
   const [unpricedPackPrice, setUnpricedPackPrice] = useState('')
@@ -800,7 +814,10 @@ export default function OrderDetailPage() {
                 if (confirm('A delivery note has already been generated from this order. Unlock editing anyway?\n\nIf you change anything, generate a new delivery note and delete the old copy so they stay in step.')) setEditLocked(false)
               }}>✏️ Unlock editing</button>
             ) : (
-              <button className="btn btn-g btn-sm" onClick={saveLines}>Save products</button>
+              <>
+                <button className="btn btn-a btn-sm" onClick={() => setShowAdd(true)}>＋ Add a product</button>
+                <button className="btn btn-g btn-sm" onClick={saveLines}>Save products</button>
+              </>
             )}
           </div>
         </div>
@@ -1239,6 +1256,17 @@ export default function OrderDetailPage() {
           </div>
         </div>
       )}
+
+      <AddProductModal
+        open={showAdd}
+        onClose={() => setShowAdd(false)}
+        products={products}
+        packaging={packaging}
+        customerId={order.customer_id}
+        customerName={order.customer_snapshot?.name || ''}
+        isAdmin={isAdmin}
+        onDone={handleProductAdded}
+      />
 
       {PricingModal}
 

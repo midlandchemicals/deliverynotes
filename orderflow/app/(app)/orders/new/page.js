@@ -7,6 +7,7 @@ import { ok, toast, toastError } from '@/lib/notify'
 import { useIsAdmin } from '@/app/(app)/PricingGuard'
 import LineEditor from '../LineEditor'
 import Combobox from '../../Combobox'
+import AddProductModal from '../AddProductModal'
 
 const firstLine = (t) => String(t || '').split('\n').map((s) => s.trim()).filter(Boolean)[0] || ''
 const normAddr = (t) => String(t || '').replace(/\s+/g, ' ').trim().toLowerCase()
@@ -43,9 +44,7 @@ export default function NewOrderPage() {
   const [customerCatalog, setCustomerCatalog] = useState([]) // [{product, options:[{packaging}]}]
   const [pending, setPending] = useState({}) // key 'productId::packagingId' → qty string while entering
   const isAdmin = useIsAdmin()
-  // "Add product / size not listed" modal
-  const [addModal, setAddModal] = useState(null) // null | { mode:'existing'|'new', ...fields }
-  const [addBusy, setAddBusy] = useState(false)
+  const [showAdd, setShowAdd] = useState(false) // "add a product" modal
 
   useEffect(() => {
     (async () => {
@@ -118,56 +117,15 @@ export default function NewOrderPage() {
     setLines((ls) => ls.filter((l) => !(l.productId === productId && l.packagingId === packagingId)))
   }
 
-  function openAddModal() {
-    setAddModal({ mode: 'existing', productId: '', packagingId: '', qty: '1', name: '', category: '', sg: '', un: '', ppl: '' })
-  }
-
-  // Add an existing product (any size) or create a brand-new product, then add
-  // it to this order. New products go into the catalogue; if admin enters a
-  // £/litre it's saved for this customer, otherwise the line is left unpriced
-  // for an admin to price later on the order.
-  async function confirmAddModal() {
-    const m = addModal
-    if (!m.packagingId) { toastError('Choose a packaging size'); return }
-    const qty = String(parseInt(m.qty) || 1)
-    setAddBusy(true)
-    try {
-      let productId = m.productId
-      if (m.mode === 'new') {
-        if (!m.name.trim()) { toastError('Enter the product name'); setAddBusy(false); return }
-        const sg = parseFloat(m.sg)
-        if (!sg || sg <= 0) { toastError('Enter the SG (needed to calculate weights)'); setAddBusy(false); return }
-        const { data, error } = await supabase.from('products').insert({
-          name: m.name.trim(), sg, pg: '', un_number: m.un.trim(), category: m.category.trim(),
-          adr_class: '', adr_subsidiary: '', adr_tunnel: '', adr_psn: '', adr_transport_cat: '',
-          adr_verified_by: '', adr_verified_at: null,
-        }).select('*').single()
-        if (error || !data) { toastError('Could not create the product: ' + (error?.message || '')); setAddBusy(false); return }
-        setProducts((ps) => [...ps, data].sort((a, b) => a.name.localeCompare(b.name)))
-        productId = data.id
-        // Admin can price it now; save against this customer.
-        const ppl = parseFloat(m.ppl)
-        if (isAdmin && ppl > 0) {
-          await supabase.from('customer_product_prices').upsert(
-            { customer_id: customerId, product_id: productId, packaging_id: m.packagingId, price_per_litre: ppl, updated_at: new Date().toISOString() },
-            { onConflict: 'customer_id,product_id,packaging_id' })
-        }
-        toast(`${data.name} created${isAdmin && ppl > 0 ? ' and priced' : ' — an admin can price it on the order'}`)
-      } else {
-        if (!productId) { toastError('Choose a product'); setAddBusy(false); return }
-        // Admin can attach a price to an existing product/size right here too.
-        const ppl = parseFloat(m.ppl)
-        if (isAdmin && ppl > 0) {
-          await supabase.from('customer_product_prices').upsert(
-            { customer_id: customerId, product_id: productId, packaging_id: m.packagingId, price_per_litre: ppl, updated_at: new Date().toISOString() },
-            { onConflict: 'customer_id,product_id,packaging_id' })
-        }
-      }
-      setLines((ls) => [...ls, { productId, packagingId: m.packagingId, qty }])
-      setAddModal(null)
-    } finally {
-      setAddBusy(false)
+  // Handle a product added via the shared modal: register a new catalogue
+  // product, extend the customer's available list if a price was saved, and
+  // append the order line.
+  function handleProductAdded({ line, product, packagingId, priceSaved, created, addedToRange }) {
+    if (created && product) setProducts((ps) => [...ps, product].sort((a, b) => a.name.localeCompare(b.name)))
+    if (addedToRange || priceSaved != null) {
+      setAvailableByProduct((m) => ({ ...m, [line.productId]: [...new Set([...(m[line.productId] || []), packagingId])] }))
     }
+    setLines((ls) => [...ls, line])
   }
 
   function pickCustomer(id) {
@@ -580,11 +538,11 @@ export default function NewOrderPage() {
             <div className="ttl">
               <h2>Products</h2>
               <div style={{ display: 'flex', gap: 8 }}>
-                <button className="btn btn-a btn-sm" onClick={openAddModal}>＋ Product / size not listed</button>
+                <button className="btn btn-a btn-sm" onClick={() => setShowAdd(true)}>＋ Add a product</button>
                 <button className="btn btn-g btn-sm" onClick={() => setStep(1)}>← Back</button>
               </div>
             </div>
-            <p className="hint" style={{ marginTop: 0 }}>Item not in the grid above? Use <b>＋ Product / size not listed</b> to add an existing product in another size, or create a brand-new product.</p>
+            <p className="hint" style={{ marginTop: 0 }}>Item not in the grid above? Use <b>＋ Add a product</b> to add one in another size, or create a brand-new product.</p>
             <LineEditor lines={lines} setLines={setLines} products={products} packaging={packaging} availableByProduct={availableByProduct} />
           </div>
           <div className="card">
@@ -598,70 +556,16 @@ export default function NewOrderPage() {
         </>
       )}
 
-      {/* Add an existing product in a new size, or create a brand-new product */}
-      {addModal && (
-        <div className="modal-bg" onClick={() => !addBusy && setAddModal(null)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 480, textAlign: 'left' }}>
-            <h2 style={{ marginBottom: 10 }}>Add product to order</h2>
-            <div className="theme-tog" style={{ marginBottom: 14 }}>
-              <button className={addModal.mode === 'existing' ? 'on' : ''} onClick={() => setAddModal((m) => ({ ...m, mode: 'existing' }))}>Existing product</button>
-              <button className={addModal.mode === 'new' ? 'on' : ''} onClick={() => setAddModal((m) => ({ ...m, mode: 'new' }))}>New product</button>
-            </div>
-
-            {addModal.mode === 'existing' ? (
-              <div className="field" style={{ marginBottom: 10 }}>
-                <label>Product</label>
-                <Combobox
-                  options={products.map((p) => ({ id: p.id, label: p.category ? `${p.name} (${p.category})` : p.name }))}
-                  value={addModal.productId}
-                  onSelect={(id) => setAddModal((m) => ({ ...m, productId: id }))}
-                  placeholder="Search all products…"
-                />
-              </div>
-            ) : (
-              <>
-                <div className="row c2" style={{ marginBottom: 0 }}>
-                  <div className="field"><label>Product name</label>
-                    <input value={addModal.name} onChange={(e) => setAddModal((m) => ({ ...m, name: e.target.value }))} placeholder="e.g. Marpol Spot Off" /></div>
-                  <div className="field"><label>Range</label>
-                    <input value={addModal.category} onChange={(e) => setAddModal((m) => ({ ...m, category: e.target.value }))} placeholder="e.g. August Race" /></div>
-                </div>
-                <div className="row c2" style={{ marginBottom: 0 }}>
-                  <div className="field"><label>SG (for weights)</label>
-                    <input className="mono" value={addModal.sg} onChange={(e) => setAddModal((m) => ({ ...m, sg: e.target.value }))} placeholder="e.g. 1.10" /></div>
-                  <div className="field"><label>UN number (optional)</label>
-                    <input className="mono" value={addModal.un} onChange={(e) => setAddModal((m) => ({ ...m, un: e.target.value }))} placeholder="e.g. 1993" /></div>
-                </div>
-                <p className="hint" style={{ marginTop: 0 }}>Hazard details are worked out from the UN number; an admin can verify them later under Products.</p>
-              </>
-            )}
-
-            <div className="row c2" style={{ marginBottom: 0 }}>
-              <div className="field"><label>Packaging size</label>
-                <select value={addModal.packagingId} onChange={(e) => setAddModal((m) => ({ ...m, packagingId: e.target.value }))}>
-                  <option value="">— choose —</option>
-                  {[...packaging].sort((a, b) => (a.volume || 0) - (b.volume || 0)).map((k) => <option key={k.id} value={k.id}>{k.name}</option>)}
-                </select></div>
-              <div className="field"><label>Quantity</label>
-                <input className="mono" type="number" min="1" value={addModal.qty} onChange={(e) => setAddModal((m) => ({ ...m, qty: e.target.value }))} /></div>
-            </div>
-
-            {isAdmin ? (
-              <div className="field" style={{ marginBottom: 4 }}>
-                <label>£ / litre for this customer (optional)</label>
-                <input className="mono" value={addModal.ppl} onChange={(e) => setAddModal((m) => ({ ...m, ppl: e.target.value }))} placeholder="leave blank to price later" />
-              </div>
-            ) : (
-              <p className="hint" style={{ marginTop: 2 }}>💡 Pricing is added by an admin — this item will be flagged as unpriced on the order for them to complete.</p>
-            )}
-
-            <div style={{ display: 'flex', gap: 8, marginTop: 14, justifyContent: 'flex-end' }}>
-              <button className="btn btn-g" onClick={() => setAddModal(null)} disabled={addBusy}>Cancel</button>
-              <button className="btn btn-a" onClick={confirmAddModal} disabled={addBusy}>{addBusy ? 'Adding…' : 'Add to order'}</button>
-            </div>
-          </div>
-        </div>
-      )}
+      <AddProductModal
+        open={showAdd}
+        onClose={() => setShowAdd(false)}
+        products={products}
+        packaging={packaging}
+        customerId={customerId}
+        customerName={customers.find((x) => x.id === customerId)?.name || ''}
+        isAdmin={isAdmin}
+        onDone={handleProductAdded}
+      />
 
       {/* Offer to store a manually-entered address on the customer record */}
       {addrPrompt && (() => {
