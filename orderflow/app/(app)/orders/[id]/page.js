@@ -926,7 +926,7 @@ export default function OrderDetailPage() {
               </div>
             )}
           </div>
-          <table className="tbl">
+          <table className="tbl tbl-cards">
             <thead><tr>
               <th>Product</th>
               <th>Packaging</th>
@@ -952,7 +952,7 @@ export default function OrderDetailPage() {
                 const lineTotal = unitPrice * c.qty
                 return (
                   <tr key={i}>
-                    <td>
+                    <td data-label="Product">
                       <span>{c.productName}</span>
                       {ppl === 0 && unpricedItems.some((u) => u.productId === c.product.id && u.packagingId === c.packaging?.id) && (
                         <button
@@ -962,8 +962,8 @@ export default function OrderDetailPage() {
                         </button>
                       )}
                     </td>
-                    <td>{c.packaging?.name || '—'}</td>
-                    <td>
+                    <td data-label="Packaging">{c.packaging?.name || '—'}</td>
+                    <td data-label="£ / Litre">
                       {hasOverride ? (
                         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2 }}>
                           <input className="mono" style={{ textAlign: 'right', borderColor: 'var(--gold)', fontWeight: 700 }}
@@ -1026,9 +1026,9 @@ export default function OrderDetailPage() {
                         </div>
                       )}
                     </td>
-                    <td className="mono" style={{ textAlign: 'right' }}>{unitPrice > 0 ? `£${unitPrice.toFixed(2)}` : '—'}</td>
-                    <td className="mono" style={{ textAlign: 'right' }}>{c.qty}</td>
-                    <td className="mono" style={{ textAlign: 'right', fontWeight: lineTotal > 0 ? 700 : 400 }}>{lineTotal > 0 ? `£${lineTotal.toFixed(2)}` : '—'}</td>
+                    <td className="mono" style={{ textAlign: 'right' }} data-label="Unit price">{unitPrice > 0 ? `£${unitPrice.toFixed(2)}` : '—'}</td>
+                    <td className="mono" style={{ textAlign: 'right' }} data-label="Qty">{c.qty}</td>
+                    <td className="mono" style={{ textAlign: 'right', fontWeight: lineTotal > 0 ? 700 : 400 }} data-label="Line total">{lineTotal > 0 ? `£${lineTotal.toFixed(2)}` : '—'}</td>
                   </tr>
                 )
               })}
@@ -1216,7 +1216,7 @@ export default function OrderDetailPage() {
                     {` · ${d.letterhead_snapshot?.name}`}
                   </div>
                 </div>
-                <div style={{ display: 'flex', gap: 6 }}>
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                   <button className="btn btn-g btn-sm" onClick={() => generatePurchaseOrderPDF({ ...order, lines }, products, packaging, letterheads[lhIndex] || {})}>Purchase order</button>
                   <button className="btn btn-g btn-sm" onClick={() => reprintPDF(d)}>Delivery Note</button>
                   {isAdmin && (

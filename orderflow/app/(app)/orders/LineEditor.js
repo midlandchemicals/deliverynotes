@@ -106,7 +106,7 @@ export default function LineEditor({ lines, setLines, products, packaging, avail
 
   return (
     <div>
-      <table className="tbl">
+      <table className="tbl tbl-cards">
         <thead>
           <tr>
             <th style={{ width: '28%' }}>Product</th>
@@ -123,28 +123,28 @@ export default function LineEditor({ lines, setLines, products, packaging, avail
             const c = computeLine(l, products, packaging)
             return (
               <tr key={i}>
-                <td>
+                <td data-label="Product">
                   <InlineCombo
                     options={productOptions}
                     value={l.productId || ''}
                     onChange={(v) => pickProduct(i, v)}
                   />
                 </td>
-                <td><span className="pgtag">{c.hazard}</span></td>
-                <td>
+                <td data-label="Hazard / UN"><span className="pgtag">{c.hazard}</span></td>
+                <td data-label="Packaging">
                   <InlineCombo
                     options={packagingOptions}
                     value={l.packagingId || ''}
                     onChange={(v) => update(i, 'packagingId', v)}
                   />
                 </td>
-                <td>
+                <td data-label="Qty">
                   <input className="mono" style={{ textAlign: 'right' }} value={l.qty}
                     onChange={(e) => update(i, 'qty', e.target.value)} />
                 </td>
-                <td className="calc">{fmt(c.net)}</td>
-                <td className="calc">{fmt(c.gross)}</td>
-                <td><button type="button" className="btn-dl" onClick={() => remove(i)}>×</button></td>
+                <td className="calc" data-label="Net kg">{fmt(c.net)}</td>
+                <td className="calc" data-label="Gross kg">{fmt(c.gross)}</td>
+                <td className="td-act" data-label="Remove"><button type="button" className="btn-dl" onClick={() => remove(i)}>×</button></td>
               </tr>
             )
           })}

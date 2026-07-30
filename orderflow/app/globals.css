@@ -451,6 +451,29 @@ body{background:var(--bg-grad)}
   .chip{padding:8px 14px}
 }
 
+/* Tables marked .tbl-cards stop being tables on a narrow screen and become one
+   card per row, each cell a labelled line. Nothing is cut off and there is no
+   sideways scrolling — the column header travels with the value as its label. */
+@media(max-width:760px){
+  table.tbl-cards{min-width:0;display:block}
+  table.tbl-cards thead{display:none}
+  table.tbl-cards tbody,table.tbl-cards tr,table.tbl-cards td{display:block;width:100%}
+  table.tbl-cards tr{border:1px solid var(--line);border-radius:10px;background:var(--panel);
+    padding:8px 12px;margin-bottom:10px}
+  table.tbl-cards tr:last-child{margin-bottom:0}
+  table.tbl-cards td{border:none;padding:6px 0;display:flex;align-items:center;
+    justify-content:space-between;gap:12px;text-align:right}
+  table.tbl-cards td + td{border-top:1px solid #F2EFE6}
+  table.tbl-cards td::before{content:attr(data-label);flex:0 0 auto;text-align:left;
+    font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--faint)}
+  /* a lone field fills the space beside its label; cells holding two things
+     (e.g. a name plus a "Set price" button) keep both at natural size */
+  table.tbl-cards td > *:only-child:not(.btn-dl){flex:1 1 auto;min-width:0}
+  table.tbl-cards td.calc{padding-right:0}
+  table.tbl-cards td.td-act{justify-content:space-between}
+  table.tbl-cards td.td-act .btn-dl{flex:0 0 auto}
+}
+
 /* Phones. */
 @media(max-width:600px){
   .main-col{padding:12px 12px 84px}
