@@ -269,7 +269,7 @@ export default function OrderDetailPage() {
   function runProforma() {
     generateProformaPDF(
       {
-        docNo: order.order_no, date: new Date().toISOString().slice(0, 10),
+        docNo: order.order_no, poRef: order.po_ref || '', date: new Date().toISOString().slice(0, 10),
         orderDate: order.order_date || null,
         invoiceTo, deliver: splitContact(order.customer_snapshot?.deliver || '').address,
         lines,
@@ -621,7 +621,7 @@ export default function OrderDetailPage() {
     const batches = batchModal.map((r) => (r.na ? 'N/A' : r.batch.trim()))
     const mfgDates = batchModal.map((r) => (r.na ? '' : (r.mfg || '')))
     const docData = {
-      type: 'Delivery Note', docNo, date: docDate,
+      type: 'Delivery Note', docNo, poRef: order.po_ref || '', date: docDate,
       orderDate: order.order_date || null,
       invoiceTo,
       deliver: splitContact(order.customer_snapshot?.deliver || '').address,
@@ -657,6 +657,7 @@ export default function OrderDetailPage() {
         ...totals, contact, order_total: orderTotal,
         delivery_charge: parseFloat(deliveryCharge) || 0,
         label_total: labelTotal || 0,
+        po_ref: order.po_ref || '',
       },
       options, created_by: user?.id || null,
     })
