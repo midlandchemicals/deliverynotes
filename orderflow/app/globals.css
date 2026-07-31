@@ -339,6 +339,16 @@ table.tbl input,table.tbl select{padding:7px 10px;font-size:12.5px;border-radius
 .mini-table-row:hover{background:var(--panel-2)}
 .mini-table-row:last-child{border-bottom:none}
 
+/* Home page order list: every order, scrolling inside the card, with the
+   column header pinned so you always know which column you're reading. */
+.order-scroll{max-height:min(64vh,620px);overflow-y:auto;overscroll-behavior:contain}
+.order-scroll .mini-table-head{position:sticky;top:0;z-index:1;background:var(--bg-grad)}
+.mini-table-row.row-new24{background:var(--badge-new-bg)}
+.mini-table-row.row-new24:hover{background:#DFE9F6}
+.new24-tag{font-family:var(--font-body);font-size:10px;font-weight:700;letter-spacing:.02em;
+  color:var(--badge-new-fg);margin-top:3px;white-space:nowrap}
+@media(max-width:600px){.order-scroll{max-height:none;overflow:visible}}
+
 .status-bar-track{height:7px;border-radius:4px;background:var(--chip-bg);overflow:hidden}
 .status-bar{height:100%;border-radius:4px;transition:width .3s}
 

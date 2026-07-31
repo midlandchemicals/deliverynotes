@@ -12,6 +12,15 @@ function nameFromEmail(email) {
   return first.charAt(0).toUpperCase() + first.slice(1).toLowerCase()
 }
 
+// "just now" / "3 hrs ago" — only ever shown for the last-24-hour orders.
+function sinceLabel(ts) {
+  const mins = Math.floor((Date.now() - new Date(ts).getTime()) / 60000)
+  if (mins < 2) return 'just now'
+  if (mins < 60) return `${mins} mins ago`
+  const hrs = Math.floor(mins / 60)
+  return `${hrs} hr${hrs === 1 ? '' : 's'} ago`
+}
+
 function greeting() {
   const h = new Date().getHours()
   if (h < 12) return 'Good morning'
@@ -58,11 +67,15 @@ export default function HomePage() {
           if (d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth()) dispatchedThisMonth++
         }
       }
-      const recent = orders.slice(0, 5).map((o) => ({
+      // Everything, newest first — the list scrolls rather than being cut to 5.
+      const dayAgo = now.getTime() - 86400000
+      const all = orders.map((o) => ({
         ...o,
         productSummary: (o.lines || []).map((l) => nameOf(l.productId)).filter(Boolean).slice(0, 2).join(' · '),
+        isNew24: !!o.created_at && new Date(o.created_at).getTime() >= dayAgo,
       }))
-      setData({ counts, dueThisWeek, earliestDue, dispatchedThisMonth, total: orders.length, recent })
+      const new24 = all.filter((o) => o.isNew24).length
+      setData({ counts, dueThisWeek, earliestDue, dispatchedThisMonth, total: orders.length, all, new24 })
     })()
   }, [])
 
@@ -86,6 +99,7 @@ export default function HomePage() {
           <h1>Dashboard</h1>
           <div className="sub">
             {greeting()}{name ? `, ${name}` : ''}{open > 0 ? ` — ${open} order${open === 1 ? ' is' : 's are'} open.` : ' — all orders are dispatched.'}
+            {data.new24 > 0 ? ` ${data.new24} came in over the last 24 hours.` : ''}
           </div>
         </div>
         <div style={{ display: 'flex', gap: 10 }}>
@@ -120,19 +134,29 @@ export default function HomePage() {
       <div className="home-grid">
         <div className="card" style={{ margin: 0 }}>
           <div className="ttl" style={{ marginBottom: 8 }}>
-            <h2>Recent orders</h2>
-            <Link href="/orders" style={{ fontSize: 13, fontWeight: 600, color: 'var(--accent)' }}>View all →</Link>
+            <h2>
+              All orders <span className="muted" style={{ fontWeight: 500, fontSize: 13 }}>({data.all.length})</span>
+              {data.new24 > 0 && (
+                <span style={{ marginLeft: 8, background: 'var(--badge-new-bg)', color: 'var(--badge-new-fg)', fontSize: 11, fontWeight: 700, borderRadius: 20, padding: '2px 10px' }}>
+                  {data.new24} in the last 24 hrs
+                </span>
+              )}
+            </h2>
+            <Link href="/orders" style={{ fontSize: 13, fontWeight: 600, color: 'var(--accent)' }}>Order Book →</Link>
           </div>
-          {data.recent.length === 0 ? (
+          {data.all.length === 0 ? (
             <div className="empty">No orders yet — log one from <b>New Order</b>.</div>
           ) : (
-            <>
+            <div className="order-scroll">
               <div className="mini-table-head">
                 <div>DN No.</div><div>Customer</div><div>Ordered</div><div style={{ textAlign: 'right' }}>Status</div>
               </div>
-              {data.recent.map((o) => (
-                <div key={o.id} className="mini-table-row" onClick={() => router.push(`/orders/${o.id}`)}>
-                  <div className="mono" style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--heading)' }}>{o.order_no}</div>
+              {data.all.map((o) => (
+                <div key={o.id} className={'mini-table-row' + (o.isNew24 ? ' row-new24' : '')} onClick={() => router.push(`/orders/${o.id}`)}>
+                  <div className="mono" style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--heading)' }}>
+                    {o.order_no}
+                    {o.isNew24 && <div className="new24-tag">🆕 {sinceLabel(o.created_at)}</div>}
+                  </div>
                   <div>
                     <div style={{ fontWeight: 600, color: 'var(--heading)', fontSize: 13.5 }}>{o.customer_snapshot?.name || '—'}</div>
                     {o.productSummary ? <div style={{ fontSize: 12, color: 'var(--faint)' }}>{o.productSummary}</div> : null}
@@ -145,7 +169,7 @@ export default function HomePage() {
                   </div>
                 </div>
               ))}
-            </>
+            </div>
           )}
         </div>
 
