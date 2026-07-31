@@ -163,12 +163,16 @@ export default function NewOrderPage() {
     const list = unifiedAddresses(c)
     const options = list.length ? list : [{ label: 'Main', text: c.details || c.deliver || '', contact: { name: c.contact_name || '', email: c.email || '', phone: c.phone || '' } }]
     setInvoiceOptions(options); setDeliveryOptions(options)
-    setInvoiceIdx(0); setDeliveryIdx(0)
-    setCustDetails(splitContact(options[0]?.text || '').address)
+    // Start on the address flagged as the customer's invoice default, if they
+    // have one; otherwise the first in the list as before.
+    const invIdx = Math.max(0, options.findIndex((a) => a.invoice_default))
+    setInvoiceIdx(invIdx); setDeliveryIdx(0)
+    setCustDetails(splitContact(options[invIdx]?.text || '').address)
     setCustDeliver(splitContact(options[0]?.text || '').address)
-    const ct0 = options[0]?.contact || {}
-    setInvContact({ name: ct0.name || '', email: ct0.email || '', phone: ct0.phone || '' })
-    setContactName(ct0.name || ''); setContactEmail(ct0.email || ''); setContactPhone(ct0.phone || '')
+    const ctInv = options[invIdx]?.contact || {}
+    const ctDel = options[0]?.contact || {}
+    setInvContact({ name: ctInv.name || '', email: ctInv.email || '', phone: ctInv.phone || '' })
+    setContactName(ctDel.name || ''); setContactEmail(ctDel.email || ''); setContactPhone(ctDel.phone || '')
   }
 
   function pickInvoiceAddr(i) {
@@ -384,7 +388,7 @@ export default function NewOrderPage() {
             {invoiceOptions.length > 1 && (
               <div style={{ marginBottom: 6 }}>
                 <Combobox
-                  options={invoiceOptions.map((a, i) => ({ id: String(i), label: `${a.verified ? '✓ ' : ''}${a.label || firstLine(a.text) || `Address ${i + 1}`}` }))}
+                  options={invoiceOptions.map((a, i) => ({ id: String(i), label: `${a.verified ? '✓ ' : ''}${a.invoice_default ? '🧾 ' : ''}${a.label || firstLine(a.text) || `Address ${i + 1}`}` }))}
                   value={String(invoiceIdx)}
                   onSelect={(id) => pickInvoiceAddr(+id)}
                   placeholder="Choose the invoice address…"
@@ -398,7 +402,7 @@ export default function NewOrderPage() {
             {deliveryOptions.length > 1 && (
               <div style={{ marginBottom: 6 }}>
                 <Combobox
-                  options={deliveryOptions.map((a, i) => ({ id: String(i), label: `${a.verified ? '✓ ' : ''}${a.label || firstLine(a.text) || `Address ${i + 1}`}` }))}
+                  options={deliveryOptions.map((a, i) => ({ id: String(i), label: `${a.verified ? '✓ ' : ''}${a.invoice_default ? '🧾 ' : ''}${a.label || firstLine(a.text) || `Address ${i + 1}`}` }))}
                   value={String(deliveryIdx)}
                   onSelect={(id) => pickDeliveryAddr(+id)}
                   placeholder="Choose the delivery address…"

@@ -62,6 +62,13 @@ function AddressListEditor({ list, kind, withContact, onChange, onCommit }) {
     setOpenIdx(null)
   }
 
+  // Exactly one address can be the invoice default — setting one clears the rest.
+  function setInvoiceDefault(i, on) {
+    const next = list.map((e, idx) => ({ ...e, invoice_default: on && idx === i }))
+    onChange(next)
+    onCommit(withLabels(next))
+  }
+
   // Parse a pasted block: contact lines become the contact, the rest the address.
   function smartPaste(i, raw) {
     if (!raw || !raw.trim()) return
@@ -100,6 +107,12 @@ function AddressListEditor({ list, kind, withContact, onChange, onCommit }) {
             <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 11px', border: '1px solid var(--border)', borderRadius: 9, background: 'var(--panel)' }}>
               <div style={{ flex: 1, minWidth: 0, fontSize: 12.5, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                 {e.verified && <span title={`Verified${e.verified_by ? ' by ' + e.verified_by : ''}`} style={{ color: 'var(--ok)', fontWeight: 800, marginRight: 5 }}>✓</span>}
+                {e.invoice_default && (
+                  <span title="Used as the invoice address on new orders"
+                    style={{ background: 'var(--accent-soft)', color: 'var(--accent)', fontSize: 9.5, fontWeight: 800, letterSpacing: '.05em', borderRadius: 5, padding: '2px 6px', marginRight: 6 }}>
+                    🧾 INVOICE
+                  </span>
+                )}
                 <b style={{ color: 'var(--heading)' }}>{e.label || firstLine(e.text) || `Address ${i + 1}`}</b>
                 {e.label && firstLine(e.text) && e.label.trim() !== firstLine(e.text) ? <span style={{ color: 'var(--muted)' }}> · {firstLine(e.text)}</span> : null}
                 {withContact && e.contact?.name ? <span style={{ color: 'var(--faint)' }}> · {e.contact.name}</span> : null}
@@ -145,6 +158,12 @@ function AddressListEditor({ list, kind, withContact, onChange, onCommit }) {
                 </div>
               </div>
             )}
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 10, marginBottom: 0, textTransform: 'none', letterSpacing: 0, fontWeight: 600, fontSize: 12.5, color: 'var(--ink)', cursor: 'pointer' }}>
+              <input type="checkbox" checked={!!e.invoice_default}
+                onChange={(ev) => setInvoiceDefault(i, ev.target.checked)}
+                style={{ width: 'auto', height: 16, accentColor: 'var(--accent)' }} />
+              🧾 Use this as the invoice address on new orders
+            </label>
             <div style={{ display: 'flex', gap: 8, marginTop: 10, alignItems: 'center' }}>
               <button className="btn btn-a btn-sm" onClick={() => { setOpenIdx(null); commitSorted(list) }}>Done</button>
               {list.length > 1 && (
@@ -198,11 +217,14 @@ export default function CustomersPage() {
   // and keep the legacy fields mirrored so anything still reading them works.
   function addrPatch(list) {
     const first = list.find((a) => a.text) || {}
+    // The legacy `details` field is the invoice address — honour the chosen
+    // default so anything still reading it agrees with the order pages.
+    const inv = list.find((a) => a.invoice_default && a.text) || first
     return {
       addresses: list,
       invoice_addresses: list,
       delivery_addresses: list,
-      details: first.text || '',
+      details: inv.text || '',
       deliver: first.text || '',
       contact_name: first.contact?.name || '',
       email: first.contact?.email || '',
@@ -483,7 +505,7 @@ export default function CustomersPage() {
                 </div>
 
                 <div style={{ marginBottom: 4, maxWidth: 640 }}>
-                  <label>Addresses <span style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0, color: 'var(--muted)' }}>— one list; each has its own contact. On an order you choose which is the invoice and which is the delivery address.</span></label>
+                  <label>Addresses <span style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0, color: 'var(--muted)' }}>— one list; each has its own contact. On an order you choose which is the invoice and which is the delivery address. Tick 🧾 on one to make it the invoice address every time.</span></label>
                   <AddressListEditor
                     list={unifiedAddresses(it)}
                     kind=""

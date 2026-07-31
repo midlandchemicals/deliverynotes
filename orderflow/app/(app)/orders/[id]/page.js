@@ -788,7 +788,7 @@ export default function OrderDetailPage() {
                 {custAddresses.length > 0 && (
                   <div style={{ marginBottom: 6 }}>
                     <Combobox
-                      options={custAddresses.map((a, i) => ({ id: String(i), label: `${a.verified ? '✓ ' : ''}${a.label || firstLineOf(a.text) || `Address ${i + 1}`}` }))}
+                      options={custAddresses.map((a, i) => ({ id: String(i), label: `${a.verified ? '✓ ' : ''}${a.invoice_default ? '🧾 ' : ''}${a.label || firstLineOf(a.text) || `Address ${i + 1}`}` }))}
                       value=""
                       onSelect={(id) => { const a = custAddresses[+id]; if (a) setEditInfo((x) => ({ ...x, details: splitContact(a.text).address, contact: { ...x.contact } })) }}
                       placeholder="Choose a saved address…"
@@ -802,7 +802,7 @@ export default function OrderDetailPage() {
                 {custAddresses.length > 0 && (
                   <div style={{ marginBottom: 6 }}>
                     <Combobox
-                      options={custAddresses.map((a, i) => ({ id: String(i), label: `${a.verified ? '✓ ' : ''}${a.label || firstLineOf(a.text) || `Address ${i + 1}`}` }))}
+                      options={custAddresses.map((a, i) => ({ id: String(i), label: `${a.verified ? '✓ ' : ''}${a.invoice_default ? '🧾 ' : ''}${a.label || firstLineOf(a.text) || `Address ${i + 1}`}` }))}
                       value=""
                       onSelect={(id) => { const a = custAddresses[+id]; if (a) { const ct = a.contact || {}; setEditInfo((x) => ({ ...x, deliver: splitContact(a.text).address, contact: { name: ct.name || '', email: ct.email || '', phone: ct.phone || '' } })) } }}
                       placeholder="Choose a saved address…"
