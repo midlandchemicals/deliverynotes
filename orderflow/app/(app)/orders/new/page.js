@@ -410,41 +410,38 @@ export default function NewOrderPage() {
             <Combobox options={customerOptions} value={customerId} onSelect={pickCustomer} placeholder="Type customer name to search…" />
           </Field>
 
-          {/* Customer number prints on the delivery note, so it can't be
-              skipped — given its own block rather than a field in a row. */}
-          <div style={{
-            border: `2px solid ${poRef.trim() ? 'var(--accent)' : 'var(--warn, #B07E28)'}`,
-            background: poRef.trim() ? 'var(--accent-soft)' : '#FCF4E2',
-            borderRadius: 10, padding: '13px 15px', marginBottom: 14,
-          }}>
-            <label style={{ fontSize: 12, color: poRef.trim() ? 'var(--accent)' : '#7A5511', marginBottom: 6 }}>
-              Customer No — REQUIRED {poRef.trim() ? '✓' : '⚠'}
+          <Field label="Order Reference">
+            <input className="mono" value={orderNo} onChange={(e) => setOrderNo(e.target.value)} />
+            <p className="hint" style={{ marginTop: 4, marginBottom: 0 }}>The DN number is assigned when the delivery note is created, so notes are numbered in dispatch order.</p>
+          </Field>
+
+          {/* Required because it prints on the delivery note — flagged with a
+              quiet amber edge until it's filled, not a full-blown warning. */}
+          <div className="field" style={{ marginBottom: 14 }}>
+            <label>
+              Customer No
+              <span style={{ textTransform: 'none', letterSpacing: 0, fontWeight: 500, color: poRef.trim() ? 'var(--faint)' : 'var(--warn, #B07E28)' }}>
+                {' '}· required
+              </span>
             </label>
             <input
               id="po-ref-input"
               value={poRef}
               onChange={(e) => setPoRef(e.target.value)}
-              placeholder="The customer's own order number"
-              style={{ fontSize: 15, fontWeight: 600, borderColor: poRef.trim() ? 'var(--accent)' : 'var(--warn, #B07E28)' }}
+              placeholder="Their own order number"
+              style={poRef.trim() ? undefined : { borderColor: 'var(--warn, #B07E28)' }}
             />
-            <p className="hint" style={{ marginTop: 5, marginBottom: 0, color: poRef.trim() ? 'var(--ink)' : '#7A5511', fontWeight: 600 }}>
-              This prints on their delivery note as <b>Customer No</b>. Ask them for it if it isn&apos;t on the order.
-            </p>
+            <p className="hint" style={{ marginTop: 4, marginBottom: 0 }}>Prints on their delivery note as <b>Customer No</b>.</p>
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 14 }}>
-            <Field label="Order Reference">
-              <input className="mono" value={orderNo} onChange={(e) => setOrderNo(e.target.value)} />
-              <p className="hint" style={{ marginTop: 4, marginBottom: 0 }}>The DN number is assigned when the delivery note is created, so notes are numbered in dispatch order.</p>
-            </Field>
             <Field label="Order date">
               <input className="mono" type="date" value={orderDate} onChange={(e) => setOrderDate(e.target.value)} />
             </Field>
+            <Field label="Requested delivery date">
+              <input className="mono" type="date" value={requestedDate} onChange={(e) => setRequestedDate(e.target.value)} />
+            </Field>
           </div>
-
-          <Field label="Requested delivery date">
-            <input className="mono" type="date" value={requestedDate} onChange={(e) => setRequestedDate(e.target.value)} />
-          </Field>
 
           <hr style={{ border: 'none', borderTop: '1px solid var(--border)', margin: '18px 0' }} />
 
@@ -492,7 +489,7 @@ export default function NewOrderPage() {
             <button className="btn btn-a" style={poRef.trim() ? undefined : { opacity: .55 }} onClick={goToStep2}>Next — Add products →</button>
             <button className="btn btn-g" onClick={() => router.push('/orders')}>Cancel</button>
             {!poRef.trim() && (
-              <span style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--warn, #B07E28)' }}>⚠ Customer No needed first</span>
+              <span style={{ fontSize: 12, color: 'var(--muted)' }}>Customer No needed first</span>
             )}
           </div>
         </div>
