@@ -69,12 +69,11 @@ export default function OrderDetailPage() {
   const [docDate, setDocDate] = useState(new Date().toISOString().slice(0, 10))
   const [invoiceTo, setInvoiceTo] = useState('')
   const [options, setOptions] = useState('')
-  const [pallets, setPallets] = useState('')
-  const [palletsTouched, setPalletsTouched] = useState(false)
+  // IBCs are counted from the products themselves; this is only the ADDITIONAL
+  // pallets of smaller packs, which nothing can work out for us.
+  const [extraPallets, setExtraPallets] = useState('')
   const [docNoOverride, setDocNoOverride] = useState('') // optional manual DN number
   const [deliveryTouched, setDeliveryTouched] = useState(false) // user typed a delivery charge by hand
-  const [noPallets, setNoPallets] = useState(false)
-  const [palletsFlash, setPalletsFlash] = useState(false)
   const [showHazard, setShowHazard] = useState(true)
   const [batchModal, setBatchModal] = useState(null) // null | [{ name, batch, na }]
   const [busy, setBusy] = useState(false)
@@ -571,16 +570,14 @@ export default function OrderDetailPage() {
     }, 0)
   }
 
-  // Every 600 L / 1000 L IBC is one pallet — prefill the pallet count so it
-  // doesn't need typing. Stops auto-filling as soon as the user edits the box.
-  useEffect(() => {
-    if (palletsTouched || noPallets) return
-    const ibc = lines.reduce((sum, l) => {
-      const c = computeLine(l, products, packaging)
-      return sum + (((c.vol || 0) > 500) ? (c.qty || 0) : 0)
-    }, 0)
-    if (ibc > 0) setPallets(String(ibc))
-  }, [lines, products, packaging, palletsTouched, noPallets])
+  // Every 600 L / 1000 L IBC travels on its own pallet, so the count comes
+  // straight off the order — it's shown, not typed. Anything else on pallets
+  // (drums, kegs, cases of small packs) is the user's call.
+  const ibcCount = lines.reduce((sum, l) => {
+    const c = computeLine(l, products, packaging)
+    return sum + (((c.vol || 0) > 500) ? (c.qty || 0) : 0)
+  }, 0)
+  const totalPallets = ibcCount + (parseInt(extraPallets, 10) || 0)
 
   // Step 1 — validate, then open the batch-number modal
   // Re-evaluate delivery charge whenever anything that affects it changes.
@@ -600,30 +597,26 @@ export default function OrderDetailPage() {
       return
     }
     // Per-pallet rate, summed per product (wins over banded tiers when set)
-    if (!noPallets && usePerPallet) {
+    if (usePerPallet) {
       setDeliveryCharge(perPalletDeliveryTotal().toFixed(2))
       return
     }
     // Pallet tier — runs even before pallet count is entered (p=0 matches a "0 to X" band)
-    if (!noPallets && custDeliveryTiers.length > 0) {
-      const p = parseInt(pallets) || 0
+    if (custDeliveryTiers.length > 0) {
+      const p = totalPallets
       const tier = [...custDeliveryTiers]
         .sort((a, b) => a.pallets_from - b.pallets_from)
         .find((t) => p >= t.pallets_from && (t.pallets_to == null || p < t.pallets_to))
       if (tier != null) setDeliveryCharge(Number(tier.charge).toFixed(2))
       else setDeliveryCharge('')
     }
-  }, [deliveryTouched, custFreeAbove, custDeliveryTiers, custPerPallet, perPalletByKey, pallets, noPallets, lines, prices, priceTiers, tierBasis])
+  }, [deliveryTouched, custFreeAbove, custDeliveryTiers, custPerPallet, perPalletByKey, totalPallets, lines, prices, priceTiers, tierBasis])
 
   function startDispatch() {
     const lh = letterheads[lhIndex]
     if (!lh) { alert('Add a letterhead first (Letterheads tab).'); return }
-    if (!noPallets && (!pallets || parseInt(pallets, 10) <= 0)) {
-      setPalletsFlash(true)
-      setTimeout(() => setPalletsFlash(false), 1200)
-      toast('Please enter number of pallets, or tick "No pallets"')
-      return
-    }
+    // Pallets are no longer gated: IBCs come off the order automatically, and
+    // extra pallets are genuinely optional.
     // Warn if any hazmat product has not been verified against its SDS
     const unverifiedNames = lines.reduce((acc, l) => {
       const p = products.find((x) => x.id === l.productId)
@@ -690,7 +683,7 @@ export default function OrderDetailPage() {
       deliver: splitContact(order.customer_snapshot?.deliver || '').address,
       contact,
       customerName: order.customer_snapshot?.name || '',
-      lines, options, pallets: noPallets ? 0 : pallets, showHazard, batches, mfgDates,
+      lines, options, pallets: totalPallets, showHazard, batches, mfgDates,
       deliveryCharge: parseFloat(deliveryCharge) || 0,
     }
     const { totals } = generateDispatchPDF(docData, lh, products, packaging, prices)
@@ -730,8 +723,7 @@ export default function OrderDetailPage() {
     const refreshed = await supabase.from('dispatch_notes').select('*').eq('order_id', id).order('created_at', { ascending: false })
     setDispatched(refreshed.data || [])
     setEditLocked(true)
-    setPallets('')
-    setNoPallets(false)
+    setExtraPallets('')
     setBatchModal(null)
     setBusy(false)
     toast('Delivery note generated')
@@ -1228,19 +1220,32 @@ export default function OrderDetailPage() {
             </select></div>
           <div className="field"><label>Date</label>
             <input className="mono" type="date" value={docDate} onChange={(e) => setDocDate(e.target.value)} /></div>
-          <div className="field"><label>Number of pallets</label>
-            <input
-              className={'mono' + (palletsFlash ? ' flash-error' : '')}
-              type="number" min="0" value={pallets}
-              disabled={noPallets}
-              onChange={(e) => { setPallets(e.target.value); setPalletsTouched(true); setPalletsFlash(false) }}
-              placeholder={noPallets ? 'no pallets' : 'required'} />
-            <label style={{ display: 'inline-flex', flexDirection: 'row', alignItems: 'center', gap: 6, textTransform: 'none', letterSpacing: 0, fontSize: 12, cursor: 'pointer', marginTop: 6 }}>
-              <input type="checkbox" checked={noPallets}
-                onChange={(e) => { setNoPallets(e.target.checked); if (e.target.checked) { setPallets(''); setPalletsFlash(false) } }}
-                style={{ width: 'auto', height: 15, accentColor: 'var(--accent)' }} />
-              No pallets required
+          <div className="field"><label>Load</label>
+            {/* IBCs are counted off the order; only extra pallets get typed. */}
+            <div className="mono" style={{
+              background: ibcCount > 0 ? 'var(--accent-soft)' : 'var(--panel-2)',
+              border: `1px solid ${ibcCount > 0 ? 'var(--accent)' : 'var(--line-solid)'}`,
+              borderRadius: 9, padding: '9px 13px', fontSize: 14, fontWeight: 700,
+              color: ibcCount > 0 ? 'var(--accent)' : 'var(--muted)',
+            }}>
+              {ibcCount > 0 ? `${ibcCount} IBC${ibcCount === 1 ? '' : 's'}` : 'No IBCs'}
+            </div>
+            <p className="hint" style={{ marginTop: 4, marginBottom: 8 }}>
+              Counted from the 600 L / 1000 L lines on this order.
+            </p>
+            <label style={{ marginBottom: 5 }}>
+              Extra pallets
+              <span style={{ textTransform: 'none', letterSpacing: 0, fontWeight: 500, color: 'var(--faint)' }}> · optional</span>
             </label>
+            <input className="mono" type="number" min="0" value={extraPallets}
+              placeholder="0"
+              onChange={(e) => setExtraPallets(e.target.value)} />
+            <p className="hint" style={{ marginTop: 4, marginBottom: 0 }}>
+              Only pallets of smaller packs — leave blank if there aren&apos;t any.
+              {totalPallets > 0 && <> Note will read <b>{ibcCount > 0
+                ? `${ibcCount} IBC${ibcCount === 1 ? '' : 's'}${(parseInt(extraPallets, 10) || 0) > 0 ? ` + ${parseInt(extraPallets, 10)} pallet${parseInt(extraPallets, 10) === 1 ? '' : 's'}` : ''}`
+                : `${totalPallets} pallet${totalPallets === 1 ? '' : 's'}`}</b>.</>}
+            </p>
           </div>
         </div>
         <div className="row c2" style={{ marginBottom: 10 }}>
