@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import Sidebar from './Sidebar'
+import ChatWidget from './ChatWidget'
 
 export default async function AppLayout({ children }) {
   const supabase = createClient()
@@ -21,6 +22,7 @@ export default async function AppLayout({ children }) {
           {children}
         </div>
       </div>
+      <ChatWidget />
     </div>
   )
 }
