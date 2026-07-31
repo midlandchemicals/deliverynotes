@@ -73,6 +73,7 @@ export default function HomePage() {
         ...o,
         productSummary: (o.lines || []).map((l) => nameOf(l.productId)).filter(Boolean).slice(0, 2).join(' · '),
         isNew24: !!o.created_at && new Date(o.created_at).getTime() >= dayAgo,
+        enteredByName: nameFromEmail(o.added_by),
       }))
       const new24 = all.filter((o) => o.isNew24).length
       setData({ counts, dueThisWeek, earliestDue, dispatchedThisMonth, total: orders.length, all, new24 })
@@ -155,7 +156,12 @@ export default function HomePage() {
                 <div key={o.id} className={'mini-table-row' + (o.isNew24 ? ' row-new24' : '')} onClick={() => router.push(`/orders/${o.id}`)}>
                   <div className="mono" style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--heading)' }}>
                     {o.order_no}
-                    {o.isNew24 && <div className="new24-tag">🆕 {sinceLabel(o.created_at)}</div>}
+                    {o.isNew24 && (
+                      <>
+                        <div className="new24-tag">🆕 {sinceLabel(o.created_at)}</div>
+                        {o.enteredByName && <div className="new24-by">by {o.enteredByName}</div>}
+                      </>
+                    )}
                   </div>
                   <div>
                     <div style={{ fontWeight: 600, color: 'var(--heading)', fontSize: 13.5 }}>{o.customer_snapshot?.name || '—'}</div>
