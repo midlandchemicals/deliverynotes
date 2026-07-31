@@ -43,6 +43,9 @@ export default function NewOrderPage() {
   const [availableByProduct, setAvailableByProduct] = useState({})
   const [customerCatalog, setCustomerCatalog] = useState([]) // [{product, options:[{packaging}]}]
   const [pending, setPending] = useState({}) // key 'productId::packagingId' → qty string while entering
+  // productId → { packagingId, qty, ppl } while adding a size outside their range
+  const [otherSize, setOtherSize] = useState({})
+  const custName = customers.find((x) => x.id === customerId)?.name || 'this customer'
   const isAdmin = useIsAdmin()
   const [showAdd, setShowAdd] = useState(false) // "add a product" modal
 
@@ -132,6 +135,44 @@ export default function NewOrderPage() {
   // Click an "added" chip → remove the line
   function removeChip(productId, packagingId) {
     setLines((ls) => ls.filter((l) => !(l.productId === productId && l.packagingId === packagingId)))
+  }
+
+  // ── "other size" on a quick-add card ──────────────────────────────────────
+  // A size the customer has never been priced for. Admins are asked for the
+  // price there and then; everyone else just adds it and it shows as unpriced,
+  // which blocks the invoicing copy until an admin fills it in.
+  function openOtherSize(productId) {
+    setOtherSize((o) => ({ ...o, [productId]: { packagingId: '', qty: '1', ppl: '' } }))
+  }
+  function closeOtherSize(productId) {
+    setOtherSize((o) => { const n = { ...o }; delete n[productId]; return n })
+  }
+  function setOtherSizeField(productId, patch) {
+    setOtherSize((o) => ({ ...o, [productId]: { ...o[productId], ...patch } }))
+  }
+
+  async function addOtherSize(productId) {
+    const s = otherSize[productId]
+    if (!s?.packagingId) { toastError('Choose a size first'); return }
+    const ppl = parseFloat(s.ppl) || 0
+    if (isAdmin && ppl > 0 && customerId) {
+      const { error } = await supabase.from('customer_product_prices').upsert(
+        { customer_id: customerId, product_id: productId, packaging_id: s.packagingId, price_per_litre: ppl, updated_at: new Date().toISOString() },
+        { onConflict: 'customer_id,product_id,packaging_id' })
+      if (error) { toastError('Could not save the price: ' + error.message); return }
+      // It's in their range now — show it as a permanent chip on the card.
+      setAvailableByProduct((m) => ({ ...m, [productId]: [...new Set([...(m[productId] || []), s.packagingId])] }))
+      setCustomerCatalog((cat) => cat.map((row) => (row.product.id === productId && !row.options.some((k) => k.id === s.packagingId)
+        ? { ...row, options: [...row.options, packaging.find((k) => k.id === s.packagingId)].filter(Boolean).sort((a, b) => (a.volume || 0) - (b.volume || 0)) }
+        : row)))
+      toast(`Added to ${custName}'s price list at £${ppl.toFixed(4)}/L`)
+    } else if (isAdmin) {
+      toast('Added with no price — set one before the invoicing copy can be printed')
+    } else {
+      toast('Added — an admin will price it before invoicing')
+    }
+    setLines((ls) => [...ls, { productId, packagingId: s.packagingId, qty: String(parseInt(s.qty) || 1) }])
+    closeOtherSize(productId)
   }
 
   // Handle a product added via the shared modal: register a new catalogue
@@ -554,7 +595,73 @@ export default function NewOrderPage() {
                             </button>
                           )
                         })}
+
+                        {/* A size this customer isn't priced for */}
+                        {!(product.id in otherSize) && (
+                          <button
+                            onClick={() => openOtherSize(product.id)}
+                            title="Add a size this customer hasn't had before"
+                            style={{
+                              padding: '8px 14px', borderRadius: 9, fontSize: 12.5, fontWeight: 700,
+                              cursor: 'pointer', border: '1.5px dashed var(--line-solid)',
+                              background: 'transparent', color: 'var(--muted)',
+                            }}
+                          >
+                            ＋ other size
+                          </button>
+                        )}
                       </div>
+
+                      {product.id in otherSize && (() => {
+                        const s = otherSize[product.id]
+                        const taken = options.map((k) => k.id)
+                        const choices = packaging
+                          .filter((k) => !taken.includes(k.id))
+                          .sort((a, b) => (a.volume || 0) - (b.volume || 0))
+                        const vol = packaging.find((k) => k.id === s.packagingId)?.volume || 0
+                        const ppl = parseFloat(s.ppl) || 0
+                        return (
+                          <div style={{ marginTop: 10, borderTop: '1px solid var(--line)', paddingTop: 10 }}>
+                            <div style={{ display: 'flex', gap: 6, alignItems: 'flex-end', flexWrap: 'wrap' }}>
+                              <div className="field" style={{ flex: '1 1 130px', marginBottom: 0 }}>
+                                <label style={{ fontSize: 9.5 }}>Size</label>
+                                <select value={s.packagingId} style={{ fontSize: 12.5, padding: '7px 9px' }}
+                                  onChange={(e) => setOtherSizeField(product.id, { packagingId: e.target.value })}>
+                                  <option value="">— choose —</option>
+                                  {choices.map((k) => <option key={k.id} value={k.id}>{k.name}</option>)}
+                                </select>
+                              </div>
+                              <div className="field" style={{ width: 62, marginBottom: 0 }}>
+                                <label style={{ fontSize: 9.5 }}>Qty</label>
+                                <input className="mono" type="number" min="1" value={s.qty}
+                                  style={{ fontSize: 12.5, padding: '7px 6px', textAlign: 'center' }}
+                                  onChange={(e) => setOtherSizeField(product.id, { qty: e.target.value })} />
+                              </div>
+                            </div>
+                            {isAdmin ? (
+                              <div className="field" style={{ marginTop: 8, marginBottom: 0 }}>
+                                <label style={{ fontSize: 9.5 }}>£ / litre for {custName}</label>
+                                <input className="mono" value={s.ppl} placeholder="0.0000"
+                                  style={{ fontSize: 12.5, padding: '7px 9px' }}
+                                  onChange={(e) => setOtherSizeField(product.id, { ppl: e.target.value })} />
+                                <p className="hint" style={{ marginTop: 3, marginBottom: 0, fontSize: 11 }}>
+                                  {ppl > 0 && vol > 0
+                                    ? `= £${(ppl * vol).toFixed(2)} per ${packaging.find((k) => k.id === s.packagingId)?.name} · saved to their price list`
+                                    : 'Leave blank to price later — the invoicing copy stays blocked until it\'s set.'}
+                                </p>
+                              </div>
+                            ) : (
+                              <p className="hint" style={{ marginTop: 6, marginBottom: 0, fontSize: 11 }}>
+                                💡 An admin will add the price — it shows as unpriced until then.
+                              </p>
+                            )}
+                            <div style={{ display: 'flex', gap: 6, marginTop: 10 }}>
+                              <button className="btn btn-a btn-sm" onClick={() => addOtherSize(product.id)}>Add to order</button>
+                              <button className="btn btn-g btn-sm" onClick={() => closeOtherSize(product.id)}>Cancel</button>
+                            </div>
+                          </div>
+                        )
+                      })()}
                     </div>
                   )
                 })}
@@ -597,7 +704,6 @@ export default function NewOrderPage() {
 
       {/* Offer to store a manually-entered address on the customer record */}
       {addrPrompt && (() => {
-        const custName = customers.find((x) => x.id === customerId)?.name || 'this customer'
         const isInv = addrPrompt.kind === 'invoice'
         const isVerify = addrPrompt.mode === 'verify'
         return (
