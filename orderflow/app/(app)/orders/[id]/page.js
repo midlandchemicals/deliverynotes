@@ -386,6 +386,11 @@ export default function OrderDetailPage() {
   const linesDirty = !editLocked && !!order && JSON.stringify(lines) !== JSON.stringify(order.lines || [])
   // Notes are held newest-first, so the top one is the current paperwork.
   const latestNote = dispatched[0] || null
+  // Lines with nothing to invoice against — these gate the invoicing copy.
+  const unpricedLines = lines.filter((l) => {
+    const c = computeLine(l, products, packaging)
+    return c.product && pplFor(c.product.id, c.packaging?.id, c.qty, l.ppl_override) <= 0
+  })
 
   // The DB column the order's current buyer level writes to.
   function levelCol() {
@@ -508,13 +513,16 @@ export default function OrderDetailPage() {
   }
 
   function printOfficeCopy(d) {
+    // Blocked until everything has a price to invoice against — the charged
+    // price, so a one-off agreed price counts just as a list price does.
     const unpriced = lines.filter((l) => {
       const c = computeLine(l, products, packaging)
-      return (parseFloat(prices[`${c.product?.id}::${c.packaging?.id}`]) || 0) === 0
+      if (!c.product) return false
+      return pplFor(c.product.id, c.packaging?.id, c.qty, l.ppl_override) <= 0
     })
     if (unpriced.length > 0) {
-      const names = unpriced.map((l) => computeLine(l, products, packaging).productName).join(', ')
-      toast(`No price set for: ${names}`)
+      const names = [...new Set(unpriced.map((l) => computeLine(l, products, packaging).productName))].join(', ')
+      toastError(`Can't print the invoicing copy — no price yet for: ${names}. Set it in Pricing above.`)
       return
     }
     const lh = letterheads[lhIndex]
@@ -905,10 +913,18 @@ export default function OrderDetailPage() {
                 <span className="doc-sub">Reprint {latestNote.doc_no}</span>
               </button>
               {isAdmin && (
-                <button className="doc-btn" onClick={() => printOfficeCopy(latestNote)}>
+                <button
+                  className={'doc-btn' + (unpricedLines.length ? ' doc-btn-off' : '')}
+                  onClick={() => printOfficeCopy(latestNote)}
+                  title={unpricedLines.length ? 'Every product needs a price before this can be printed' : ''}
+                >
                   <span className="doc-ico">💷</span>
                   <span className="doc-name">For invoicing</span>
-                  <span className="doc-sub">Office copy with prices</span>
+                  <span className="doc-sub">
+                    {unpricedLines.length
+                      ? `🔒 ${unpricedLines.length} product${unpricedLines.length === 1 ? '' : 's'} still unpriced`
+                      : 'Office copy with prices'}
+                  </span>
                 </button>
               )}
             </>
