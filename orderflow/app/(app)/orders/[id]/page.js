@@ -72,6 +72,8 @@ export default function OrderDetailPage() {
   // IBCs are counted from the products themselves; this is only the ADDITIONAL
   // pallets of smaller packs, which nothing can work out for us.
   const [extraPallets, setExtraPallets] = useState('')
+  const [noPallets, setNoPallets] = useState(false)   // only asked when there are no IBCs
+  const [palletsFlash, setPalletsFlash] = useState(false)
   const [docNoOverride, setDocNoOverride] = useState('') // optional manual DN number
   const [deliveryTouched, setDeliveryTouched] = useState(false) // user typed a delivery charge by hand
   const [showHazard, setShowHazard] = useState(true)
@@ -615,8 +617,14 @@ export default function OrderDetailPage() {
   function startDispatch() {
     const lh = letterheads[lhIndex]
     if (!lh) { alert('Add a letterhead first (Letterheads tab).'); return }
-    // Pallets are no longer gated: IBCs come off the order automatically, and
-    // extra pallets are genuinely optional.
+    // Only ask about pallets when nothing can be worked out for us: with IBCs
+    // on the order the count is already known, so extras stay optional.
+    if (ibcCount === 0 && !noPallets && (parseInt(extraPallets, 10) || 0) <= 0) {
+      setPalletsFlash(true)
+      setTimeout(() => setPalletsFlash(false), 1200)
+      toast('No IBCs on this order — enter the number of pallets, or tick "No pallets needed"')
+      return
+    }
     // Warn if any hazmat product has not been verified against its SDS
     const unverifiedNames = lines.reduce((acc, l) => {
       const p = products.find((x) => x.id === l.productId)
@@ -724,6 +732,7 @@ export default function OrderDetailPage() {
     setDispatched(refreshed.data || [])
     setEditLocked(true)
     setExtraPallets('')
+    setNoPallets(false)
     setBatchModal(null)
     setBusy(false)
     toast('Delivery note generated')
@@ -1234,14 +1243,29 @@ export default function OrderDetailPage() {
               Counted from the 600 L / 1000 L lines on this order.
             </p>
             <label style={{ marginBottom: 5 }}>
-              Extra pallets
-              <span style={{ textTransform: 'none', letterSpacing: 0, fontWeight: 500, color: 'var(--faint)' }}> · optional</span>
+              {ibcCount > 0 ? 'Extra pallets' : 'Number of pallets'}
+              <span style={{
+                textTransform: 'none', letterSpacing: 0, fontWeight: 500,
+                color: ibcCount > 0 ? 'var(--faint)' : 'var(--warn, #B07E28)',
+              }}> · {ibcCount > 0 ? 'optional' : 'required'}</span>
             </label>
-            <input className="mono" type="number" min="0" value={extraPallets}
-              placeholder="0"
-              onChange={(e) => setExtraPallets(e.target.value)} />
+            <input className={'mono' + (palletsFlash ? ' flash-error' : '')}
+              type="number" min="0" value={extraPallets}
+              disabled={noPallets}
+              placeholder={noPallets ? 'no pallets' : '0'}
+              onChange={(e) => { setExtraPallets(e.target.value); setPalletsFlash(false) }} />
+            {ibcCount === 0 && (
+              <label style={{ display: 'inline-flex', flexDirection: 'row', alignItems: 'center', gap: 6, textTransform: 'none', letterSpacing: 0, fontSize: 12, cursor: 'pointer', marginTop: 6 }}>
+                <input type="checkbox" checked={noPallets}
+                  onChange={(e) => { setNoPallets(e.target.checked); if (e.target.checked) { setExtraPallets(''); setPalletsFlash(false) } }}
+                  style={{ width: 'auto', height: 15, accentColor: 'var(--accent)' }} />
+                No pallets needed
+              </label>
+            )}
             <p className="hint" style={{ marginTop: 4, marginBottom: 0 }}>
-              Only pallets of smaller packs — leave blank if there aren&apos;t any.
+              {ibcCount > 0
+                ? 'Only pallets of smaller packs — leave blank if there aren’t any.'
+                : 'No IBCs on this order, so the pallet count can’t be worked out — enter it or tick above.'}
               {totalPallets > 0 && <> Note will read <b>{ibcCount > 0
                 ? `${ibcCount} IBC${ibcCount === 1 ? '' : 's'}${(parseInt(extraPallets, 10) || 0) > 0 ? ` + ${parseInt(extraPallets, 10)} pallet${parseInt(extraPallets, 10) === 1 ? '' : 's'}` : ''}`
                 : `${totalPallets} pallet${totalPallets === 1 ? '' : 's'}`}</b>.</>}
