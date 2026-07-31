@@ -242,6 +242,22 @@ export default function NewOrderPage() {
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
+  // Step 1 is worked through in order: the section you're on is outlined, the
+  // ones behind it are ticked off, the ones ahead sit quietly until you get
+  // there. Nothing is locked — data doesn't always arrive in a tidy order, and
+  // the Next button is what actually enforces the required fields.
+  const sectionDone = {
+    1: !!customerId,
+    2: !!poRef.trim(),
+    3: !!custDetails.trim() && !!custDeliver.trim(),
+    4: !!(contactName.trim() || contactEmail.trim() || contactPhone.trim()),
+  }
+  function sectionState(n) {
+    if (sectionDone[n]) return 'done'
+    for (let i = 1; i < n; i++) if (!sectionDone[i]) return 'todo'
+    return 'active'
+  }
+
   function goToStep2() {
     // It prints on the delivery note, so it has to be captured up front.
     if (!poRef.trim()) {
@@ -406,82 +422,85 @@ export default function NewOrderPage() {
         <div className="card">
           <div className="ttl"><h2>New Order</h2></div>
 
-          <Field label="Customer">
-            <Combobox options={customerOptions} value={customerId} onSelect={pickCustomer} placeholder="Type customer name to search…" />
-          </Field>
-
-          <Field label="Order Reference">
-            <input className="mono" value={orderNo} onChange={(e) => setOrderNo(e.target.value)} />
-            <p className="hint" style={{ marginTop: 4, marginBottom: 0 }}>The DN number is assigned when the delivery note is created, so notes are numbered in dispatch order.</p>
-          </Field>
-
-          {/* Required because it prints on the delivery note — flagged with a
-              quiet amber edge until it's filled, not a full-blown warning. */}
-          <div className="field" style={{ marginBottom: 14 }}>
-            <label>
-              Customer No
-              <span style={{ textTransform: 'none', letterSpacing: 0, fontWeight: 500, color: poRef.trim() ? 'var(--faint)' : 'var(--warn, #B07E28)' }}>
-                {' '}· required
-              </span>
-            </label>
-            <input
-              id="po-ref-input"
-              value={poRef}
-              onChange={(e) => setPoRef(e.target.value)}
-              placeholder="Their own order number"
-              style={poRef.trim() ? undefined : { borderColor: 'var(--warn, #B07E28)' }}
-            />
-            <p className="hint" style={{ marginTop: 4, marginBottom: 0 }}>Prints on their delivery note as <b>Customer No</b>.</p>
-          </div>
-
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 14 }}>
-            <Field label="Order date">
-              <input className="mono" type="date" value={orderDate} onChange={(e) => setOrderDate(e.target.value)} />
+          <Section n={1} title="Customer" state={sectionState(1)}>
+            <Field label="Customer">
+              <Combobox options={customerOptions} value={customerId} onSelect={pickCustomer} placeholder="Type customer name to search…" />
             </Field>
-            <Field label="Requested delivery date">
-              <input className="mono" type="date" value={requestedDate} onChange={(e) => setRequestedDate(e.target.value)} />
+          </Section>
+
+          <Section n={2} title="Order details" state={sectionState(2)}>
+            <Field label="Order Reference">
+              <input className="mono" value={orderNo} onChange={(e) => setOrderNo(e.target.value)} />
+              <p className="hint" style={{ marginTop: 4, marginBottom: 0 }}>The DN number is assigned when the delivery note is created, so notes are numbered in dispatch order.</p>
             </Field>
-          </div>
 
-          <hr style={{ border: 'none', borderTop: '1px solid var(--border)', margin: '18px 0' }} />
+            <div className="field" style={{ marginBottom: 14 }}>
+              <label>
+                Customer No
+                <span style={{ textTransform: 'none', letterSpacing: 0, fontWeight: 500, color: 'var(--faint)' }}> · required</span>
+              </label>
+              <input
+                id="po-ref-input"
+                value={poRef}
+                onChange={(e) => setPoRef(e.target.value)}
+                placeholder="Their own order number"
+              />
+              <p className="hint" style={{ marginTop: 4, marginBottom: 0 }}>Prints on their delivery note as <b>Customer No</b>.</p>
+            </div>
 
-          <Field label="Invoice to">
-            {invoiceOptions.length > 1 && (
-              <div style={{ marginBottom: 6 }}>
-                <Combobox
-                  options={invoiceOptions.map((a, i) => ({ id: String(i), label: `${a.verified ? '✓ ' : ''}${a.invoice_default ? '🧾 ' : ''}${a.label || firstLine(a.text) || `Address ${i + 1}`}` }))}
-                  value={String(invoiceIdx)}
-                  onSelect={(id) => pickInvoiceAddr(+id)}
-                  placeholder="Choose the invoice address…"
-                />
-              </div>
-            )}
-            <textarea value={custDetails} onChange={(e) => setCustDetails(e.target.value)} placeholder="Company / invoice address — or type one in" style={{ minHeight: 90 }} />
-          </Field>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 0 }}>
+              <Field label="Order date">
+                <input className="mono" type="date" value={orderDate} onChange={(e) => setOrderDate(e.target.value)} />
+              </Field>
+              <Field label="Requested delivery date">
+                <input className="mono" type="date" value={requestedDate} onChange={(e) => setRequestedDate(e.target.value)} />
+              </Field>
+            </div>
+          </Section>
 
-          <Field label="Delivery address">
-            {deliveryOptions.length > 1 && (
-              <div style={{ marginBottom: 6 }}>
-                <Combobox
-                  options={deliveryOptions.map((a, i) => ({ id: String(i), label: `${a.verified ? '✓ ' : ''}${a.invoice_default ? '🧾 ' : ''}${a.label || firstLine(a.text) || `Address ${i + 1}`}` }))}
-                  value={String(deliveryIdx)}
-                  onSelect={(id) => pickDeliveryAddr(+id)}
-                  placeholder="Choose the delivery address…"
-                />
-              </div>
-            )}
-            <textarea value={custDeliver} onChange={(e) => setCustDeliver(e.target.value)} placeholder="Delivery address — or type one in" style={{ minHeight: 90 }} />
-          </Field>
+          <Section n={3} title="Addresses" state={sectionState(3)}>
+            <Field label="Invoice to">
+              {invoiceOptions.length > 1 && (
+                <div style={{ marginBottom: 6 }}>
+                  <Combobox
+                    options={invoiceOptions.map((a, i) => ({ id: String(i), label: `${a.verified ? '✓ ' : ''}${a.invoice_default ? '🧾 ' : ''}${a.label || firstLine(a.text) || `Address ${i + 1}`}` }))}
+                    value={String(invoiceIdx)}
+                    onSelect={(id) => pickInvoiceAddr(+id)}
+                    placeholder="Choose the invoice address…"
+                  />
+                </div>
+              )}
+              <textarea value={custDetails} onChange={(e) => setCustDetails(e.target.value)} placeholder="Company / invoice address — or type one in" style={{ minHeight: 90 }} />
+            </Field>
 
-          <Field label="Contact name">
-            <input placeholder="Contact name" value={contactName} onChange={(e) => setContactName(e.target.value)} />
-          </Field>
-          <Field label="Contact email">
-            <input placeholder="Email" value={contactEmail} onChange={(e) => setContactEmail(e.target.value)} />
-          </Field>
-          <Field label="Contact telephone">
-            <input placeholder="Telephone" value={contactPhone} onChange={(e) => setContactPhone(e.target.value)} />
-          </Field>
+            <Field label="Delivery address">
+              {deliveryOptions.length > 1 && (
+                <div style={{ marginBottom: 6 }}>
+                  <Combobox
+                    options={deliveryOptions.map((a, i) => ({ id: String(i), label: `${a.verified ? '✓ ' : ''}${a.invoice_default ? '🧾 ' : ''}${a.label || firstLine(a.text) || `Address ${i + 1}`}` }))}
+                    value={String(deliveryIdx)}
+                    onSelect={(id) => pickDeliveryAddr(+id)}
+                    placeholder="Choose the delivery address…"
+                  />
+                </div>
+              )}
+              <textarea value={custDeliver} onChange={(e) => setCustDeliver(e.target.value)} placeholder="Delivery address — or type one in" style={{ minHeight: 90 }} />
+            </Field>
+          </Section>
+
+          <Section n={4} title="Contact details" state={sectionState(4)}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 14 }}>
+              <Field label="Contact name">
+                <input placeholder="Contact name" value={contactName} onChange={(e) => setContactName(e.target.value)} />
+              </Field>
+              <Field label="Contact email">
+                <input placeholder="Email" value={contactEmail} onChange={(e) => setContactEmail(e.target.value)} />
+              </Field>
+              <Field label="Contact telephone">
+                <input placeholder="Telephone" value={contactPhone} onChange={(e) => setContactPhone(e.target.value)} />
+              </Field>
+            </div>
+          </Section>
 
           <div style={{ marginTop: 24, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
             {/* Left clickable on purpose — a dead grey button tells you nothing,
@@ -786,6 +805,39 @@ export default function NewOrderPage() {
           </div>
         )
       })()}
+    </div>
+  )
+}
+
+// One block of the form. 'active' is outlined and is where you should be
+// working; 'done' is ticked and quiet; 'todo' is faded until its turn.
+function Section({ n, title, state, children }) {
+  const done = state === 'done'
+  const active = state === 'active'
+  return (
+    <div style={{
+      border: `${active ? 2 : 1}px solid ${active ? 'var(--accent)' : 'var(--line)'}`,
+      borderRadius: 11,
+      background: active ? 'var(--panel)' : 'transparent',
+      padding: active ? '15px 16px 3px' : '14px 16px 2px',
+      marginBottom: 12,
+      opacity: state === 'todo' ? 0.5 : 1,
+      transition: 'opacity .2s, border-color .2s',
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 12 }}>
+        <span style={{
+          width: 20, height: 20, borderRadius: '50%', flexShrink: 0,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          fontSize: 11, fontWeight: 800,
+          background: done ? 'var(--accent)' : active ? 'var(--accent-soft)' : 'var(--chip-bg)',
+          color: done ? 'var(--on-accent)' : active ? 'var(--accent)' : 'var(--faint)',
+        }}>{done ? '✓' : n}</span>
+        <span style={{
+          fontSize: 12.5, fontWeight: 700, letterSpacing: '.02em',
+          color: active ? 'var(--accent)' : done ? 'var(--heading)' : 'var(--muted)',
+        }}>{title}</span>
+      </div>
+      {children}
     </div>
   )
 }
