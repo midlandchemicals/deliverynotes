@@ -1,7 +1,7 @@
 'use client'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { toastError } from '@/lib/notify'
+import { toast, toastError } from '@/lib/notify'
 
 // Floating staff chat, bottom-right on every page. Collapsed it's a small bar
 // with an unread count; open it's a panel with the colleague list and the
@@ -16,6 +16,32 @@ const nameOf = (email) => {
 }
 const initials = (email) => nameOf(email).split(' ').map((p) => p[0]).join('').slice(0, 2) || '?'
 const lc = (s) => String(s || '').trim().toLowerCase()
+
+// Short two-note ping, synthesised rather than shipped as an audio file so
+// there's nothing to load and nothing to 404. Browsers block audio until the
+// page has been interacted with, which by this point it always has.
+function playPing() {
+  try {
+    const Ctx = window.AudioContext || window.webkitAudioContext
+    if (!Ctx) return
+    const ctx = new Ctx()
+    const note = (freq, at, len) => {
+      const o = ctx.createOscillator()
+      const g = ctx.createGain()
+      o.connect(g); g.connect(ctx.destination)
+      o.type = 'sine'
+      o.frequency.value = freq
+      g.gain.setValueAtTime(0.0001, ctx.currentTime + at)
+      g.gain.exponentialRampToValueAtTime(0.12, ctx.currentTime + at + 0.012)
+      g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + at + len)
+      o.start(ctx.currentTime + at)
+      o.stop(ctx.currentTime + at + len + 0.02)
+    }
+    note(784, 0, 0.13)     // G5
+    note(1046, 0.11, 0.22) // C6
+    setTimeout(() => ctx.close(), 800)
+  } catch { /* audio blocked or unsupported — the other three still fire */ }
+}
 
 function timeLabel(ts) {
   const d = new Date(ts)
@@ -37,9 +63,16 @@ export default function ChatWidget() {
   const [draft, setDraft] = useState('')
   const [sending, setSending] = useState(false)
   const [missing, setMissing] = useState(false)  // migration not run yet
+  const [muted, setMuted] = useState(false)
+  const [perm, setPerm] = useState('unsupported') // desktop notification permission
   const endRef = useRef(null)
   const withRef = useRef('')
+  const openRef = useRef(false)
+  const mutedRef = useRef(false)
+  const baseTitle = useRef('')
   withRef.current = withEmail
+  openRef.current = open
+  mutedRef.current = muted   // the realtime callback is created once, so it reads the ref
 
   const totalUnread = Object.values(unread).reduce((a, b) => a + b, 0)
 
@@ -67,6 +100,48 @@ export default function ChatWidget() {
 
   useEffect(() => { if (me) loadUnread(me) }, [me, loadUnread])
 
+  // Remember the page title so the unread badge can be added and removed
+  // without permanently rewriting it, and read the saved sound preference.
+  useEffect(() => {
+    baseTitle.current = document.title.replace(/^\(\d+\)\s*/, '')
+    setMuted(localStorage.getItem('chatMuted') === '1')
+    if (typeof window !== 'undefined' && 'Notification' in window) setPerm(Notification.permission)
+  }, [])
+
+  // (2) Unread count in the browser tab, so it shows even on another tab.
+  useEffect(() => {
+    if (!baseTitle.current) return
+    document.title = totalUnread > 0 ? `(${totalUnread}) ${baseTitle.current}` : baseTitle.current
+  }, [totalUnread])
+
+  function toggleMute() {
+    setMuted((m) => { localStorage.setItem('chatMuted', m ? '0' : '1'); return !m })
+  }
+
+  // (4) Desktop notifications need a one-off permission, and browsers only
+  // allow the prompt in response to a click — hence the button rather than
+  // asking on load.
+  async function askPermission() {
+    if (!('Notification' in window)) return
+    const res = await Notification.requestPermission()
+    setPerm(res)
+    if (res === 'granted') new Notification('Notifications are on', { body: 'New messages will appear here.' })
+  }
+
+  // Everything that happens when a message lands while you're not reading it.
+  function alertNewMessage(m) {
+    const who = nameOf(m.sender_email)
+    const preview = m.body.length > 90 ? m.body.slice(0, 90) + '…' : m.body
+    toast(`💬 ${who}: ${preview}`)                       // (1) in-app toast
+    if (!mutedRef.current) playPing()                    // (3) sound
+    if ('Notification' in window && Notification.permission === 'granted') {
+      try {                                              // (4) OS notification
+        const n = new Notification(`${who} — OrderFlow`, { body: preview, tag: 'msg-' + m.sender_email })
+        n.onclick = () => { window.focus(); setOpen(true); openConversation(lc(m.sender_email)); n.close() }
+      } catch { /* some browsers require a service worker — the rest still fire */ }
+    }
+  }
+
   // Live delivery of anything addressed to me.
   useEffect(() => {
     if (!me) return
@@ -76,11 +151,18 @@ export default function ChatWidget() {
         { event: 'INSERT', schema: 'public', table: 'messages', filter: `recipient_email=eq.${me}` },
         (payload) => {
           const m = payload.new
-          if (lc(m.sender_email) === lc(withRef.current)) {
+          // Already looking at this conversation with the panel open? Just show
+          // it. Otherwise it's unread, and worth interrupting them for.
+          const watching = openRef.current && lc(m.sender_email) === lc(withRef.current) && !document.hidden
+          if (watching) {
             setMessages((cur) => (cur.some((x) => x.id === m.id) ? cur : [...cur, m]))
             markRead(m.sender_email)
           } else {
+            if (lc(m.sender_email) === lc(withRef.current)) {
+              setMessages((cur) => (cur.some((x) => x.id === m.id) ? cur : [...cur, m]))
+            }
             setUnread((u) => ({ ...u, [m.sender_email]: (u[m.sender_email] || 0) + 1 }))
+            alertNewMessage(m)
           }
         })
       .subscribe()
@@ -143,6 +225,9 @@ export default function ChatWidget() {
           <div className="chat-title">{withEmail ? nameOf(withEmail) : 'Messages'}</div>
           {withEmail && <div className="chat-sub">{withEmail}</div>}
         </div>
+        <button className="chat-icon-btn" title={muted ? 'Sound off — click to turn on' : 'Sound on — click to mute'} onClick={toggleMute}>
+          {muted ? '🔕' : '🔔'}
+        </button>
         <button className="chat-icon-btn" title="Close" onClick={() => setOpen(false)}>✕</button>
       </div>
 
@@ -155,6 +240,23 @@ export default function ChatWidget() {
       ) : !withEmail ? (
         // ── who to message ──
         <div className="chat-body">
+          {perm === 'default' && (
+            <div className="chat-perm">
+              <div style={{ fontWeight: 700, fontSize: 12.5, marginBottom: 2 }}>🔔 Get notified</div>
+              <div style={{ fontSize: 11.5, color: 'var(--muted)', marginBottom: 8 }}>
+                Show new messages on your desktop, even when OrderFlow is behind another window.
+              </div>
+              <button className="btn btn-a btn-sm" onClick={askPermission}>Turn on notifications</button>
+            </div>
+          )}
+          {perm === 'denied' && (
+            <div className="chat-perm">
+              <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>
+                🔕 Desktop notifications are blocked for this site. Turn them back on in your browser&apos;s
+                site settings (the icon at the left of the address bar).
+              </div>
+            </div>
+          )}
           {people.length === 0 ? (
             <p className="hint" style={{ margin: 12 }}>No other staff accounts found in <b>app_users</b>.</p>
           ) : people.map((email) => (
