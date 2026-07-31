@@ -43,7 +43,6 @@ const MAIN_LINKS = [
   ['/', 'Dashboard', 'dashboard'],
   ['/orders/new', 'New Order', 'plus'],
   ['/orders', 'Order Book', 'list'],
-  ['/notes', 'Delivery Notes', 'doc'],
 ]
 
 // Pricing-related pages are admin-only; adminOnly flags hide them for general logins.

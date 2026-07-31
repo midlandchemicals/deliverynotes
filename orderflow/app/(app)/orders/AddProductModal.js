@@ -12,9 +12,11 @@ const norm = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '')
 // with "create a brand-new one". Used on the new-order and order-detail pages.
 //
 // onDone({ line:{productId,packagingId,qty}, product, packagingId, priceSaved, created, addedToRange })
-export default function AddProductModal({ open, onClose, products, packaging, customerId, customerName, isAdmin, onDone }) {
+export default function AddProductModal({ open, onClose, products, packaging, customerId, customerName, isAdmin, onDone, availableByProduct = {} }) {
   const supabase = createClient()
   const [step, setStep] = useState('choose') // 'choose' | 'existing' | 'new'
+  // 'range' = only what this customer already buys, 'all' = everything we make
+  const [exScope, setExScope] = useState('range')
   const [busy, setBusy] = useState(false)
 
   // existing-product form
@@ -45,8 +47,17 @@ export default function AddProductModal({ open, onClose, products, packaging, cu
   if (!open) return null
 
   const categories = [...new Set(products.map((p) => p.category).filter(Boolean))].sort()
-  const packOpts = [...packaging].sort((a, b) => (a.volume || 0) - (b.volume || 0))
   const custLabel = customerName || 'this customer'
+
+  // What this customer already buys, per their price list.
+  const rangeProducts = products.filter((p) => (availableByProduct[p.id] || []).length > 0)
+  const inRange = exScope === 'range' && rangeProducts.length > 0
+  const exOptions = inRange ? rangeProducts : products
+  // In range mode, offer only the sizes they're actually priced for.
+  const rangePacks = step === 'existing' && inRange && exProduct ? (availableByProduct[exProduct] || []) : null
+  const packOpts = [...packaging]
+    .filter((k) => !rangePacks || rangePacks.includes(k.id))
+    .sort((a, b) => (a.volume || 0) - (b.volume || 0))
 
   // live "did you mean an existing product?" check on the new-product name
   const dupMatches = nName.trim().length >= 3
@@ -54,7 +65,7 @@ export default function AddProductModal({ open, onClose, products, packaging, cu
     : []
 
   function reset() {
-    setStep('choose'); setBusy(false)
+    setStep('choose'); setBusy(false); setExScope('range')
     setExProduct(''); setExPack(''); setExQty('1'); setExToRange(false); setExPpl('')
     setNName(''); setNRange(''); setNSg(''); setNUn(''); setNPack(''); setNQty('1'); setNPpl('')
     setNPg(''); setNClass(''); setNSub(''); setNTunnel(''); setNTcat(''); setNPsn(''); setHazSource('')
@@ -63,7 +74,7 @@ export default function AddProductModal({ open, onClose, products, packaging, cu
 
   // Jump from the "new" screen straight into adding a matched existing product.
   function useExistingInstead(p) {
-    setExProduct(p.id); setExPack(''); setExQty(nQty || '1'); setStep('existing')
+    setExScope('all'); setExProduct(p.id); setExPack(''); setExQty(nQty || '1'); setStep('existing')
   }
 
   // Copy EVERYTHING that describes the hazard from another product — UN number,
@@ -168,14 +179,30 @@ export default function AddProductModal({ open, onClose, products, packaging, cu
             <h2 style={{ marginBottom: 6 }}>Add a product to this order</h2>
             <p className="hint" style={{ marginTop: 0, marginBottom: 16 }}>Which one is it?</p>
             <button
-              onClick={() => setStep('existing')}
+              onClick={() => { setExScope('range'); setExProduct(''); setExPack(''); setStep('existing') }}
               style={{
                 display: 'block', width: '100%', textAlign: 'left', cursor: 'pointer', marginBottom: 12,
                 border: '2px solid var(--accent)', background: 'var(--accent-soft, #E7F2EB)', borderRadius: 12, padding: '16px 18px', fontFamily: 'inherit',
               }}
             >
-              <div style={{ fontSize: 16, fontWeight: 800, color: 'var(--accent)' }}>✅ A product we ALREADY sell</div>
-              <div style={{ fontSize: 13, color: 'var(--ink)', marginTop: 4 }}>Search our list and put it on the order. <b>This is almost always the right one.</b></div>
+              <div style={{ fontSize: 16, fontWeight: 800, color: 'var(--accent)' }}>✅ Something {custLabel} ALREADY BUYS</div>
+              <div style={{ fontSize: 13, color: 'var(--ink)', marginTop: 4 }}>
+                Their usual range — already priced up.{' '}
+                <b>This is almost always the right one.</b>
+                {rangeProducts.length > 0 ? ` (${rangeProducts.length} product${rangeProducts.length === 1 ? '' : 's'})` : ' — nothing on their list yet, so use the next option.'}
+              </div>
+            </button>
+            <button
+              onClick={() => { setExScope('all'); setExProduct(''); setExPack(''); setStep('existing') }}
+              style={{
+                display: 'block', width: '100%', textAlign: 'left', cursor: 'pointer', marginBottom: 12,
+                border: '2px solid var(--line-solid)', background: 'var(--panel-2)', borderRadius: 12, padding: '16px 18px', fontFamily: 'inherit',
+              }}
+            >
+              <div style={{ fontSize: 16, fontWeight: 800, color: 'var(--heading)' }}>📦 Something else WE MAKE</div>
+              <div style={{ fontSize: 13, color: 'var(--ink)', marginTop: 4 }}>
+                Anything in our full product list that {custLabel} hasn&apos;t bought before. <b>It will need a price.</b>
+              </div>
             </button>
             <button
               onClick={() => setStep('new')}
@@ -197,22 +224,41 @@ export default function AddProductModal({ open, onClose, products, packaging, cu
         {step === 'existing' && (
           <>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
-              <h2 style={{ margin: 0 }}>✅ Add a product we already sell</h2>
+              <h2 style={{ margin: 0 }}>{inRange ? `✅ From ${custLabel}'s range` : '📦 From everything we make'}</h2>
               <button className="btn btn-g btn-sm" onClick={() => setStep('choose')}>← Back</button>
             </div>
             <p className="hint" style={{ marginTop: 0, marginBottom: 14 }}>Search the product → choose the size → add.</p>
 
+            {!inRange && rangeProducts.length > 0 && (
+              <p className="hint" style={{ marginTop: 0, marginBottom: 12, background: 'var(--panel-2)', border: '1px solid var(--line-solid)', borderRadius: 8, padding: '8px 12px' }}>
+                You&apos;re searching <b>every product we make</b>, not just {custLabel}&apos;s usual range.{' '}
+                <a style={{ color: 'var(--accent)', fontWeight: 700, cursor: 'pointer', textDecoration: 'underline' }}
+                  onClick={() => { setExScope('range'); setExProduct(''); setExPack('') }}>
+                  Show only their range instead
+                </a>
+              </p>
+            )}
+
             <div className="field" style={{ marginBottom: 10 }}>
               <label>1. Product</label>
               <Combobox
-                options={products.map((p) => ({ id: p.id, label: p.category ? `${p.name} (${p.category})` : p.name }))}
+                options={exOptions.map((p) => ({ id: p.id, label: p.category ? `${p.name} (${p.category})` : p.name }))}
                 value={exProduct}
-                onSelect={(id) => setExProduct(id)}
-                placeholder="Type the product name to search…"
+                onSelect={(id) => { setExProduct(id); setExPack('') }}
+                placeholder={inRange ? `Search ${custLabel}'s products…` : 'Type the product name to search…'}
               />
+              {inRange && (
+                <p className="hint" style={{ marginTop: 4, marginBottom: 0 }}>
+                  Not in the list?{' '}
+                  <a style={{ color: 'var(--accent)', fontWeight: 700, cursor: 'pointer', textDecoration: 'underline' }}
+                    onClick={() => { setExScope('all'); setExProduct(''); setExPack('') }}>
+                    Search everything we make
+                  </a>
+                </p>
+              )}
             </div>
             <div className="row c2" style={{ marginBottom: 0 }}>
-              <div className="field"><label>2. Packaging size</label>
+              <div className="field"><label>2. Packaging size{rangePacks ? ' (their sizes)' : ''}</label>
                 <select value={exPack} onChange={(e) => setExPack(e.target.value)}>
                   <option value="">— choose —</option>
                   {packOpts.map((k) => <option key={k.id} value={k.id}>{k.name}</option>)}
@@ -220,6 +266,12 @@ export default function AddProductModal({ open, onClose, products, packaging, cu
               <div className="field"><label>3. Quantity</label>
                 <input className="mono" type="number" min="1" value={exQty} onChange={(e) => setExQty(e.target.value)} /></div>
             </div>
+
+            {!inRange && exProduct && !(availableByProduct[exProduct] || []).length && (
+              <p className="hint" style={{ marginTop: 8, marginBottom: 0, background: '#FCF4E2', border: '1px solid var(--warn, #B07E28)', borderRadius: 8, padding: '8px 12px', color: '#7A5511', fontWeight: 600 }}>
+                ⚠ {custLabel} has no price for this product yet — {isAdmin ? 'tick below to add it to their price list.' : 'an admin will need to price it.'}
+              </p>
+            )}
 
             {isAdmin && (
               <div style={{ marginTop: 6, borderTop: '1px solid var(--line)', paddingTop: 10 }}>

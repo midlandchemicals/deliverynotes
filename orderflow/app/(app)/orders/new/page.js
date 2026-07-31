@@ -137,6 +137,12 @@ export default function NewOrderPage() {
   // Handle a product added via the shared modal: register a new catalogue
   // product, extend the customer's available list if a price was saved, and
   // append the order line.
+  // A product's SG or hazard details were edited from the line table — swap in
+  // the saved version so weights and hazard text redraw straight away.
+  function applyProductUpdate(updated) {
+    setProducts((ps) => ps.map((p) => (p.id === updated.id ? { ...p, ...updated } : p)))
+  }
+
   function handleProductAdded({ line, product, packagingId, priceSaved, created, addedToRange }) {
     if (created && product) setProducts((ps) => [...ps, product].sort((a, b) => a.name.localeCompare(b.name)))
     if (addedToRange || priceSaved != null) {
@@ -560,7 +566,7 @@ export default function NewOrderPage() {
               </div>
             </div>
             <p className="hint" style={{ marginTop: 0 }}>Item not in the grid above? Use <b>＋ Add a product</b> to add one in another size, or create a brand-new product.</p>
-            <LineEditor lines={lines} setLines={setLines} products={products} packaging={packaging} availableByProduct={availableByProduct} />
+            <LineEditor lines={lines} setLines={setLines} products={products} packaging={packaging} availableByProduct={availableByProduct} onProductUpdated={applyProductUpdate} />
           </div>
           <div className="card">
             <div className="ttl"><h2>Notes</h2></div>
@@ -581,6 +587,7 @@ export default function NewOrderPage() {
         customerId={customerId}
         customerName={customers.find((x) => x.id === customerId)?.name || ''}
         isAdmin={isAdmin}
+        availableByProduct={availableByProduct}
         onDone={handleProductAdded}
       />
 
