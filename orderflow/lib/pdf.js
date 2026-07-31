@@ -182,14 +182,9 @@ function renderDeliveryNote(doc, doc_, lh, products, packaging) {
     .text('DELIVERY NOTE', W - M, 20, { align: 'right' })
   doc.setFont(FONT, 'normal').setFontSize(10).setTextColor(40, 40, 40)
   let hy = 28
-  doc.text(`No.           ${doc_.docNo || ''}`, W - M, hy, { align: 'right' }); hy += 6
-  if (doc_.poRef) { doc.text(`Customer order no. ${doc_.poRef}`, W - M, hy, { align: 'right' }); hy += 6 }
-  if (doc_.orderDate) {
-    doc.text(`Date ordered  ${ukDate(doc_.orderDate)}`, W - M, hy, { align: 'right' }); hy += 6
-    doc.text(`Note date     ${ukDate(doc_.date)}`, W - M, hy, { align: 'right' }); hy += 6
-  } else {
-    doc.text(`Date  ${ukDate(doc_.date)}`, W - M, hy, { align: 'right' }); hy += 6
-  }
+  doc.text(`Delivery Note No: ${doc_.docNo || ''}`, W - M, hy, { align: 'right' }); hy += 6
+  doc.text(`Customer No: ${doc_.poRef || ''}`, W - M, hy, { align: 'right' }); hy += 6
+  doc.text(`Dispatch Date: ${ukDate(doc_.date)}`, W - M, hy, { align: 'right' }); hy += 6
 
   const headerBottom = hy - 2
   const barY = Math.max(y + addrLines.length * 3.4 + 5, headerBottom)
@@ -878,9 +873,9 @@ export async function reprintPDF(d) {
         .text('DELIVERY NOTE', W - M, 20, { align: 'right' })
       doc.setFont(FONT, 'normal').setFontSize(10).setTextColor(40, 40, 40)
       let rhy = 28
-      doc.text(`No.   ${d.doc_no}`, W - M, rhy, { align: 'right' }); rhy += 6
-      if (d.totals?.po_ref) { doc.text(`Customer order no. ${d.totals.po_ref}`, W - M, rhy, { align: 'right' }); rhy += 6 }
-      doc.text(`Date  ${ukDate(d.doc_date)}`, W - M, rhy, { align: 'right' }); rhy += 6
+      doc.text(`Delivery Note No: ${d.doc_no}`, W - M, rhy, { align: 'right' }); rhy += 6
+      doc.text(`Customer No: ${d.totals?.po_ref || ''}`, W - M, rhy, { align: 'right' }); rhy += 6
+      doc.text(`Dispatch Date: ${ukDate(d.doc_date)}`, W - M, rhy, { align: 'right' }); rhy += 6
       const barY = Math.max(y + 7 + addrLines.length * 3.4 + 5, rhy - 2)
       doc.setFillColor(r, g, b).rect(M, barY, W - 2 * M, 1.2, 'F')
       let cy = barY + 7
