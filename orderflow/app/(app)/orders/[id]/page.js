@@ -90,6 +90,12 @@ export default function OrderDetailPage() {
   const [showAdd, setShowAdd] = useState(false) // "add a product" modal
 
   // Product added via the shared modal: register it, price it locally, add line.
+  // A product's SG or hazard details were edited from the line table — swap in
+  // the saved version so weights and hazard text redraw straight away.
+  function applyProductUpdate(updated) {
+    setProducts((ps) => ps.map((p) => (p.id === updated.id ? { ...p, ...updated } : p)))
+  }
+
   function handleProductAdded({ line, product, packagingId, priceSaved }) {
     if (product && !products.find((p) => p.id === product.id)) setProducts((ps) => [...ps, product])
     if (priceSaved != null) {
@@ -378,6 +384,8 @@ export default function OrderDetailPage() {
   // order.lines is what's actually on file — anything different on screen is
   // unsaved, and drives the sticky "you haven't saved" bar at the bottom.
   const linesDirty = !editLocked && !!order && JSON.stringify(lines) !== JSON.stringify(order.lines || [])
+  // Notes are held newest-first, so the top one is the current paperwork.
+  const latestNote = dispatched[0] || null
 
   // The DB column the order's current buyer level writes to.
   function levelCol() {
@@ -761,8 +769,6 @@ export default function OrderDetailPage() {
           <h2>{order.order_no} <StatusBadge status={order.status} /></h2>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             <button className="btn btn-g btn-sm" onClick={() => { const c = orderContact(order) || {}; setEditInfo({ po_ref: order.po_ref || '', order_date: order.order_date || '', requested_date: order.requested_date || '', notes: order.notes || '', contact: { name: c.name || '', email: c.email || '', phone: c.phone || '' }, details: order.customer_snapshot?.details || '', deliver: order.customer_snapshot?.deliver || '' }) }}>✏️ Edit details</button>
-            <button className="btn btn-g btn-sm" onClick={() => generatePurchaseOrderPDF({ ...order, lines }, products, packaging, letterheads[lhIndex] || {})}>📄 Purchase order</button>
-            <button className="btn btn-g btn-sm" onClick={printNote}>🖨 Print for board</button>
             <button className="btn btn-g btn-sm" onClick={() => router.push('/orders')}>← Back to log</button>
           </div>
         </div>
@@ -782,7 +788,7 @@ export default function OrderDetailPage() {
                 {custAddresses.length > 0 && (
                   <div style={{ marginBottom: 6 }}>
                     <Combobox
-                      options={custAddresses.map((a, i) => ({ id: String(i), label: `${a.verified ? '✓ ' : ''}${a.label || firstLineOf(a.text) || `Address ${i + 1}`}` }))}
+                      options={custAddresses.map((a, i) => ({ id: String(i), label: `${a.verified ? '✓ ' : ''}${a.invoice_default ? '🧾 ' : ''}${a.label || firstLineOf(a.text) || `Address ${i + 1}`}` }))}
                       value=""
                       onSelect={(id) => { const a = custAddresses[+id]; if (a) setEditInfo((x) => ({ ...x, details: splitContact(a.text).address, contact: { ...x.contact } })) }}
                       placeholder="Choose a saved address…"
@@ -796,7 +802,7 @@ export default function OrderDetailPage() {
                 {custAddresses.length > 0 && (
                   <div style={{ marginBottom: 6 }}>
                     <Combobox
-                      options={custAddresses.map((a, i) => ({ id: String(i), label: `${a.verified ? '✓ ' : ''}${a.label || firstLineOf(a.text) || `Address ${i + 1}`}` }))}
+                      options={custAddresses.map((a, i) => ({ id: String(i), label: `${a.verified ? '✓ ' : ''}${a.invoice_default ? '🧾 ' : ''}${a.label || firstLineOf(a.text) || `Address ${i + 1}`}` }))}
                       value=""
                       onSelect={(id) => { const a = custAddresses[+id]; if (a) { const ct = a.contact || {}; setEditInfo((x) => ({ ...x, deliver: splitContact(a.text).address, contact: { name: ct.name || '', email: ct.email || '', phone: ct.phone || '' } })) } }}
                       placeholder="Choose a saved address…"
@@ -869,6 +875,53 @@ export default function OrderDetailPage() {
         </div>
       </div>
 
+      {/* Paperwork lives here, near the top — it's what people come to an order
+          for, and it used to be buried at the very bottom of the page. */}
+      <div className="card">
+        <div className="ttl"><h2>Documents</h2></div>
+        <div className="doc-actions">
+          <button className="doc-btn" onClick={() => generatePurchaseOrderPDF({ ...order, lines }, products, packaging, letterheads[lhIndex] || {})}>
+            <span className="doc-ico">📄</span>
+            <span className="doc-name">Purchase order</span>
+            <span className="doc-sub">To buy the stock in</span>
+          </button>
+          <button className="doc-btn" onClick={printNote}>
+            <span className="doc-ico">🖨</span>
+            <span className="doc-name">Print for board</span>
+            <span className="doc-sub">80mm wall-board slip</span>
+          </button>
+          {isAdmin && (
+            <button className="doc-btn" onClick={runProforma}>
+              <span className="doc-ico">🧾</span>
+              <span className="doc-name">Proforma</span>
+              <span className="doc-sub">Priced quote for the customer</span>
+            </button>
+          )}
+          {latestNote ? (
+            <>
+              <button className="doc-btn" onClick={() => reprintPDF(latestNote)}>
+                <span className="doc-ico">📋</span>
+                <span className="doc-name">Delivery note</span>
+                <span className="doc-sub">Reprint {latestNote.doc_no}</span>
+              </button>
+              {isAdmin && (
+                <button className="doc-btn" onClick={() => printOfficeCopy(latestNote)}>
+                  <span className="doc-ico">💷</span>
+                  <span className="doc-name">For invoicing</span>
+                  <span className="doc-sub">Office copy with prices</span>
+                </button>
+              )}
+            </>
+          ) : (
+            <div className="doc-btn doc-btn-off">
+              <span className="doc-ico">📋</span>
+              <span className="doc-name">Delivery note</span>
+              <span className="doc-sub">Create one below first</span>
+            </div>
+          )}
+        </div>
+      </div>
+
       <div className="card">
         <div className="ttl">
           <h2>Products</h2>
@@ -891,13 +944,12 @@ export default function OrderDetailPage() {
           </p>
         )}
         <div style={editLocked ? { pointerEvents: 'none', opacity: 0.6 } : undefined}>
-          <LineEditor lines={lines} setLines={setLines} products={products} packaging={packaging} availableByProduct={availableByProduct} />
+          <LineEditor lines={lines} setLines={setLines} products={products} packaging={packaging} availableByProduct={availableByProduct} onProductUpdated={applyProductUpdate} />
         </div>
         <p className="hint">Totals: {fmt(totals.volume)} L · net {fmt(totals.net)} kg · gross {fmt(totals.gross)} kg</p>
         {/* Repeated here so a long product list never means scrolling back up to save. */}
         {!editLocked && (
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', borderTop: '1px solid var(--line)', paddingTop: 12, marginTop: 4 }}>
-            <button className="btn btn-g btn-sm" onClick={() => setShowAdd(true)}>＋ Add a product</button>
             <button className={'btn btn-sm ' + (linesDirty ? 'btn-a' : 'btn-g')} onClick={saveLines}>💾 Save products</button>
             {linesDirty && <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--bad, #C24E42)' }}>You have unsaved changes</span>}
           </div>
@@ -1217,7 +1269,6 @@ export default function OrderDetailPage() {
                   </div>
                 </div>
                 <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                  <button className="btn btn-g btn-sm" onClick={() => generatePurchaseOrderPDF({ ...order, lines }, products, packaging, letterheads[lhIndex] || {})}>Purchase order</button>
                   <button className="btn btn-g btn-sm" onClick={() => reprintPDF(d)}>Delivery Note</button>
                   {isAdmin && (
                     <>
@@ -1404,6 +1455,7 @@ export default function OrderDetailPage() {
         customerId={order.customer_id}
         customerName={order.customer_snapshot?.name || ''}
         isAdmin={isAdmin}
+        availableByProduct={availableByProduct}
         onDone={handleProductAdded}
       />
 

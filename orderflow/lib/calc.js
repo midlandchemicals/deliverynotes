@@ -86,10 +86,11 @@ export function unifiedAddresses(c) {
       if (exEmpty && (ct.name || ct.email || ct.phone)) ex.contact = ct
       if (!ex.label && e.label) ex.label = e.label
       if (e.verified && !ex.verified) { ex.verified = true; ex.verified_at = e.verified_at || null; ex.verified_by = e.verified_by || '' }
+      if (e.invoice_default) ex.invoice_default = true
       return
     }
     seen.set(key, out.length)
-    out.push({ label: e.label || '', text: e.text, contact: ct, verified: !!e.verified, verified_at: e.verified_at || null, verified_by: e.verified_by || '' })
+    out.push({ label: e.label || '', text: e.text, contact: ct, verified: !!e.verified, verified_at: e.verified_at || null, verified_by: e.verified_by || '', invoice_default: !!e.invoice_default })
   }
   ;(Array.isArray(c?.invoice_addresses) ? c.invoice_addresses : []).forEach(add)
   ;(Array.isArray(c?.delivery_addresses) ? c.delivery_addresses : []).forEach(add)

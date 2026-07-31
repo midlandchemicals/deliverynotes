@@ -137,6 +137,12 @@ export default function NewOrderPage() {
   // Handle a product added via the shared modal: register a new catalogue
   // product, extend the customer's available list if a price was saved, and
   // append the order line.
+  // A product's SG or hazard details were edited from the line table — swap in
+  // the saved version so weights and hazard text redraw straight away.
+  function applyProductUpdate(updated) {
+    setProducts((ps) => ps.map((p) => (p.id === updated.id ? { ...p, ...updated } : p)))
+  }
+
   function handleProductAdded({ line, product, packagingId, priceSaved, created, addedToRange }) {
     if (created && product) setProducts((ps) => [...ps, product].sort((a, b) => a.name.localeCompare(b.name)))
     if (addedToRange || priceSaved != null) {
@@ -157,12 +163,16 @@ export default function NewOrderPage() {
     const list = unifiedAddresses(c)
     const options = list.length ? list : [{ label: 'Main', text: c.details || c.deliver || '', contact: { name: c.contact_name || '', email: c.email || '', phone: c.phone || '' } }]
     setInvoiceOptions(options); setDeliveryOptions(options)
-    setInvoiceIdx(0); setDeliveryIdx(0)
-    setCustDetails(splitContact(options[0]?.text || '').address)
+    // Start on the address flagged as the customer's invoice default, if they
+    // have one; otherwise the first in the list as before.
+    const invIdx = Math.max(0, options.findIndex((a) => a.invoice_default))
+    setInvoiceIdx(invIdx); setDeliveryIdx(0)
+    setCustDetails(splitContact(options[invIdx]?.text || '').address)
     setCustDeliver(splitContact(options[0]?.text || '').address)
-    const ct0 = options[0]?.contact || {}
-    setInvContact({ name: ct0.name || '', email: ct0.email || '', phone: ct0.phone || '' })
-    setContactName(ct0.name || ''); setContactEmail(ct0.email || ''); setContactPhone(ct0.phone || '')
+    const ctInv = options[invIdx]?.contact || {}
+    const ctDel = options[0]?.contact || {}
+    setInvContact({ name: ctInv.name || '', email: ctInv.email || '', phone: ctInv.phone || '' })
+    setContactName(ctDel.name || ''); setContactEmail(ctDel.email || ''); setContactPhone(ctDel.phone || '')
   }
 
   function pickInvoiceAddr(i) {
@@ -378,7 +388,7 @@ export default function NewOrderPage() {
             {invoiceOptions.length > 1 && (
               <div style={{ marginBottom: 6 }}>
                 <Combobox
-                  options={invoiceOptions.map((a, i) => ({ id: String(i), label: `${a.verified ? '✓ ' : ''}${a.label || firstLine(a.text) || `Address ${i + 1}`}` }))}
+                  options={invoiceOptions.map((a, i) => ({ id: String(i), label: `${a.verified ? '✓ ' : ''}${a.invoice_default ? '🧾 ' : ''}${a.label || firstLine(a.text) || `Address ${i + 1}`}` }))}
                   value={String(invoiceIdx)}
                   onSelect={(id) => pickInvoiceAddr(+id)}
                   placeholder="Choose the invoice address…"
@@ -392,7 +402,7 @@ export default function NewOrderPage() {
             {deliveryOptions.length > 1 && (
               <div style={{ marginBottom: 6 }}>
                 <Combobox
-                  options={deliveryOptions.map((a, i) => ({ id: String(i), label: `${a.verified ? '✓ ' : ''}${a.label || firstLine(a.text) || `Address ${i + 1}`}` }))}
+                  options={deliveryOptions.map((a, i) => ({ id: String(i), label: `${a.verified ? '✓ ' : ''}${a.invoice_default ? '🧾 ' : ''}${a.label || firstLine(a.text) || `Address ${i + 1}`}` }))}
                   value={String(deliveryIdx)}
                   onSelect={(id) => pickDeliveryAddr(+id)}
                   placeholder="Choose the delivery address…"
@@ -560,7 +570,7 @@ export default function NewOrderPage() {
               </div>
             </div>
             <p className="hint" style={{ marginTop: 0 }}>Item not in the grid above? Use <b>＋ Add a product</b> to add one in another size, or create a brand-new product.</p>
-            <LineEditor lines={lines} setLines={setLines} products={products} packaging={packaging} availableByProduct={availableByProduct} />
+            <LineEditor lines={lines} setLines={setLines} products={products} packaging={packaging} availableByProduct={availableByProduct} onProductUpdated={applyProductUpdate} />
           </div>
           <div className="card">
             <div className="ttl"><h2>Notes</h2></div>
@@ -581,6 +591,7 @@ export default function NewOrderPage() {
         customerId={customerId}
         customerName={customers.find((x) => x.id === customerId)?.name || ''}
         isAdmin={isAdmin}
+        availableByProduct={availableByProduct}
         onDone={handleProductAdded}
       />
 

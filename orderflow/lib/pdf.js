@@ -11,6 +11,13 @@ function hexToRgb(h) {
   return [parseInt(m.slice(0, 2), 16), parseInt(m.slice(2, 4), 16), parseInt(m.slice(4, 6), 16)]
 }
 
+// How many identical copies of a delivery note to print. Midland's own notes
+// are a 2-part set; every other company we print for needs a 3-part set.
+export function deliveryNoteCopies(lh) {
+  const isMidland = `${lh?.name || ''} ${lh?.company || ''}`.toLowerCase().includes('midland')
+  return isMidland ? 2 : 3
+}
+
 function fmtGBP(n) {
   if (!n) return '—'
   return '£' + (Math.round(n * 100) / 100).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -312,13 +319,16 @@ function renderDeliveryNote(doc, doc_, lh, products, packaging) {
 }
 
 // doc_ = { docNo, date, invoiceTo, deliver, contact, customerName, lines, batches, options, pallets, showHazard }
-// Generates two identical copies of the delivery note in a single PDF file.
+// Generates identical copies of the delivery note in a single PDF file —
+// 2 for Midland, 3 for every other letterhead.
 export function generateDispatchPDF(doc_, lh, products, packaging) {
   const doc = new jsPDF({ unit: 'mm', format: 'a4' })
   FONT = registerFonts(doc)
   const { totals } = renderDeliveryNote(doc, doc_, lh, products, packaging)
-  doc.addPage()
-  renderDeliveryNote(doc, doc_, lh, products, packaging)
+  for (let copy = 1; copy < deliveryNoteCopies(lh); copy++) {
+    doc.addPage()
+    renderDeliveryNote(doc, doc_, lh, products, packaging)
+  }
   const custName = doc_.customerName || (doc_.customer || '').split('\n')[0]
   window.open(URL.createObjectURL(new Blob([doc.output('arraybuffer')], { type: 'application/pdf' })), '_blank')
   return { totals }
@@ -827,7 +837,8 @@ export function generatePurchaseOrderPDF(order, products, packaging, lh = {}) {
   window.open(URL.createObjectURL(new Blob([doc.output('arraybuffer')], { type: 'application/pdf' })), '_blank')
 }
 
-// Reprint from stored snapshot — two copies in one PDF.
+// Reprint from stored snapshot — same copy count as the original (2 for
+// Midland, 3 otherwise) in one PDF.
 // Newer notes store a slim letterhead snapshot (no embedded logo, just the
 // letterhead id) to keep the database small — fetch the logo on demand.
 export async function reprintPDF(d) {
@@ -977,8 +988,10 @@ export async function reprintPDF(d) {
     }
 
     draw()
-    doc.addPage()
-    draw()
+    for (let copy = 1; copy < deliveryNoteCopies(lh); copy++) {
+      doc.addPage()
+      draw()
+    }
     window.open(URL.createObjectURL(new Blob([doc.output('arraybuffer')], { type: 'application/pdf' })), '_blank')
   }))
 }
