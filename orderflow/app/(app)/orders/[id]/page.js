@@ -647,6 +647,7 @@ export default function OrderDetailPage() {
 
   // Step 2 — every line must have a batch number OR be marked Not Applicable
   async function confirmDispatch() {
+    if (!docDate) { toastError('Set the dispatch date before generating the note'); return }
     const incomplete = batchModal.some((r) => !r.na && !r.batch.trim())
     if (incomplete) { toast('Enter a batch number or tick Not Applicable for each product'); return }
     setBusy(true)
@@ -1480,7 +1481,27 @@ export default function OrderDetailPage() {
       {batchModal && (
         <div className="modal-bg" onClick={() => !busy && setBatchModal(null)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <h2 style={{ marginBottom: 6 }}>Batch numbers</h2>
+            <h2 style={{ marginBottom: 6 }}>Before the delivery note is generated</h2>
+
+            {/* The dispatch date is the day the goods actually go out, which
+                isn't always the day the note is printed — so it's confirmed
+                here rather than silently defaulting to today. */}
+            <div style={{ border: '2px solid var(--accent)', background: 'var(--accent-soft)', borderRadius: 10, padding: '12px 14px', marginTop: 10, marginBottom: 14 }}>
+              <label style={{ color: 'var(--accent)', fontSize: 12, marginBottom: 6 }}>Dispatch Date — check this is right</label>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                <input className="mono" type="date" value={docDate}
+                  style={{ maxWidth: 190, fontSize: 15, fontWeight: 700, borderColor: 'var(--accent)' }}
+                  onChange={(e) => setDocDate(e.target.value)} />
+                {docDate !== new Date().toISOString().slice(0, 10) && (
+                  <button className="btn btn-g btn-sm" onClick={() => setDocDate(new Date().toISOString().slice(0, 10))}>Set to today</button>
+                )}
+              </div>
+              <p className="hint" style={{ marginTop: 5, marginBottom: 0 }}>
+                The day the goods actually leave — this prints on the note as <b>Dispatch Date</b>. Change it if you&apos;re printing ahead or after the event.
+              </p>
+            </div>
+
+            <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted)', marginBottom: 6 }}>Batch numbers</div>
             <p className="hint" style={{ marginTop: 0, marginBottom: 14 }}>Enter the batch number for each product, or tick <b>Not Applicable</b>. Date of manufacture is optional — if set, it prints under the batch number.</p>
             <div className="batch-list">
               {batchModal.map((r, i) => (
