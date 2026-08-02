@@ -72,6 +72,8 @@ export default function OrderDetailPage() {
   // IBCs are counted from the products themselves; this is only the ADDITIONAL
   // pallets of smaller packs, which nothing can work out for us.
   const [extraPallets, setExtraPallets] = useState('')
+  // "I've looked at this" ticks that walk the user down the page
+  const [checked, setChecked] = useState({ details: false, products: false, pricing: false })
   const [noPallets, setNoPallets] = useState(false)   // only asked when there are no IBCs
   const [palletsFlash, setPalletsFlash] = useState(false)
   const [docNoOverride, setDocNoOverride] = useState('') // optional manual DN number
@@ -387,6 +389,18 @@ export default function OrderDetailPage() {
   const linesDirty = !editLocked && !!order && JSON.stringify(lines) !== JSON.stringify(order.lines || [])
   // Notes are held newest-first, so the top one is the current paperwork.
   const latestNote = dispatched[0] || null
+
+  // Work through the order in order: check the details, then the products,
+  // then the pricing — only then does the paperwork come forward. Ticks last
+  // for this visit; nothing is locked, the sections just lead the eye.
+  const pricingChecked = !isAdmin || checked.pricing   // no pricing card to check without admin
+  const reviewDone = { 1: checked.details, 2: checked.products, 3: pricingChecked, 4: pricingChecked, 5: pricingChecked, 6: !!latestNote }
+  function reviewState(n) {
+    if (reviewDone[n]) return n <= 3 ? 'done' : 'active'
+    for (let i = 1; i < n; i++) if (!reviewDone[i]) return 'todo'
+    return 'active'
+  }
+  const tick = (k) => setChecked((c) => ({ ...c, [k]: !c[k] }))
   // Lines with nothing to invoice against — these gate the invoicing copy.
   const unpricedLines = lines.filter((l) => {
     const c = computeLine(l, products, packaging)
@@ -774,14 +788,15 @@ export default function OrderDetailPage() {
 
   return (
     <div>
-      <div className="card">
-        <div className="ttl">
-          <h2>{order.order_no} <StatusBadge status={order.status} /></h2>
+      <div className={'card step-card step-' + reviewState(1)}>
+        <StepHead n={1} title={`${order.order_no} — check the details`} state={reviewState(1)}
+          onCheck={() => tick('details')}>
+          <StatusBadge status={order.status} />
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             <button className="btn btn-g btn-sm" onClick={() => { const c = orderContact(order) || {}; setEditInfo({ po_ref: order.po_ref || '', order_date: order.order_date || '', requested_date: order.requested_date || '', notes: order.notes || '', contact: { name: c.name || '', email: c.email || '', phone: c.phone || '' }, details: order.customer_snapshot?.details || '', deliver: order.customer_snapshot?.deliver || '' }) }}>✏️ Edit details</button>
             <button className="btn btn-g btn-sm" onClick={() => router.push('/orders')}>← Back to log</button>
           </div>
-        </div>
+        </StepHead>
         {editInfo ? (
           <div style={{ border: '1.5px solid var(--accent)', borderRadius: 10, padding: 14, marginBottom: 12 }}>
             <div className="row c3">
@@ -885,64 +900,9 @@ export default function OrderDetailPage() {
         </div>
       </div>
 
-      {/* Paperwork lives here, near the top — it's what people come to an order
-          for, and it used to be buried at the very bottom of the page. */}
-      <div className="card">
-        <div className="ttl"><h2>Documents</h2></div>
-        <div className="doc-actions">
-          <button className="doc-btn" onClick={() => generatePurchaseOrderPDF({ ...order, lines }, products, packaging, letterheads[lhIndex] || {})}>
-            <span className="doc-ico">📄</span>
-            <span className="doc-name">Purchase order</span>
-            <span className="doc-sub">To buy the stock in</span>
-          </button>
-          <button className="doc-btn" onClick={printNote}>
-            <span className="doc-ico">🖨</span>
-            <span className="doc-name">Print for board</span>
-            <span className="doc-sub">80mm wall-board slip</span>
-          </button>
-          {isAdmin && (
-            <button className="doc-btn" onClick={runProforma}>
-              <span className="doc-ico">🧾</span>
-              <span className="doc-name">Proforma</span>
-              <span className="doc-sub">Priced quote for the customer</span>
-            </button>
-          )}
-          {latestNote ? (
-            <>
-              <button className="doc-btn" onClick={() => reprintPDF(latestNote)}>
-                <span className="doc-ico">📋</span>
-                <span className="doc-name">Delivery note</span>
-                <span className="doc-sub">Reprint {latestNote.doc_no}</span>
-              </button>
-              {isAdmin && (
-                <button
-                  className={'doc-btn' + (unpricedLines.length ? ' doc-btn-off' : '')}
-                  onClick={() => printOfficeCopy(latestNote)}
-                  title={unpricedLines.length ? 'Every product needs a price before this can be printed' : ''}
-                >
-                  <span className="doc-ico">💷</span>
-                  <span className="doc-name">For invoicing</span>
-                  <span className="doc-sub">
-                    {unpricedLines.length
-                      ? `🔒 ${unpricedLines.length} product${unpricedLines.length === 1 ? '' : 's'} still unpriced`
-                      : 'Office copy with prices'}
-                  </span>
-                </button>
-              )}
-            </>
-          ) : (
-            <div className="doc-btn doc-btn-off">
-              <span className="doc-ico">📋</span>
-              <span className="doc-name">Delivery note</span>
-              <span className="doc-sub">Create one below first</span>
-            </div>
-          )}
-        </div>
-      </div>
 
-      <div className="card">
-        <div className="ttl">
-          <h2>Products</h2>
+      <div className={'card step-card step-' + reviewState(2)}>
+        <StepHead n={2} title="Check the products" state={reviewState(2)} onCheck={() => tick('products')}>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
             {editLocked ? (
               <button className="btn btn-g btn-sm" onClick={() => {
@@ -955,7 +915,7 @@ export default function OrderDetailPage() {
               </>
             )}
           </div>
-        </div>
+        </StepHead>
         {editLocked && (
           <p className="hint" style={{ marginTop: 0, background: 'var(--accent-soft, #eef6f1)', border: '1px solid var(--accent)', borderRadius: 8, padding: '8px 12px' }}>
             🔒 This order is locked because a delivery note has been generated from it. Click <b>✏️ Unlock editing</b> to make changes.
@@ -976,15 +936,14 @@ export default function OrderDetailPage() {
 
       {order.customer_id && (
         <PricingGuard>
-        <div className="card" style={editLocked ? { position: 'relative' } : undefined}>
+        <div className={'card step-card step-' + reviewState(3)} style={editLocked ? { position: 'relative' } : undefined}>
           {editLocked && (
             <div
               style={{ position: 'absolute', inset: 0, zIndex: 5, cursor: 'not-allowed', borderRadius: 'inherit', background: 'rgba(255,255,255,0.35)' }}
               title="Locked — a delivery note has been generated. Use ✏️ Unlock editing in the Products card to change pricing."
             />
           )}
-          <div className="ttl">
-            <h2>Pricing</h2>
+          <StepHead n={3} title="Check the pricing" state={reviewState(3)} onCheck={() => tick('pricing')}>
             {customerThreeTier && (
               <div style={{ display: 'flex', alignItems: 'center', gap: 9, flexWrap: 'wrap' }}>
                 <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 600 }}>Buyer level:</span>
@@ -995,7 +954,7 @@ export default function OrderDetailPage() {
                 </div>
               </div>
             )}
-          </div>
+          </StepHead>
           <table className="tbl tbl-cards">
             <thead><tr>
               <th>Product</th>
@@ -1214,8 +1173,63 @@ export default function OrderDetailPage() {
         </PricingGuard>
       )}
 
-      <div className="card">
-        <div className="ttl"><h2>Create delivery note</h2></div>
+      {/* Paperwork lives here, near the top — it's what people come to an order
+          for, and it used to be buried at the very bottom of the page. */}
+      <div className={'card step-card step-' + reviewState(4)}>
+        <StepHead n={4} title="Documents" state={reviewState(4)} />
+        <div className="doc-actions">
+          <button className="doc-btn" onClick={() => generatePurchaseOrderPDF({ ...order, lines }, products, packaging, letterheads[lhIndex] || {})}>
+            <span className="doc-ico">📄</span>
+            <span className="doc-name">Purchase order</span>
+            <span className="doc-sub">To buy the stock in</span>
+          </button>
+          <button className="doc-btn" onClick={printNote}>
+            <span className="doc-ico">🖨</span>
+            <span className="doc-name">Print for board</span>
+            <span className="doc-sub">80mm wall-board slip</span>
+          </button>
+          {isAdmin && (
+            <button className="doc-btn" onClick={runProforma}>
+              <span className="doc-ico">🧾</span>
+              <span className="doc-name">Proforma</span>
+              <span className="doc-sub">Priced quote for the customer</span>
+            </button>
+          )}
+          {latestNote ? (
+            <>
+              <button className="doc-btn" onClick={() => reprintPDF(latestNote)}>
+                <span className="doc-ico">📋</span>
+                <span className="doc-name">Delivery note</span>
+                <span className="doc-sub">Reprint {latestNote.doc_no}</span>
+              </button>
+              {isAdmin && (
+                <button
+                  className={'doc-btn' + (unpricedLines.length ? ' doc-btn-off' : '')}
+                  onClick={() => printOfficeCopy(latestNote)}
+                  title={unpricedLines.length ? 'Every product needs a price before this can be printed' : ''}
+                >
+                  <span className="doc-ico">💷</span>
+                  <span className="doc-name">For invoicing</span>
+                  <span className="doc-sub">
+                    {unpricedLines.length
+                      ? `🔒 ${unpricedLines.length} product${unpricedLines.length === 1 ? '' : 's'} still unpriced`
+                      : 'Office copy with prices'}
+                  </span>
+                </button>
+              )}
+            </>
+          ) : (
+            <div className="doc-btn doc-btn-off">
+              <span className="doc-ico">📋</span>
+              <span className="doc-name">Delivery note</span>
+              <span className="doc-sub">Create one below first</span>
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className={'card step-card step-' + reviewState(5)}>
+        <StepHead n={5} title="Generate the delivery note" state={reviewState(5)} />
         <div className="row c3" style={{ marginBottom: 4 }}>
           <div className="field"><label>Delivery note number</label>
             <input className="mono" value={docNoOverride}
@@ -1289,7 +1303,7 @@ export default function OrderDetailPage() {
 
       {dispatched.length > 0 && (
         <div className="card">
-          <div className="ttl"><h2>Delivery notes on this order</h2></div>
+          <StepHead n={6} title="Delivery notes on this order" state={reviewState(6)} />
           {dispatched.length > 1 && (
             <p className="hint" style={{ marginTop: 0, marginBottom: 12 }}>
               You’ve generated this note {dispatched.length} times. They share the same number ({dispatched[0].doc_no}) — use the time and totals below to tell them apart, and delete any mistaken copies.
@@ -1584,6 +1598,36 @@ export default function OrderDetailPage() {
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+// Numbered step header for the order page. 'active' is where you should be,
+// 'done' is ticked and quiet, 'todo' waits its turn. onCheck adds the
+// "I've checked this" button that moves you on.
+function StepHead({ n, title, state, onCheck, checkLabel, children }) {
+  const done = state === 'done'
+  const active = state === 'active'
+  return (
+    <div className="ttl" style={{ alignItems: 'center' }}>
+      <h2 style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+        <span style={{
+          width: 21, height: 21, borderRadius: '50%', flexShrink: 0,
+          display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+          fontSize: 11, fontWeight: 800,
+          background: done ? 'var(--accent)' : active ? 'var(--accent-soft)' : 'var(--chip-bg)',
+          color: done ? 'var(--on-accent)' : active ? 'var(--accent)' : 'var(--faint)',
+        }}>{done ? '✓' : n}</span>
+        <span style={{ color: active ? 'var(--accent)' : undefined }}>{title}</span>
+      </h2>
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+        {children}
+        {onCheck && (
+          <button className={'btn btn-sm ' + (done ? 'btn-g' : 'btn-a')} onClick={onCheck}>
+            {done ? '✓ Checked' : (checkLabel || 'Checked — next')}
+          </button>
+        )}
+      </div>
     </div>
   )
 }
