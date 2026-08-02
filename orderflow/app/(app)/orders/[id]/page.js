@@ -390,17 +390,6 @@ export default function OrderDetailPage() {
   // Notes are held newest-first, so the top one is the current paperwork.
   const latestNote = dispatched[0] || null
 
-  // Work through the order in order: check the details, then the products,
-  // then the pricing — only then does the paperwork come forward. Ticks last
-  // for this visit; nothing is locked, the sections just lead the eye.
-  const pricingChecked = !isAdmin || checked.pricing   // no pricing card to check without admin
-  const reviewDone = { 1: checked.details, 2: checked.products, 3: pricingChecked, 4: pricingChecked, 5: pricingChecked, 6: !!latestNote }
-  function reviewState(n) {
-    if (reviewDone[n]) return n <= 3 ? 'done' : 'active'
-    for (let i = 1; i < n; i++) if (!reviewDone[i]) return 'todo'
-    return 'active'
-  }
-  const tick = (k) => setChecked((c) => ({ ...c, [k]: !c[k] }))
   // Lines with nothing to invoice against — these gate the invoicing copy.
   const unpricedLines = lines.filter((l) => {
     const c = computeLine(l, products, packaging)
@@ -771,6 +760,18 @@ export default function OrderDetailPage() {
   }
 
   const { guard: pricingGuard, ModalUI: PricingModal, isAdmin } = usePricingCheck()
+
+  // Work through the order in order: check the details, then the products,
+  // then the pricing — only then does the paperwork come forward. Ticks last
+  // for this visit; nothing is locked, the sections just lead the eye.
+  const pricingChecked = !isAdmin || checked.pricing   // no pricing card to check without admin
+  const reviewDone = { 1: checked.details, 2: checked.products, 3: pricingChecked, 4: pricingChecked, 5: pricingChecked, 6: !!latestNote }
+  function reviewState(n) {
+    if (reviewDone[n]) return n <= 3 ? 'done' : 'active'
+    for (let i = 1; i < n; i++) if (!reviewDone[i]) return 'todo'
+    return 'active'
+  }
+  const tick = (k) => setChecked((c) => ({ ...c, [k]: !c[k] }))
 
   if (!order) return <div className="card"><div className="empty">Loading…</div></div>
 

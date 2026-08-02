@@ -45,6 +45,7 @@ export default function NewOrderPage() {
   const [pending, setPending] = useState({}) // key 'productId::packagingId' → qty string while entering
   // productId → { packagingId, qty, ppl } while adding a size outside their range
   const [otherSize, setOtherSize] = useState({})
+  const [addrConfirmed, setAddrConfirmed] = useState(false)
   const custName = customers.find((x) => x.id === customerId)?.name || 'this customer'
   const isAdmin = useIsAdmin()
   const [showAdd, setShowAdd] = useState(false) // "add a product" modal
@@ -204,6 +205,7 @@ export default function NewOrderPage() {
     const list = unifiedAddresses(c)
     const options = list.length ? list : [{ label: 'Main', text: c.details || c.deliver || '', contact: { name: c.contact_name || '', email: c.email || '', phone: c.phone || '' } }]
     setInvoiceOptions(options); setDeliveryOptions(options)
+    setAddrConfirmed(false)
     // Start on the address flagged as the customer's invoice default, if they
     // have one; otherwise the first in the list as before.
     const invIdx = Math.max(0, options.findIndex((a) => a.invoice_default))
@@ -246,16 +248,23 @@ export default function NewOrderPage() {
   // ones behind it are ticked off, the ones ahead sit quietly until you get
   // there. Nothing is locked — data doesn't always arrive in a tidy order, and
   // the Next button is what actually enforces the required fields.
+  // Addresses fill themselves in from the customer, so "has text in it" would
+  // mark the section finished before anyone had looked at it — it needs an
+  // explicit "these are right" instead, which is worth confirming anyway.
   const sectionDone = {
     1: !!customerId,
     2: !!poRef.trim(),
-    3: !!custDetails.trim() && !!custDeliver.trim(),
+    3: addrConfirmed && !!custDetails.trim() && !!custDeliver.trim(),
     4: !!(contactName.trim() || contactEmail.trim() || contactPhone.trim()),
   }
+  // Strictly in order: the first unfinished section is the active one, so a
+  // later section can never light up ahead of an earlier one.
   function sectionState(n) {
-    if (sectionDone[n]) return 'done'
-    for (let i = 1; i < n; i++) if (!sectionDone[i]) return 'todo'
-    return 'active'
+    let firstOpen = 5
+    for (let i = 1; i <= 4; i++) if (!sectionDone[i]) { firstOpen = i; break }
+    if (n < firstOpen) return 'done'
+    if (n === firstOpen) return 'active'
+    return 'todo'
   }
 
   function goToStep2() {
@@ -484,8 +493,14 @@ export default function NewOrderPage() {
                   />
                 </div>
               )}
-              <textarea value={custDeliver} onChange={(e) => setCustDeliver(e.target.value)} placeholder="Delivery address — or type one in" style={{ minHeight: 90 }} />
+              <textarea value={custDeliver} onChange={(e) => { setCustDeliver(e.target.value); setAddrConfirmed(false) }} placeholder="Delivery address — or type one in" style={{ minHeight: 90 }} />
             </Field>
+            <div style={{ marginBottom: 14 }}>
+              <button className={'btn btn-sm ' + (addrConfirmed ? 'btn-g' : 'btn-a')}
+                onClick={() => setAddrConfirmed((v) => !v)}>
+                {addrConfirmed ? '✓ Addresses confirmed' : 'These addresses are right'}
+              </button>
+            </div>
           </Section>
 
           <Section n={4} title="Contact details" state={sectionState(4)}>
