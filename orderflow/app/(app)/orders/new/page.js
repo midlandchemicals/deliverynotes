@@ -495,10 +495,10 @@ export default function NewOrderPage() {
               )}
               <textarea value={custDeliver} onChange={(e) => { setCustDeliver(e.target.value); setAddrConfirmed(false) }} placeholder="Delivery address — or type one in" style={{ minHeight: 90 }} />
             </Field>
-            <div style={{ marginBottom: 14 }}>
-              <button className={'btn btn-sm ' + (addrConfirmed ? 'btn-g' : 'btn-a')}
+            <div className="step-check" style={{ marginBottom: 14 }}>
+              <button className={'btn step-check-btn ' + (addrConfirmed ? 'btn-g' : 'btn-a')}
                 onClick={() => setAddrConfirmed((v) => !v)}>
-                {addrConfirmed ? '✓ Addresses confirmed' : 'These addresses are right'}
+                {addrConfirmed ? '✓ Checked — click to undo' : 'Addresses are right — next'}
               </button>
             </div>
           </Section>

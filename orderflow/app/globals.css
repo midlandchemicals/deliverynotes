@@ -402,6 +402,11 @@ table.tbl input,table.tbl select{padding:7px 10px;font-size:12.5px;border-radius
   border-top:1px solid var(--accent)}
 .main-inner .card.step-done{border-color:var(--line);border-top:1px solid var(--line)}
 .main-inner .card.step-todo{opacity:.5;border-top:1px solid var(--line)}
+/* the big "checked" button at the foot of each step */
+.step-check{display:flex;justify-content:flex-end;margin-top:16px;padding-top:14px;
+  border-top:1px solid var(--line)}
+.step-check-btn{min-height:46px;padding:12px 26px;font-size:14.5px;font-weight:700}
+@media(max-width:600px){.step-check-btn{width:100%}}
 
 /* ── floating staff chat (bottom-right, every page) ── */
 .chat-bar{position:fixed;right:20px;bottom:20px;z-index:150;

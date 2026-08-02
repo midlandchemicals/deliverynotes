@@ -765,8 +765,15 @@ export default function OrderDetailPage() {
   // then the pricing — only then does the paperwork come forward. Ticks last
   // for this visit; nothing is locked, the sections just lead the eye.
   const pricingChecked = !isAdmin || checked.pricing   // no pricing card to check without admin
-  const reviewDone = { 1: checked.details, 2: checked.products, 3: pricingChecked, 4: pricingChecked, 5: pricingChecked, 6: !!latestNote }
+  // An order that already has a delivery note has been through this once.
+  // Coming back to it — to unlock and fix something — shouldn't mean walking
+  // the whole review again, so everything is open from the start.
+  const orderComplete = dispatched.length > 0
+  const reviewDone = orderComplete
+    ? { 1: true, 2: true, 3: true, 4: true, 5: true, 6: true }
+    : { 1: checked.details, 2: checked.products, 3: pricingChecked, 4: pricingChecked, 5: pricingChecked, 6: !!latestNote }
   function reviewState(n) {
+    if (orderComplete) return 'active'   // nothing faded, nothing to re-tick
     if (reviewDone[n]) return n <= 3 ? 'done' : 'active'
     for (let i = 1; i < n; i++) if (!reviewDone[i]) return 'todo'
     return 'active'
@@ -790,8 +797,7 @@ export default function OrderDetailPage() {
   return (
     <div>
       <div className={'card step-card step-' + reviewState(1)}>
-        <StepHead n={1} title={`${order.order_no} — check the details`} state={reviewState(1)}
-          onCheck={() => tick('details')}>
+        <StepHead n={1} title={`${order.order_no} — check the details`} state={reviewState(1)}>
           <StatusBadge status={order.status} />
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             <button className="btn btn-g btn-sm" onClick={() => { const c = orderContact(order) || {}; setEditInfo({ po_ref: order.po_ref || '', order_date: order.order_date || '', requested_date: order.requested_date || '', notes: order.notes || '', contact: { name: c.name || '', email: c.email || '', phone: c.phone || '' }, details: order.customer_snapshot?.details || '', deliver: order.customer_snapshot?.deliver || '' }) }}>✏️ Edit details</button>
@@ -899,11 +905,12 @@ export default function OrderDetailPage() {
             <span key={s} className={'chip' + (normalizeStatus(order.status) === s ? ' on' : '')} onClick={() => setStatus(s)}>{s}</span>
           ))}
         </div>
+        {!orderComplete && <StepCheck done={reviewDone[1]} onCheck={() => tick('details')} label="Details are right — next" />}
       </div>
 
 
       <div className={'card step-card step-' + reviewState(2)}>
-        <StepHead n={2} title="Check the products" state={reviewState(2)} onCheck={() => tick('products')}>
+        <StepHead n={2} title="Check the products" state={reviewState(2)}>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
             {editLocked ? (
               <button className="btn btn-g btn-sm" onClick={() => {
@@ -933,6 +940,7 @@ export default function OrderDetailPage() {
             {linesDirty && <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--bad, #C24E42)' }}>You have unsaved changes</span>}
           </div>
         )}
+        {!orderComplete && <StepCheck done={reviewDone[2]} onCheck={() => tick('products')} label="Products are right — next" />}
       </div>
 
       {order.customer_id && (
@@ -944,7 +952,7 @@ export default function OrderDetailPage() {
               title="Locked — a delivery note has been generated. Use ✏️ Unlock editing in the Products card to change pricing."
             />
           )}
-          <StepHead n={3} title="Check the pricing" state={reviewState(3)} onCheck={() => tick('pricing')}>
+          <StepHead n={3} title="Check the pricing" state={reviewState(3)}>
             {customerThreeTier && (
               <div style={{ display: 'flex', alignItems: 'center', gap: 9, flexWrap: 'wrap' }}>
                 <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 600 }}>Buyer level:</span>
@@ -1170,6 +1178,7 @@ export default function OrderDetailPage() {
             </button>
             <button className="btn btn-a" onClick={runProforma}>📄 Proforma invoice</button>
           </div>
+          {!orderComplete && <StepCheck done={reviewDone[3]} onCheck={() => tick('pricing')} label="Pricing is right — next" />}
         </div>
         </PricingGuard>
       )}
@@ -1606,7 +1615,7 @@ export default function OrderDetailPage() {
 // Numbered step header for the order page. 'active' is where you should be,
 // 'done' is ticked and quiet, 'todo' waits its turn. onCheck adds the
 // "I've checked this" button that moves you on.
-function StepHead({ n, title, state, onCheck, checkLabel, children }) {
+function StepHead({ n, title, state, children }) {
   const done = state === 'done'
   const active = state === 'active'
   return (
@@ -1623,12 +1632,19 @@ function StepHead({ n, title, state, onCheck, checkLabel, children }) {
       </h2>
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
         {children}
-        {onCheck && (
-          <button className={'btn btn-sm ' + (done ? 'btn-g' : 'btn-a')} onClick={onCheck}>
-            {done ? '✓ Checked' : (checkLabel || 'Checked — next')}
-          </button>
-        )}
       </div>
+    </div>
+  )
+}
+
+// The "I've looked at this" button — big, and at the bottom right of the
+// section, which is where you are once you've actually read the section.
+function StepCheck({ done, onCheck, label }) {
+  return (
+    <div className="step-check">
+      <button className={'btn step-check-btn ' + (done ? 'btn-g' : 'btn-a')} onClick={onCheck}>
+        {done ? '✓ Checked — click to undo' : (label || 'Checked — next step')}
+      </button>
     </div>
   )
 }
