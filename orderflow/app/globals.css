@@ -393,6 +393,16 @@ table.tbl input,table.tbl select{padding:7px 10px;font-size:12.5px;border-radius
   .batch-na{grid-column:1 / -1}
 }
 
+/* ── numbered steps down the order page ──
+   The one you're on is outlined; the ones ahead wait quietly. Scoped with
+   .main-inner so it beats the integrated-sheet rules that strip card borders. */
+.main-inner .card.step-card{border:1px solid transparent;border-radius:12px;
+  padding:20px 18px;margin-bottom:10px;transition:opacity .2s,border-color .2s,background .2s}
+.main-inner .card.step-active{border-color:var(--accent);background:var(--panel);
+  border-top:1px solid var(--accent)}
+.main-inner .card.step-done{border-color:var(--line);border-top:1px solid var(--line)}
+.main-inner .card.step-todo{opacity:.5;border-top:1px solid var(--line)}
+
 /* ── floating staff chat (bottom-right, every page) ── */
 .chat-bar{position:fixed;right:20px;bottom:20px;z-index:150;
   display:inline-flex;align-items:center;gap:9px;
