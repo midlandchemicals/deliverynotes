@@ -123,3 +123,25 @@ export function byMonth(notes) {
     }))
     .sort((a, b) => (a.key < b.key ? 1 : -1))
 }
+
+// Load the notes both reports need.
+//
+// Deliberately narrow: `select('*')` drags letterhead_snapshot across, and on
+// older notes that holds the logo as base64 — enough to time the request out.
+// The name and company are pulled out as their own columns instead. If the
+// server rejects that JSON selector we fall back to the plain columns, so a
+// PostgREST version difference degrades rather than breaks.
+const LEAN = 'id, doc_no, doc_date, customer, deliver, totals, lines_snapshot, lh_name:letterhead_snapshot->>name, lh_company:letterhead_snapshot->>company'
+const PLAIN = 'id, doc_no, doc_date, customer, deliver, totals, lines_snapshot, letterhead_snapshot'
+
+export async function loadReportNotes(supabase, { limit = 3000 } = {}) {
+  let res = await supabase.from('dispatch_notes').select(LEAN)
+    .order('doc_date', { ascending: false }).limit(limit)
+  if (res.error) {
+    const first = res.error
+    res = await supabase.from('dispatch_notes').select(PLAIN)
+      .order('doc_date', { ascending: false }).limit(limit)
+    if (res.error) return { notes: [], error: `${first.message} (and the fallback also failed: ${res.error.message})` }
+  }
+  return { notes: res.data || [], error: null }
+}

@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import { prettyDate } from '@/lib/calc'
 import { ok, toast, toastError } from '@/lib/notify'
 import { useIsAdmin } from '@/app/(app)/PricingGuard'
-import { byMonth, noteNet, customerNameOf } from '@/lib/reports'
+import { byMonth, noteNet, customerNameOf, loadReportNotes } from '@/lib/reports'
 import { generateCommissionPDF } from '@/lib/pdf'
 import MonthPicker from '../MonthPicker'
 
@@ -18,6 +18,7 @@ export default function EliteFarmPage() {
   const router = useRouter()
   const isAdmin = useIsAdmin()
   const [notes, setNotes] = useState(null)
+  const [loadError, setLoadError] = useState('')
   const [customers, setCustomers] = useState([])
   const [letterheads, setLetterheads] = useState([])
   const [current, setCurrent] = useState('')
@@ -29,17 +30,13 @@ export default function EliteFarmPage() {
   useEffect(() => {
     (async () => {
       const [n, c, lh] = await Promise.all([
-        // Lean select: the letterhead name comes across as its own column so the
-        // embedded logo never does — that is what was timing this out.
-        supabase.from('dispatch_notes')
-          .select('id, doc_no, doc_date, customer, deliver, totals, lines_snapshot, lh_name:letterhead_snapshot->>name, lh_company:letterhead_snapshot->>company')
-          .order('doc_date', { ascending: false }),
+        loadReportNotes(supabase),
         supabase.from('customers').select('id, name, commission_group').order('name'),
         // Logos are fetched for the one letterhead we print on, at that moment.
         supabase.from('letterheads').select('id, name, company, color, address, footer').order('name'),
       ])
-      if (n.error) { toastError('Could not load delivery notes: ' + n.error.message); setNotes([]); return }
-      setNotes(n.data || [])
+      if (n.error) { setLoadError(n.error); toastError('Could not load delivery notes'); setNotes([]); return }
+      setNotes(n.notes)
       setCustomers(c.data || [])
       setLetterheads(lh.data || [])
     })()
@@ -130,6 +127,13 @@ export default function EliteFarmPage() {
         <p className="hint" style={{ background: '#FCF4E2', border: '1px solid var(--warn, #B07E28)', borderRadius: 8, padding: '9px 12px', color: '#7A5511', fontWeight: 600 }}>
           ⚠ No customers have been marked as {GROUP} yet, so this is guessing from any customer whose name contains
           “Elite”. Use <b>Which customers count</b> to set them properly.
+        </p>
+      )}
+
+      {loadError && (
+        <p className="hint" style={{ background: '#FBEEEC', border: '1px solid var(--bad, #C24E42)', borderRadius: 8, padding: '10px 12px', color: '#8A2B22', fontWeight: 600 }}>
+          ⚠ The delivery notes could not be loaded. The database said:<br />
+          <span className="mono" style={{ fontWeight: 400 }}>{loadError}</span>
         </p>
       )}
 

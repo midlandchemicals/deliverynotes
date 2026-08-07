@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import { prettyDate, fmt } from '@/lib/calc'
 import { toast, toastError } from '@/lib/notify'
 import { useIsAdmin } from '@/app/(app)/PricingGuard'
-import { byMonth, noteLines, isSalesLetterhead, letterheadName, letterheadsPresent } from '@/lib/reports'
+import { byMonth, noteLines, isSalesLetterhead, letterheadName, letterheadsPresent, loadReportNotes } from '@/lib/reports'
 import { generateSalesReportPDF } from '@/lib/pdf'
 import MonthPicker from '../MonthPicker'
 
@@ -17,6 +17,7 @@ export default function IlexSalesPage() {
   const router = useRouter()
   const isAdmin = useIsAdmin()
   const [notes, setNotes] = useState(null)
+  const [loadError, setLoadError] = useState('')
   const [letterheads, setLetterheads] = useState([])
   const [current, setCurrent] = useState('')
   const [extra, setExtra] = useState(new Set())
@@ -29,16 +30,12 @@ export default function IlexSalesPage() {
   useEffect(() => {
     (async () => {
       const [n, lh] = await Promise.all([
-        // Lean select: the letterhead name comes across as its own column so the
-        // embedded logo never does — that is what was timing this out.
-        supabase.from('dispatch_notes')
-          .select('id, doc_no, doc_date, customer, deliver, totals, lines_snapshot, lh_name:letterhead_snapshot->>name, lh_company:letterhead_snapshot->>company')
-          .order('doc_date', { ascending: false }),
+        loadReportNotes(supabase),
         // Logos are fetched for the one letterhead we print on, at that moment.
         supabase.from('letterheads').select('id, name, company, color, address, footer').order('name'),
       ])
-      if (n.error) { toastError('Could not load delivery notes: ' + n.error.message); setNotes([]); return }
-      setNotes(n.data || [])
+      if (n.error) { setLoadError(n.error); toastError('Could not load delivery notes'); setNotes([]); return }
+      setNotes(n.notes)
       setLetterheads(lh.data || [])
     })()
   }, [])
@@ -136,6 +133,13 @@ export default function IlexSalesPage() {
           </>
         )}
       </div>
+
+      {loadError && (
+        <p className="hint" style={{ background: '#FBEEEC', border: '1px solid var(--bad, #C24E42)', borderRadius: 8, padding: '10px 12px', color: '#8A2B22', fontWeight: 600 }}>
+          ⚠ The delivery notes could not be loaded. The database said:<br />
+          <span className="mono" style={{ fontWeight: 400 }}>{loadError}</span>
+        </p>
+      )}
 
       <MonthPicker months={months} current={current} setCurrent={setCurrent} extra={extra} setExtra={setExtra} fmtMoney={money} />
 
