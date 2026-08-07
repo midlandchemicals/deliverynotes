@@ -990,3 +990,158 @@ export async function reprintPDF(d) {
     window.open(URL.createObjectURL(new Blob([doc.output('arraybuffer')], { type: 'application/pdf' })), '_blank')
   }))
 }
+
+// ── monthly admin reports ───────────────────────────────────────────────────
+
+// Shared letterhead block. Returns the y to carry on from.
+function reportHead(doc, lh, W, M, title, subtitle) {
+  let y = 16
+  if (lh.logo) {
+    try {
+      const props = doc.getImageProperties(lh.logo)
+      const maxW = 42, maxH = 15
+      let lw = maxW, lhh = (lw * props.height) / props.width
+      if (lhh > maxH) { lhh = maxH; lw = (lhh * props.width) / props.height }
+      const fmt = (lh.logo.match(/data:image\/(\w+)/) || [])[1]?.toUpperCase() || 'PNG'
+      doc.addImage(lh.logo, fmt, M, y, lw, lhh); y += lhh + 2
+    } catch (e) { /* letterhead deleted — carry on without the logo */ }
+  }
+  const [r, g, b] = hexToRgb(lh.color)
+  doc.setFont(FONT, 'bold').setFontSize(12).setTextColor(20, 20, 20).text(lh.company || '', M, y + 2)
+  doc.setFont(FONT, 'normal').setFontSize(7.5).setTextColor(90, 90, 90)
+    .text(String(lh.address || '').split('\n'), M, y + 6.5)
+
+  doc.setFont(FONT, 'bold').setFontSize(16).setTextColor(r, g, b).text(title, W - M, 20, { align: 'right' })
+  doc.setFont(FONT, 'normal').setFontSize(9).setTextColor(60, 60, 60)
+  doc.text(subtitle, W - M, 27, { align: 'right' })
+  doc.text(`Produced ${ukDate(todayISO())}`, W - M, 32.5, { align: 'right' })
+
+  const barY = Math.max(y + String(lh.address || '').split('\n').length * 3.2 + 6, 38)
+  doc.setFillColor(r, g, b).rect(M, barY, W - 2 * M, 1.2, 'F')
+  return barY + 8
+}
+
+function reportFoot(doc, lh, W, M) {
+  const pages = doc.internal.getNumberOfPages()
+  for (let i = 1; i <= pages; i++) {
+    doc.setPage(i)
+    const H = doc.internal.pageSize.getHeight()
+    doc.setFont(FONT, 'normal').setFontSize(7).setTextColor(140, 140, 140)
+    doc.text(String(lh.footer || ''), M, H - 7)
+    doc.text(`Page ${i} of ${pages}`, W - M, H - 7, { align: 'right' })
+  }
+}
+
+// Commission statement — one section per month, then a grand total.
+// months = [{ label, rate, rows:[{date,docNo,poRef,customer,net}], net, commission }]
+export function generateCommissionPDF(months, lh, groupName = 'Elite Farm') {
+  const doc = new jsPDF({ unit: 'mm', format: 'a4' })
+  FONT = registerFonts(doc)
+  const W = 210, M = 14
+  const [r, g, b] = hexToRgb(lh.color)
+  const span = months.length === 1 ? months[0].label : `${months[months.length - 1].label} – ${months[0].label}`
+  let y = reportHead(doc, lh, W, M, 'COMMISSION STATEMENT', `${groupName} · ${span}`)
+
+  months.forEach((m) => {
+    doc.setFont(FONT, 'bold').setFontSize(10).setTextColor(20, 20, 20)
+    doc.text(`${m.label}`, M, y)
+    doc.setFont(FONT, 'normal').setFontSize(9).setTextColor(90, 90, 90)
+    doc.text(`commission at ${m.rate}%`, W - M, y, { align: 'right' })
+    y += 2
+
+    autoTable(doc, {
+      startY: y + 1,
+      head: [['Date', 'Delivery note', 'Customer no.', 'Customer', 'Net value']],
+      body: m.rows.map((x) => [ukDate(x.date), x.docNo, x.poRef || '—', x.customer, fmtGBP(x.net)]),
+      foot: [[
+        { content: `${m.rows.length} delivery note${m.rows.length === 1 ? '' : 's'}`, colSpan: 4, styles: { halign: 'left' } },
+        fmtGBP(m.net),
+      ]],
+      theme: 'plain',
+      styles: { font: FONT, fontSize: 8, cellPadding: 2, textColor: [40, 40, 40] },
+      headStyles: { fillColor: [r, g, b], textColor: 255, fontSize: 7.5, fontStyle: 'bold' },
+      footStyles: { fontStyle: 'bold', fillColor: [246, 244, 238], textColor: [20, 20, 20] },
+      columnStyles: {
+        0: { cellWidth: 22 }, 1: { cellWidth: 28 }, 2: { cellWidth: 30 },
+        4: { halign: 'right', cellWidth: 26 },
+      },
+      margin: { left: M, right: M },
+    })
+    y = doc.lastAutoTable.finalY + 4
+
+    doc.setFont(FONT, 'bold').setFontSize(9).setTextColor(r, g, b)
+    doc.text(`Commission for ${m.label} @ ${m.rate}%: ${fmtGBP(m.commission)}`, W - M, y, { align: 'right' })
+    y += 9
+    if (y > 250) { doc.addPage(); y = 20 }
+  })
+
+  const netTotal = months.reduce((a, m) => a + m.net, 0)
+  const comTotal = months.reduce((a, m) => a + m.commission, 0)
+  if (y > 235) { doc.addPage(); y = 20 }
+  doc.setFillColor(r, g, b).rect(M, y, W - 2 * M, 0.8, 'F')
+  y += 8
+  doc.setFont(FONT, 'bold').setFontSize(11).setTextColor(20, 20, 20)
+  doc.text(months.length === 1 ? 'Total' : `Total — ${months.length} months`, M, y)
+  doc.text(`Net sales  ${fmtGBP(netTotal)}`, W - M, y, { align: 'right' })
+  y += 8
+  doc.setFontSize(14).setTextColor(r, g, b)
+  doc.text(`Commission payable  ${fmtGBP(comTotal)}`, W - M, y, { align: 'right' })
+
+  reportFoot(doc, lh, W, M)
+  window.open(URL.createObjectURL(new Blob([doc.output('arraybuffer')], { type: 'application/pdf' })), '_blank')
+}
+
+// Sales report — landscape, one row per product line, newest first.
+// months = [{ label, rows:[{date,docNo,poRef,customer,product,unitVol,qty,deliverTo,net}], net }]
+export function generateSalesReportPDF(months, lh, title = 'SALES REPORT') {
+  const doc = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'landscape' })
+  FONT = registerFonts(doc)
+  const W = 297, M = 12
+  const [r, g, b] = hexToRgb(lh.color)
+  const span = months.length === 1 ? months[0].label : `${months[months.length - 1].label} – ${months[0].label}`
+  let y = reportHead(doc, lh, W, M, title, span)
+
+  months.forEach((m) => {
+    doc.setFont(FONT, 'bold').setFontSize(10).setTextColor(20, 20, 20)
+    doc.text(m.label, M, y)
+    y += 2
+    autoTable(doc, {
+      startY: y + 1,
+      head: [['Date', 'Del. note', 'Customer no.', 'Customer', 'Product', 'Volume', 'Qty', 'Delivery address', 'Net']],
+      body: m.rows.map((x) => [
+        ukDate(x.date), x.docNo, x.poRef || '—', x.customer, x.product,
+        x.unitVol ? `${fmt(x.unitVol)} L` : '—', String(x.qty || ''), x.deliverTo, fmtGBP(x.net),
+      ]),
+      foot: [[
+        { content: `${m.rows.length} line${m.rows.length === 1 ? '' : 's'} · ${m.label}`, colSpan: 8, styles: { halign: 'left' } },
+        fmtGBP(m.net),
+      ]],
+      theme: 'plain',
+      styles: { font: FONT, fontSize: 7, cellPadding: 1.6, textColor: [40, 40, 40], overflow: 'linebreak' },
+      headStyles: { fillColor: [r, g, b], textColor: 255, fontSize: 6.5, fontStyle: 'bold' },
+      footStyles: { fontStyle: 'bold', fillColor: [246, 244, 238], textColor: [20, 20, 20] },
+      columnStyles: {
+        0: { cellWidth: 19 }, 1: { cellWidth: 20 }, 2: { cellWidth: 24 },
+        3: { cellWidth: 44 }, 4: { cellWidth: 48 },
+        5: { cellWidth: 17, halign: 'right' }, 6: { cellWidth: 11, halign: 'right' },
+        7: { cellWidth: 62 }, 8: { cellWidth: 22, halign: 'right' },
+      },
+      margin: { left: M, right: M },
+    })
+    y = doc.lastAutoTable.finalY + 8
+    if (y > 170) { doc.addPage(); y = 20 }
+  })
+
+  const netTotal = months.reduce((a, m) => a + m.net, 0)
+  const lineTotal = months.reduce((a, m) => a + m.rows.length, 0)
+  if (y > 165) { doc.addPage(); y = 20 }
+  doc.setFillColor(r, g, b).rect(M, y, W - 2 * M, 0.8, 'F')
+  y += 8
+  doc.setFont(FONT, 'bold').setFontSize(11).setTextColor(20, 20, 20)
+  doc.text(months.length === 1 ? 'Total' : `Total — ${months.length} months`, M, y)
+  doc.setFontSize(13).setTextColor(r, g, b)
+  doc.text(`${lineTotal} lines · ${fmtGBP(netTotal)}`, W - M, y, { align: 'right' })
+
+  reportFoot(doc, lh, W, M)
+  window.open(URL.createObjectURL(new Blob([doc.output('arraybuffer')], { type: 'application/pdf' })), '_blank')
+}

@@ -3,6 +3,7 @@ import Link from 'next/link'
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
+import { useIsAdmin } from '@/app/(app)/PricingGuard'
 import { prettyDate, dateISO, normalizeStatus, STATUS_NEW, STATUS_BOARD, STATUS_DONE } from '@/lib/calc'
 
 function nameFromEmail(email) {
@@ -41,6 +42,7 @@ function greeting() {
 export default function HomePage() {
   const supabase = createClient()
   const router = useRouter()
+  const isAdmin = useIsAdmin()
   const [name, setName] = useState('')
   const [data, setData] = useState(null)
 
@@ -190,6 +192,27 @@ export default function HomePage() {
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          {isAdmin && (
+            <div className="card" style={{ margin: 0 }}>
+              <div className="ttl" style={{ marginBottom: 12 }}><h2>Monthly reports</h2></div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
+                <button className="quick-action" onClick={() => router.push('/reports/elite-farm')}>
+                  <span style={{ fontSize: 17 }}>💷</span>
+                  <span>
+                    Elite Farm commission
+                    <span style={{ display: 'block', fontWeight: 500, fontSize: 11.5, color: 'var(--muted)' }}>Monthly statement at 10% or 15%</span>
+                  </span>
+                </button>
+                <button className="quick-action" onClick={() => router.push('/reports/ilex-sales')}>
+                  <span style={{ fontSize: 17 }}>📊</span>
+                  <span>
+                    Ilex sales report
+                    <span style={{ display: 'block', fontWeight: 500, fontSize: 11.5, color: 'var(--muted)' }}>Ilex, AP Farms &amp; Fielder by month</span>
+                  </span>
+                </button>
+              </div>
+            </div>
+          )}
           <div className="card" style={{ margin: 0 }}>
             <div className="ttl" style={{ marginBottom: 14 }}><h2>Orders by status</h2></div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>

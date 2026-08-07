@@ -51,6 +51,8 @@ const CATALOGUE_LINKS = [
   ['/settings/packaging', 'Packaging', 'package'],
   ['/settings/customers', 'Customers', 'users'],
   ['/settings/purchasing', 'Purchasing', 'box', true],
+  ['/reports/elite-farm', 'Elite Farm Commission', 'pound', true],
+  ['/reports/ilex-sales', 'Ilex Sales Report', 'doc', true],
   ['/settings/prices', 'Price Entry', 'pound', true],
   ['/settings/pricelist', 'Price List', 'pound', true],
   ['/settings/dashboard', 'Insights', 'dashboard', true],
