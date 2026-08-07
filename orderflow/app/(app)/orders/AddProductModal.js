@@ -2,7 +2,7 @@
 import { useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { lookupADR, adrTunnelForPG } from '@/lib/adr'
-import { toastError } from '@/lib/notify'
+import { toast, toastError } from '@/lib/notify'
 import Combobox from '@/app/(app)/Combobox'
 
 const norm = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '')
@@ -24,6 +24,9 @@ export default function AddProductModal({ open, onClose, products, packaging, cu
   const [exPack, setExPack] = useState('')
   const [exQty, setExQty] = useState('1')
   const [exToRange, setExToRange] = useState(false)
+  // A range/company to file this product under for this customer, if it should
+  // sit under a different one from the range it currently carries.
+  const [exNewRange, setExNewRange] = useState('')
   const [exPpl, setExPpl] = useState('')
 
   // new-product form
@@ -66,7 +69,7 @@ export default function AddProductModal({ open, onClose, products, packaging, cu
 
   function reset() {
     setStep('choose'); setBusy(false); setExScope('range')
-    setExProduct(''); setExPack(''); setExQty('1'); setExToRange(false); setExPpl('')
+    setExProduct(''); setExPack(''); setExQty('1'); setExToRange(false); setExPpl(''); setExNewRange('')
     setNName(''); setNRange(''); setNSg(''); setNUn(''); setNPack(''); setNQty('1'); setNPpl('')
     setNPg(''); setNClass(''); setNSub(''); setNTunnel(''); setNTcat(''); setNPsn(''); setHazSource('')
   }
@@ -120,19 +123,43 @@ export default function AddProductModal({ open, onClose, products, packaging, cu
     if (!exProduct) { toastError('Pick the product from the list first'); return }
     if (!exPack) { toastError('Choose a packaging size'); return }
     setBusy(true)
+
+    // Selling something under another company means it belongs in the product
+    // list under that company's range. The original stays exactly as it is —
+    // it is still sold under its own name — so this creates a sibling carrying
+    // the same SG and the same hazard details, filed under the new range.
+    let productId = exProduct
+    let createdProduct = null
+    const src = products.find((p) => p.id === exProduct)
+    const newRange = exNewRange.trim()
+    if (src && newRange && norm(newRange) !== norm(src.category || '')) {
+      const twin = products.find((p) => norm(p.name) === norm(src.name) && norm(p.category || '') === norm(newRange))
+      if (twin) {
+        productId = twin.id      // already filed under that range — reuse it
+      } else {
+        const { id, created_at, ...rest } = src
+        const { data, error } = await supabase.from('products')
+          .insert({ ...rest, category: newRange }).select('*').single()
+        if (error || !data) { setBusy(false); toastError('Could not file it under that range: ' + (error?.message || '')); return }
+        productId = data.id
+        createdProduct = data
+      }
+    }
+
     let priceSaved = null
     if (isAdmin && exToRange) {
       const ppl = parseFloat(exPpl) || 0
       await supabase.from('customer_product_prices').upsert(
-        { customer_id: customerId, product_id: exProduct, packaging_id: exPack, price_per_litre: ppl, updated_at: new Date().toISOString() },
+        { customer_id: customerId, product_id: productId, packaging_id: exPack, price_per_litre: ppl, updated_at: new Date().toISOString() },
         { onConflict: 'customer_id,product_id,packaging_id' })
       priceSaved = ppl
     }
     setBusy(false)
+    if (createdProduct) toast(`${createdProduct.name} filed under ${createdProduct.category} — the tile will show that from now on`)
     onDone({
-      line: { productId: exProduct, packagingId: exPack, qty: String(parseInt(exQty) || 1) },
-      product: products.find((p) => p.id === exProduct), packagingId: exPack,
-      priceSaved, created: false, addedToRange: isAdmin && exToRange,
+      line: { productId, packagingId: exPack, qty: String(parseInt(exQty) || 1) },
+      product: createdProduct || products.find((p) => p.id === productId), packagingId: exPack,
+      priceSaved, created: !!createdProduct, addedToRange: isAdmin && exToRange,
     })
     close()
   }
@@ -257,6 +284,7 @@ export default function AddProductModal({ open, onClose, products, packaging, cu
                 </p>
               )}
             </div>
+            <datalist id="apm-ranges">{categories.map((c) => <option key={c} value={c} />)}</datalist>
             <div className="row c2" style={{ marginBottom: 0 }}>
               <div className="field"><label>2. Packaging size{rangePacks ? ' (their sizes)' : ''}</label>
                 <select value={exPack} onChange={(e) => setExPack(e.target.value)}>
@@ -266,6 +294,35 @@ export default function AddProductModal({ open, onClose, products, packaging, cu
               <div className="field"><label>3. Quantity</label>
                 <input className="mono" type="number" min="1" value={exQty} onChange={(e) => setExQty(e.target.value)} /></div>
             </div>
+
+            {/* Same product, different company. The range is the company a
+                product is sold under, and it's what the quick-add tile shows. */}
+            {exProduct && (() => {
+              const src = products.find((p) => p.id === exProduct)
+              if (!src) return null
+              const changing = exNewRange.trim() && norm(exNewRange) !== norm(src.category || '')
+              return (
+                <div style={{ marginTop: 10, borderTop: '1px solid var(--line)', paddingTop: 10 }}>
+                  <div className="field" style={{ marginBottom: 0 }}>
+                    <label>
+                      Company / range
+                      <span style={{ textTransform: 'none', letterSpacing: 0, fontWeight: 500, color: 'var(--faint)' }}>
+                        {' '}· currently {src.category ? `“${src.category}”` : 'not set'}
+                      </span>
+                    </label>
+                    <input value={exNewRange} list="apm-ranges" placeholder={src.category || 'e.g. August Race'}
+                      onChange={(e) => setExNewRange(e.target.value)} />
+                    <p className="hint" style={{ marginTop: 4, marginBottom: 0 }}>
+                      {changing
+                        ? <>Files <b>{src.name}</b> in the product list under <b>{exNewRange.trim()}</b>, carrying the same SG
+                            and hazard details. The tile will show that company from now on, and{' '}
+                            {src.category ? <>the existing <b>{src.category}</b> entry is left alone.</> : <>nothing else changes.</>}</>
+                        : <>Leave blank to keep it where it is. Type a different company to sell it under that name instead.</>}
+                    </p>
+                  </div>
+                </div>
+              )
+            })()}
 
             {!inRange && exProduct && !(availableByProduct[exProduct] || []).length && (
               <p className="hint" style={{ marginTop: 8, marginBottom: 0, background: '#FCF4E2', border: '1px solid var(--warn, #B07E28)', borderRadius: 8, padding: '8px 12px', color: '#7A5511', fontWeight: 600 }}>
