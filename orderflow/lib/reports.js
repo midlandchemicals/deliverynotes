@@ -89,8 +89,23 @@ export function noteLines(note) {
   }))
 }
 
-// The invoice block's first meaningful line is the company name.
+// Who the report should name as the customer.
+//
+// The order's own customer name is used, not the first line of the invoice
+// address — plenty of those begin with a street or a "FAO", which is why some
+// names were coming out blank or wrong. Fielder and AP Farms are always shown
+// as the trading company itself; Ilex shows the customer on the order.
+const NAME_BY_LETTERHEAD = { fielder: 'Fielder', apfarm: 'AP Farm Solutions' }
+
 export function customerNameOf(note) {
+  const override = NAME_BY_LETTERHEAD[salesLetterheadOf(note)]
+  if (override) return override
+  return realCustomerName(note)
+}
+
+// The customer as recorded on the order, falling back to the invoice block.
+export function realCustomerName(note) {
+  if (note?.customerName) return note.customerName
   const first = String(note?.customer || '').split('\n').map((s) => s.trim()).filter(Boolean)[0]
   return first || ''
 }
@@ -118,7 +133,9 @@ export function byMonth(notes) {
     .map(([key, list]) => ({
       key,
       label: monthLabel(key),
-      notes: list.sort((a, b) => (a.doc_date < b.doc_date ? 1 : a.doc_date > b.doc_date ? -1 : String(b.doc_no).localeCompare(String(a.doc_no)))),
+      // Within a month the report reads forwards: the 1st at the top, the
+      // 31st at the bottom.
+      notes: list.sort((a, b) => (a.doc_date > b.doc_date ? 1 : a.doc_date < b.doc_date ? -1 : String(a.doc_no).localeCompare(String(b.doc_no)))),
       net: list.reduce((a, n) => a + noteNet(n), 0),
     }))
     .sort((a, b) => (a.key < b.key ? 1 : -1))
@@ -131,8 +148,8 @@ export function byMonth(notes) {
 // The name and company are pulled out as their own columns instead. If the
 // server rejects that JSON selector we fall back to the plain columns, so a
 // PostgREST version difference degrades rather than breaks.
-const LEAN = 'id, doc_no, doc_date, customer, deliver, totals, lines_snapshot, lh_name:letterhead_snapshot->>name, lh_company:letterhead_snapshot->>company'
-const PLAIN = 'id, doc_no, doc_date, customer, deliver, totals, lines_snapshot, letterhead_snapshot'
+const LEAN = 'id, order_id, doc_no, doc_date, customer, deliver, totals, lines_snapshot, lh_name:letterhead_snapshot->>name, lh_company:letterhead_snapshot->>company'
+const PLAIN = 'id, order_id, doc_no, doc_date, customer, deliver, totals, lines_snapshot, letterhead_snapshot'
 
 export async function loadReportNotes(supabase, { limit = 3000 } = {}) {
   let res = await supabase.from('dispatch_notes').select(LEAN)
@@ -143,5 +160,20 @@ export async function loadReportNotes(supabase, { limit = 3000 } = {}) {
       .order('doc_date', { ascending: false }).limit(limit)
     if (res.error) return { notes: [], error: `${first.message} (and the fallback also failed: ${res.error.message})` }
   }
-  return { notes: res.data || [], error: null }
+  const raw = res.data || []
+
+  // Deleting an order removes its notes, but notes deleted that way before the
+  // clean-up existed — or by any other route — are left pointing at an order
+  // that has gone. Those are not live sales and must not be reported, so a note
+  // only counts if its order is still there.
+  const ord = await supabase.from('orders').select('id, name:customer_snapshot->>name')
+  if (ord.error) {
+    // Can't verify — report everything rather than silently hiding sales.
+    return { notes: raw, orphaned: 0, error: null }
+  }
+  const names = new Map((ord.data || []).map((o) => [o.id, o.name || '']))
+  const notes = raw
+    .filter((n) => !n.order_id || names.has(n.order_id))
+    .map((n) => ({ ...n, customerName: names.get(n.order_id) || '' }))
+  return { notes, orphaned: raw.length - notes.length, error: null }
 }

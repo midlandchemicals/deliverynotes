@@ -199,14 +199,14 @@ export default function HomePage() {
                 <button className="quick-action" onClick={() => router.push('/reports/elite-farm')}>
                   <span style={{ fontSize: 17 }}>💷</span>
                   <span>
-                    Elite Farm commission
+                    Elite Farm Commission
                     <span style={{ display: 'block', fontWeight: 500, fontSize: 11.5, color: 'var(--muted)' }}>Monthly statement at 10% or 15%</span>
                   </span>
                 </button>
                 <button className="quick-action" onClick={() => router.push('/reports/ilex-sales')}>
                   <span style={{ fontSize: 17 }}>📊</span>
                   <span>
-                    Ilex sales report
+                    Ilex Sales Reports
                     <span style={{ display: 'block', fontWeight: 500, fontSize: 11.5, color: 'var(--muted)' }}>Ilex, AP Farms &amp; Fielder by month</span>
                   </span>
                 </button>
