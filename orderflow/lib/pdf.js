@@ -1,7 +1,7 @@
 'use client'
 import { jsPDF } from 'jspdf'
 import autoTable from 'jspdf-autotable'
-import { computeLine, docTotals, fmt, ukDate, packSize, resolveLinePpl, VAT_RATE, VAT_LABEL, extractDeliveryInstructions, splitContact } from '@/lib/calc'
+import { computeLine, docTotals, fmt, ukDate, packSize, resolveLinePpl, VAT_RATE, VAT_LABEL, extractDeliveryInstructions, splitContact, todayISO } from '@/lib/calc'
 import { registerFonts } from '@/lib/fonts'
 
 let FONT = 'helvetica'
@@ -128,7 +128,7 @@ function drawSigLines(doc, y, r, g, b, W, M) {
 }
 
 function dnFilename(dateStr, docNo, customerName) {
-  const d = new Date((dateStr || new Date().toISOString().slice(0, 10)) + 'T00:00:00')
+  const d = new Date((dateStr || todayISO()) + 'T00:00:00')
   const dd = String(d.getDate()).padStart(2, '0')
   const mm = String(d.getMonth() + 1).padStart(2, '0')
   const yy = String(d.getFullYear()).slice(-2)
@@ -531,7 +531,7 @@ export function generatePriceListPDF(entries, fallbackLh = {}) {
     doc.setFont(FONT, 'bold').setFontSize(13).setTextColor(r, g, b).text(lh.company || '', M, y + 2)
     doc.setFont(FONT, 'bold').setFontSize(20).setTextColor(40, 40, 40).text('PRICE LIST', W - M, y + 2, { align: 'right' })
     doc.setFont(FONT, 'normal').setFontSize(9).setTextColor(120, 120, 120)
-      .text(ukDate(new Date().toISOString().slice(0, 10)), W - M, y + 8, { align: 'right' })
+      .text(ukDate(todayISO()), W - M, y + 8, { align: 'right' })
     y += 8
 
     doc.setFillColor(r, g, b).rect(M, y, W - 2 * M, 1.2, 'F')
@@ -639,7 +639,7 @@ export function generateProformaPDF(doc_, lh, products, packaging, pricing = {},
   let phy = 28
   doc.text(`Ref   ${doc_.docNo || ''}`, W - M, phy, { align: 'right' }); phy += 6
   if (doc_.poRef) { doc.text(`Customer order no. ${doc_.poRef}`, W - M, phy, { align: 'right' }); phy += 6 }
-  doc.text(`Date  ${ukDate(doc_.date || new Date().toISOString().slice(0, 10))}`, W - M, phy, { align: 'right' }); phy += 6
+  doc.text(`Date  ${ukDate(doc_.date || todayISO())}`, W - M, phy, { align: 'right' }); phy += 6
 
   const barY = Math.max(y + addrLines.length * 3.4 + 5, phy - 2)
   doc.setFillColor(r, g, b).rect(M, barY, W - 2 * M, 1.2, 'F')
@@ -768,7 +768,7 @@ export function generatePurchaseOrderPDF(order, products, packaging, lh = {}) {
   doc.setFont(FONT, 'normal').setFontSize(10).setTextColor(40, 40, 40)
   doc.text(`PO No.    ${order.po_ref || order.order_no || ''}`, W - M, 30, { align: 'right' })
   doc.text(`Our ref   ${order.order_no || ''}`, W - M, 36, { align: 'right' })
-  doc.text(`Date      ${ukDate(order.order_date || new Date().toISOString().slice(0, 10))}`, W - M, 42, { align: 'right' })
+  doc.text(`Date      ${ukDate(order.order_date || todayISO())}`, W - M, 42, { align: 'right' })
   if (order.requested_date) {
     doc.setFont(FONT, 'bold')
     doc.text(`Required  ${ukDate(order.requested_date)}`, W - M, 48, { align: 'right' })

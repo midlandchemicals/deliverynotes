@@ -3,7 +3,7 @@ import Link from 'next/link'
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import { prettyDate, normalizeStatus, STATUS_NEW, STATUS_BOARD, STATUS_DONE } from '@/lib/calc'
+import { prettyDate, dateISO, normalizeStatus, STATUS_NEW, STATUS_BOARD, STATUS_DONE } from '@/lib/calc'
 
 function nameFromEmail(email) {
   if (!email) return ''
@@ -128,7 +128,7 @@ export default function HomePage() {
         <div className="kpi kpi-link" onClick={() => router.push('/orders?due=week')} title="View orders due this week">
           <div className="k-label">Due this week</div>
           <div className="k-value k-amber">{data.dueThisWeek}</div>
-          <div className="k-sub">{data.earliestDue ? `earliest: ${prettyDate(data.earliestDue.toISOString().slice(0, 10))} →` : 'no requested dates →'}</div>
+          <div className="k-sub">{data.earliestDue ? `earliest: ${prettyDate(dateISO(data.earliestDue))} →` : 'no requested dates →'}</div>
         </div>
         <div className="kpi kpi-link" onClick={() => router.push('/orders?filter=done')} title="View completed orders">
           <div className="k-label">Dispatched this month</div>

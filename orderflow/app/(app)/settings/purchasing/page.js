@@ -1,7 +1,7 @@
 'use client'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { prettyDate } from '@/lib/calc'
+import { prettyDate, dateISO, todayISO } from '@/lib/calc'
 import { ok, toast, toastError } from '@/lib/notify'
 import { useIsAdmin } from '@/app/(app)/PricingGuard'
 import { UP, normProduct, normSupplier, fuzzyScore, groupBy, suggestMerges } from '@/lib/purchasing'
@@ -16,7 +16,8 @@ const money = (n) => '£' + (Math.round((n || 0) * 100) / 100).toLocaleString('e
 // Unit prices run from pennies (caps) to thousands (IBCs) — show enough
 // decimals to be useful at the small end without noise at the large end.
 const unitMoney = (n) => (n >= 100 ? money(n) : '£' + (Math.round((n || 0) * 10000) / 10000).toFixed(4))
-const iso = (d) => (d instanceof Date ? d.toISOString().slice(0, 10) : String(d || '').slice(0, 10))
+// dateISO reads the local calendar — see the note on it in lib/calc.
+const iso = (d) => dateISO(d)
 const unitOf = (r) => (Number(r.qty) ? Number(r.net_total) / Number(r.qty) : 0)
 
 export default function PurchasingPage() {
@@ -204,7 +205,7 @@ export default function PurchasingPage() {
           </div>
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          <button className="btn btn-g" onClick={() => setAdd({ purchase_date: new Date().toISOString().slice(0, 10), supplier: '', product: '', qty: '', net_total: '' })}>＋ Add a purchase</button>
+          <button className="btn btn-g" onClick={() => setAdd({ purchase_date: todayISO(), supplier: '', product: '', qty: '', net_total: '' })}>＋ Add a purchase</button>
           <button className="btn btn-a" onClick={() => setTab('import')}>⬆ Import a month</button>
         </div>
       </div>
