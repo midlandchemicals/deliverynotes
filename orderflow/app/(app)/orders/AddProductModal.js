@@ -24,9 +24,6 @@ export default function AddProductModal({ open, onClose, products, packaging, cu
   const [exPack, setExPack] = useState('')
   const [exQty, setExQty] = useState('1')
   const [exToRange, setExToRange] = useState(false)
-  // A range/company to file this product under for this customer, if it should
-  // sit under a different one from the range it currently carries.
-  const [exNewRange, setExNewRange] = useState('')
   const [exPpl, setExPpl] = useState('')
 
   // new-product form
@@ -62,6 +59,13 @@ export default function AddProductModal({ open, onClose, products, packaging, cu
     .filter((k) => !rangePacks || rangePacks.includes(k.id))
     .sort((a, b) => (a.volume || 0) - (b.volume || 0))
 
+  // A product taken from outside the customer's own range is filed under the
+  // customer's name. Not a choice: if we are selling it to A-Chem it belongs to
+  // A-Chem's range, wherever it happened to come from.
+  const exSrc = products.find((p) => p.id === exProduct)
+  const filingRange = exScope === 'all' && customerName && exSrc && norm(customerName) !== norm(exSrc.category || '')
+    ? customerName : ''
+
   // live "did you mean an existing product?" check on the new-product name
   const dupMatches = nName.trim().length >= 3
     ? products.filter((p) => norm(p.name).includes(norm(nName)) || norm(nName).includes(norm(p.name))).slice(0, 5)
@@ -69,7 +73,7 @@ export default function AddProductModal({ open, onClose, products, packaging, cu
 
   function reset() {
     setStep('choose'); setBusy(false); setExScope('range')
-    setExProduct(''); setExPack(''); setExQty('1'); setExToRange(false); setExPpl(''); setExNewRange('')
+    setExProduct(''); setExPack(''); setExQty('1'); setExToRange(false); setExPpl('')
     setNName(''); setNRange(''); setNSg(''); setNUn(''); setNPack(''); setNQty('1'); setNPpl('')
     setNPg(''); setNClass(''); setNSub(''); setNTunnel(''); setNTcat(''); setNPsn(''); setHazSource('')
   }
@@ -78,7 +82,6 @@ export default function AddProductModal({ open, onClose, products, packaging, cu
   // Jump from the "new" screen straight into adding a matched existing product.
   function useExistingInstead(p) {
     setExScope('all'); setExProduct(p.id); setExPack(''); setExQty(nQty || '1'); setStep('existing')
-    setExNewRange(customerName && norm(customerName) !== norm(p.category || '') ? customerName : '')
   }
 
   // Copy everything that describes the substance from another product — SG, UN
@@ -128,14 +131,14 @@ export default function AddProductModal({ open, onClose, products, packaging, cu
     if (!exPack) { toastError('Choose a packaging size'); return }
     setBusy(true)
 
-    // Selling something under another company means it belongs in the product
-    // list under that company's range. The original stays exactly as it is —
-    // it is still sold under its own name — so this creates a sibling carrying
-    // the same SG and the same hazard details, filed under the new range.
+    // Bringing a product in from outside this customer's range means we are
+    // selling it to them, under their name — so that is the company it is filed
+    // under, always. Where it came from is irrelevant. The original entry is
+    // untouched; this is a sibling carrying the same SG and hazard details.
     let productId = exProduct
     let createdProduct = null
     const src = products.find((p) => p.id === exProduct)
-    const newRange = exNewRange.trim()
+    const newRange = filingRange
     if (src && newRange && norm(newRange) !== norm(src.category || '')) {
       const twin = products.find((p) => norm(p.name) === norm(src.name) && norm(p.category || '') === norm(newRange))
       if (twin) {
@@ -275,17 +278,7 @@ export default function AddProductModal({ open, onClose, products, packaging, cu
               <Combobox
                 options={exOptions.map((p) => ({ id: p.id, label: p.category ? `${p.name} (${p.category})` : p.name }))}
                 value={exProduct}
-                onSelect={(id) => {
-                  setExProduct(id); setExPack('')
-                  // Bringing something in from another company's range means it
-                  // is being sold under THIS customer's name, so that is the
-                  // range it should be filed under. Their own range is left
-                  // alone — the product is already filed correctly there.
-                  const p = products.find((x) => x.id === id)
-                  const target = exScope === 'all' && customerName && norm(customerName) !== norm(p?.category || '')
-                    ? customerName : ''
-                  setExNewRange(target)
-                }}
+                onSelect={(id) => { setExProduct(id); setExPack('') }}
                 placeholder={inRange ? `Search ${custLabel}'s products…` : 'Type the product name to search…'}
               />
               {inRange && (
@@ -309,35 +302,14 @@ export default function AddProductModal({ open, onClose, products, packaging, cu
                 <input className="mono" type="number" min="1" value={exQty} onChange={(e) => setExQty(e.target.value)} /></div>
             </div>
 
-            {/* Same product, different company. The range is the company a
-                product is sold under, and it's what the quick-add tile shows. */}
-            {exProduct && (() => {
-              const src = products.find((p) => p.id === exProduct)
-              if (!src) return null
-              const changing = exNewRange.trim() && norm(exNewRange) !== norm(src.category || '')
-              return (
-                <div style={{ marginTop: 10, borderTop: '1px solid var(--line)', paddingTop: 10 }}>
-                  <div className="field" style={{ marginBottom: 0 }}>
-                    <label>
-                      Company / range
-                      <span style={{ textTransform: 'none', letterSpacing: 0, fontWeight: 500, color: 'var(--faint)' }}>
-                        {' '}· currently {src.category ? `“${src.category}”` : 'not set'}
-                      </span>
-                    </label>
-                    <input value={exNewRange} list="apm-ranges" placeholder={src.category || 'e.g. August Race'}
-                      onChange={(e) => setExNewRange(e.target.value)} />
-                    <p className="hint" style={{ marginTop: 4, marginBottom: 0 }}>
-                      {changing
-                        ? <>Files <b>{src.name}</b> in the product list under <b>{exNewRange.trim()}</b>, carrying the same SG
-                            and hazard details. The tile will show that company from now on, and{' '}
-                            {src.category ? <>the existing <b>{src.category}</b> entry is left alone.</> : <>nothing else changes.</>}</>
-                        : <>Filled in with the company placing this order. Clear it to leave the product where it is, or type
-                            a different company to file it under that name instead.</>}
-                    </p>
-                  </div>
-                </div>
-              )
-            })()}
+            {/* Stated, not asked. Selling it to this customer means it is
+                filed under this customer — there is nothing to decide. */}
+            {filingRange && (
+              <p className="hint" style={{ marginTop: 10, marginBottom: 0, background: 'var(--accent-soft)', border: '1px solid var(--accent)', borderRadius: 8, padding: '9px 12px', color: 'var(--ink)' }}>
+                📦 Filed in the product list under <b>{filingRange}</b>, with the same SG and hazard details.
+                {exSrc?.category ? <> The <b>{exSrc.category}</b> entry is left as it is.</> : null}
+              </p>
+            )}
 
             {!inRange && exProduct && !(availableByProduct[exProduct] || []).length && (
               <p className="hint" style={{ marginTop: 8, marginBottom: 0, background: '#FCF4E2', border: '1px solid var(--warn, #B07E28)', borderRadius: 8, padding: '8px 12px', color: '#7A5511', fontWeight: 600 }}>
