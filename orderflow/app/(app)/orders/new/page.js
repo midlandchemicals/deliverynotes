@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import { nextNo, splitContact, unifiedAddresses } from '@/lib/calc'
+import { nextNo, splitContact, unifiedAddresses, todayISO } from '@/lib/calc'
 import { ok, toast, toastError } from '@/lib/notify'
 import { useIsAdmin } from '@/app/(app)/PricingGuard'
 import LineEditor from '../LineEditor'
@@ -36,7 +36,7 @@ export default function NewOrderPage() {
   const [contactPhone, setContactPhone] = useState('')
   const [invContact, setInvContact] = useState({ name: '', email: '', phone: '' }) // invoice contact
   const [poRef, setPoRef] = useState('')
-  const [orderDate, setOrderDate] = useState(new Date().toISOString().slice(0, 10))
+  const [orderDate, setOrderDate] = useState(todayISO())
   const [requestedDate, setRequestedDate] = useState('')
   const [lines, setLines] = useState([])
   const [notes, setNotes] = useState('')

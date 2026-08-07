@@ -281,6 +281,18 @@ export function labelCount(line, products, packaging) {
 }
 
 // "DN-0007" -> "DN-0008"; "DN-1004" -> "DN-1005"
+// A calendar date as YYYY-MM-DD, read from the LOCAL calendar.
+//
+// toISOString() converts to UTC first, so through British Summer Time it
+// reports the previous day for anything at or near midnight — a spreadsheet
+// date of 17 June arrives as 16 June, and "today" is yesterday until 1am.
+// Always use this for a date the user thinks of as a day rather than an instant.
+export function dateISO(d = new Date()) {
+  if (!(d instanceof Date) || isNaN(d)) return String(d || '').slice(0, 10)
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+export const todayISO = () => dateISO(new Date())
+
 export function nextNo(s) {
   const r = String(s || '').replace(/(\d+)(?!.*\d)/, (m) => String(+m + 1).padStart(m.length, '0'))
   return r || s

@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import { computeLine, docTotals, fmt, prettyDate, splitContact, labelCount, PRICE_LEVELS, seasonalActive, resolveLinePpl, parseTiers, VAT_RATE, VAT_LABEL, ORDER_STATUSES, STATUS_NEW, STATUS_BOARD, STATUS_DONE, normalizeStatus, extractDeliveryInstructions, nextNo, unifiedAddresses } from '@/lib/calc'
+import { computeLine, docTotals, fmt, prettyDate, splitContact, labelCount, PRICE_LEVELS, seasonalActive, resolveLinePpl, parseTiers, VAT_RATE, VAT_LABEL, ORDER_STATUSES, STATUS_NEW, STATUS_BOARD, STATUS_DONE, normalizeStatus, extractDeliveryInstructions, nextNo, unifiedAddresses, todayISO } from '@/lib/calc'
 import { generateDispatchPDF, generateOfficeCopyPDF, reprintPDF, generatePurchaseOrderPDF, generateProformaPDF } from '@/lib/pdf'
 import { printBoardNote } from '@/lib/boardnote'
 import { toast, toastError, ok } from '@/lib/notify'
@@ -66,7 +66,7 @@ export default function OrderDetailPage() {
 
   // dispatch panel state
   const [lhIndex, setLhIndex] = useState(0)
-  const [docDate, setDocDate] = useState(new Date().toISOString().slice(0, 10))
+  const [docDate, setDocDate] = useState(todayISO())
   const [invoiceTo, setInvoiceTo] = useState('')
   const [options, setOptions] = useState('')
   // IBCs are counted from the products themselves; this is only the ADDITIONAL
@@ -283,7 +283,7 @@ export default function OrderDetailPage() {
   function runProforma() {
     generateProformaPDF(
       {
-        docNo: order.order_no, poRef: order.po_ref || '', date: new Date().toISOString().slice(0, 10),
+        docNo: order.order_no, poRef: order.po_ref || '', date: todayISO(),
         orderDate: order.order_date || null,
         invoiceTo, deliver: splitContact(order.customer_snapshot?.deliver || '').address,
         lines,
@@ -305,7 +305,7 @@ export default function OrderDetailPage() {
     try {
       const blob = generateProformaPDF(
         {
-          docNo: order.order_no, date: new Date().toISOString().slice(0, 10),
+          docNo: order.order_no, date: todayISO(),
           orderDate: order.order_date || null,
           invoiceTo, deliver: splitContact(order.customer_snapshot?.deliver || '').address,
           lines,
@@ -1344,7 +1344,7 @@ export default function OrderDetailPage() {
                     <>
                       <button className="btn btn-g btn-sm" onClick={() => generateProformaPDF(
                         {
-                          docNo: d.doc_no || order.order_no, date: new Date().toISOString().slice(0, 10),
+                          docNo: d.doc_no || order.order_no, date: todayISO(),
                           orderDate: order.order_date || null,
                           invoiceTo: d.customer || invoiceTo,
                           deliver: d.deliver || splitContact(order.customer_snapshot?.deliver || '').address,
@@ -1545,8 +1545,8 @@ export default function OrderDetailPage() {
                 <input className="mono" type="date" value={docDate}
                   style={{ maxWidth: 190, fontSize: 15, fontWeight: 700, borderColor: 'var(--accent)' }}
                   onChange={(e) => setDocDate(e.target.value)} />
-                {docDate !== new Date().toISOString().slice(0, 10) && (
-                  <button className="btn btn-g btn-sm" onClick={() => setDocDate(new Date().toISOString().slice(0, 10))}>Set to today</button>
+                {docDate !== todayISO() && (
+                  <button className="btn btn-g btn-sm" onClick={() => setDocDate(todayISO())}>Set to today</button>
                 )}
               </div>
               <p className="hint" style={{ marginTop: 5, marginBottom: 0 }}>
