@@ -393,6 +393,23 @@ table.tbl input,table.tbl select{padding:7px 10px;font-size:12.5px;border-radius
   .batch-na{grid-column:1 / -1}
 }
 
+/* ── stat tiles & chart headings (purchasing) ── */
+.stat-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(126px,1fr));gap:0;
+  border:1px solid var(--line);border-radius:11px;overflow:hidden;margin:10px 0 14px}
+.stat-tile{padding:11px 14px;border-left:1px solid var(--line)}
+.stat-tile:first-child{border-left:none}
+.stat-label{font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.stat-value{font-size:16px;font-weight:700;color:var(--heading);margin-top:4px;line-height:1.15}
+.stat-sub{font-size:10.5px;color:var(--faint);margin-top:3px;line-height:1.3}
+.chart-title{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;
+  color:var(--muted);margin:16px 0 6px}
+@media(max-width:600px){
+  .stat-row{grid-template-columns:1fr 1fr}
+  .stat-tile{border-top:1px solid var(--line)}
+  .stat-tile:nth-child(-n+2){border-top:none}
+  .stat-tile:nth-child(odd){border-left:none}
+}
+
 /* ── numbered steps down the order page ──
    The one you're on is outlined; the ones ahead wait quietly. Scoped with
    .main-inner so it beats the integrated-sheet rules that strip card borders. */
