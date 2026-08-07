@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import { prettyDate, fmt } from '@/lib/calc'
 import { toast, toastError } from '@/lib/notify'
 import { useIsAdmin } from '@/app/(app)/PricingGuard'
-import { byMonth, noteLines, isSalesLetterhead, salesLetterheadOf } from '@/lib/reports'
+import { byMonth, noteLines, isSalesLetterhead, letterheadName, letterheadsPresent, loadReportNotes } from '@/lib/reports'
 import { generateSalesReportPDF } from '@/lib/pdf'
 import MonthPicker from '../MonthPicker'
 
@@ -17,25 +17,44 @@ export default function IlexSalesPage() {
   const router = useRouter()
   const isAdmin = useIsAdmin()
   const [notes, setNotes] = useState(null)
+  const [loadError, setLoadError] = useState('')
   const [letterheads, setLetterheads] = useState([])
   const [current, setCurrent] = useState('')
   const [extra, setExtra] = useState(new Set())
+  // Which letterheads to include. Seeded with Ilex / AP Farms / Fielder, but
+  // shown and editable — the names are typed by hand, so a silent no-match is
+  // the one outcome this must never produce.
+  const [chosenLh, setChosenLh] = useState(null)
+  const [busy, setBusy] = useState(false)
 
   useEffect(() => {
     (async () => {
       const [n, lh] = await Promise.all([
-        supabase.from('dispatch_notes').select('*').order('doc_date', { ascending: false }),
-        supabase.from('letterheads').select('*').order('name'),
+        loadReportNotes(supabase),
+        // Logos are fetched for the one letterhead we print on, at that moment.
+        supabase.from('letterheads').select('id, name, company, color, address, footer').order('name'),
       ])
-      if (n.error) { toastError('Could not load delivery notes: ' + n.error.message); setNotes([]); return }
-      setNotes(n.data || [])
+      if (n.error) { setLoadError(n.error); toastError('Could not load delivery notes'); setNotes([]); return }
+      setNotes(n.notes)
       setLetterheads(lh.data || [])
     })()
   }, [])
 
+  const available = useMemo(() => letterheadsPresent(notes || []), [notes])
+
+  // Seed the selection once the notes are in: whatever matched automatically,
+  // or nothing if none did (in which case the page asks you to pick).
+  useEffect(() => {
+    if (chosenLh !== null || !notes) return
+    setChosenLh(new Set(available.filter((x) => x.auto).map((x) => x.name)))
+  }, [notes, available, chosenLh])
+
   // Ilex, AP Farms and Fielder together — deliberately not separated, just in
   // date order within each month.
-  const inScope = useMemo(() => (notes || []).filter(isSalesLetterhead), [notes])
+  const inScope = useMemo(
+    () => (notes || []).filter((n) => (chosenLh ? chosenLh.has(letterheadName(n) || '(no letterhead)') : isSalesLetterhead(n))),
+    [notes, chosenLh],
+  )
   const months = useMemo(() => byMonth(inScope), [inScope])
   useEffect(() => { if (!current && months.length) setCurrent(months[0].key) }, [months, current])
 
@@ -46,16 +65,16 @@ export default function IlexSalesPage() {
     return months.filter((m) => keys.includes(m.key))
   }, [months, current, extra])
 
-  // Which of the three actually appear, so the header can say so honestly.
-  const present = useMemo(() => {
-    const s = new Set(inScope.map(salesLetterheadOf).filter(Boolean))
-    return [...s].map((k) => LABELS[k] || k)
-  }, [inScope])
 
-  function generate() {
+  async function generate() {
     if (!chosen.length) { toastError('Choose a month first'); return }
-    const midland = letterheads.find((l) => `${l.name} ${l.company}`.toUpperCase().includes('MIDLAND')) || letterheads[0]
-    if (!midland) { toastError('No letterhead set up to print on'); return }
+    const head = letterheads.find((l) => `${l.name} ${l.company}`.toUpperCase().includes('MIDLAND')) || letterheads[0]
+    if (!head) { toastError('No letterhead set up to print on'); return }
+    // The logo is deliberately not in the list query — fetch it for this one.
+    setBusy(true)
+    const { data: full } = await supabase.from('letterheads').select('*').eq('id', head.id).single()
+    setBusy(false)
+    const midland = full || head
     const payload = chosen.map((m) => {
       const rows = rowsFor(m)
       return { label: m.label, rows, net: rows.reduce((a, r) => a + r.net, 0) }
@@ -77,17 +96,48 @@ export default function IlexSalesPage() {
         <div>
           <h1>Ilex sales report</h1>
           <div className="sub">
-            Ilex, AP Farms and Fielder together, newest first · {inScope.length} delivery note{inScope.length === 1 ? '' : 's'} on file
-            {present.length > 0 && ` · covering ${present.join(', ')}`}
+            Newest first · {inScope.length} delivery note{inScope.length === 1 ? '' : 's'} included, of {(notes || []).length} on file
           </div>
         </div>
         <button className="btn btn-g" onClick={() => router.push('/')}>← Dashboard</button>
       </div>
 
-      {inScope.length === 0 && (
-        <p className="hint" style={{ background: '#FCF4E2', border: '1px solid var(--warn, #B07E28)', borderRadius: 8, padding: '9px 12px', color: '#7A5511', fontWeight: 600 }}>
-          ⚠ No delivery notes found on the Ilex, AP Farms or Fielder letterheads. Notes are matched on the letterhead
-          they were printed with — check the names in Letterheads if you expected some here.
+      <div className="card">
+        <div className="ttl">
+          <h2>Letterheads included</h2>
+          <span className="muted" style={{ fontSize: 12 }}>Ilex, AP Farms and Fielder are ticked automatically</span>
+        </div>
+        {available.length === 0 ? (
+          <div className="empty">No delivery notes on file at all yet.</div>
+        ) : (
+          <>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7 }}>
+              {available.map((x) => (
+                <button key={x.name}
+                  className={'chip' + (chosenLh?.has(x.name) ? ' on' : '')}
+                  onClick={() => setChosenLh((s) => {
+                    const n = new Set(s || [])
+                    n.has(x.name) ? n.delete(x.name) : n.add(x.name)
+                    return n
+                  })}>
+                  {x.name} <span style={{ opacity: .65 }}>· {x.count}</span>
+                </button>
+              ))}
+            </div>
+            {inScope.length === 0 && (
+              <p className="hint" style={{ marginBottom: 0, color: '#7A5511', fontWeight: 600 }}>
+                ⚠ Nothing is ticked, so there is nothing to report. The names above are exactly as they appear on the
+                delivery notes — tick the ones that belong in this report.
+              </p>
+            )}
+          </>
+        )}
+      </div>
+
+      {loadError && (
+        <p className="hint" style={{ background: '#FBEEEC', border: '1px solid var(--bad, #C24E42)', borderRadius: 8, padding: '10px 12px', color: '#8A2B22', fontWeight: 600 }}>
+          ⚠ The delivery notes could not be loaded. The database said:<br />
+          <span className="mono" style={{ fontWeight: 400 }}>{loadError}</span>
         </p>
       )}
 
