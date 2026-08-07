@@ -4,36 +4,34 @@ import { createClient } from '@/lib/supabase/client'
 import { prettyDate } from '@/lib/calc'
 import { ok, toast, toastError } from '@/lib/notify'
 import { useIsAdmin } from '@/app/(app)/PricingGuard'
+import { UP, normProduct, normSupplier, fuzzyScore, groupBy, suggestMerges } from '@/lib/purchasing'
+import PriceChart from './PriceChart'
+import SupplierBars from './SupplierBars'
 
 // Purchasing — what we buy, who from, and what it has cost over time.
-// Rows come from the monthly purchase spreadsheets; the unit price is always
-// derived (net ÷ qty) so it can't drift from the figures on the sheet.
+// Unit price is always derived (net ÷ qty), never stored, so it can't drift
+// from the figures on the sheet it came from.
 
-const KEY = (s) => String(s || '').trim().toUpperCase()
 const money = (n) => '£' + (Math.round((n || 0) * 100) / 100).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-// Unit prices run from pennies (caps) to thousands (IBCs), so show enough
+// Unit prices run from pennies (caps) to thousands (IBCs) — show enough
 // decimals to be useful at the small end without noise at the large end.
 const unitMoney = (n) => (n >= 100 ? money(n) : '£' + (Math.round((n || 0) * 10000) / 10000).toFixed(4))
 const iso = (d) => (d instanceof Date ? d.toISOString().slice(0, 10) : String(d || '').slice(0, 10))
+const unitOf = (r) => (Number(r.qty) ? Number(r.net_total) / Number(r.qty) : 0)
 
 export default function PurchasingPage() {
   const supabase = createClient()
   const isAdmin = useIsAdmin()
   const [rows, setRows] = useState(null)
-  const [tab, setTab] = useState('catalogue')   // catalogue | suppliers | import
+  const [tab, setTab] = useState('catalogue')
   const [q, setQ] = useState('')
-  const [openItem, setOpenItem] = useState(null)     // product key
+  const [openItem, setOpenItem] = useState(null)
   const [openSupplier, setOpenSupplier] = useState(null)
-  const [renaming, setRenaming] = useState(null)     // { kind, from, to }
+  const [renaming, setRenaming] = useState(null)
   const [busy, setBusy] = useState(false)
-
-  // import state
-  const [preview, setPreview] = useState(null)       // { name, rows, dupes }
-  const fileRef = useRef(null)
-
-  // manual add
-  const blankAdd = { purchase_date: new Date().toISOString().slice(0, 10), supplier: '', product: '', qty: '', net_total: '' }
+  const [preview, setPreview] = useState(null)
   const [add, setAdd] = useState(null)
+  const fileRef = useRef(null)
 
   async function load() {
     const { data, error } = await supabase.from('purchases').select('*').order('purchase_date', { ascending: false })
@@ -42,60 +40,65 @@ export default function PurchasingPage() {
   }
   useEffect(() => { load() }, [])
 
-  // ── aggregates ────────────────────────────────────────────────────────────
-  const items = useMemo(() => {
-    const map = new Map()
-    for (const r of rows || []) {
-      const k = KEY(r.product)
-      if (!map.has(k)) map.set(k, { key: k, name: r.product, buys: [] })
-      map.get(k).buys.push(r)
+  // ── grouping ──────────────────────────────────────────────────────────────
+  // Spellings that differ only by punctuation or LTR/LITRE/L are the same
+  // product, so they're pooled here without anyone being asked.
+  const items = useMemo(() => groupBy(rows || [], 'product', normProduct).map((g) => {
+    const buys = [...g.rows].sort((a, b) => (a.purchase_date < b.purchase_date ? 1 : -1))
+    const prices = buys.map(unitOf).filter((n) => n > 0)
+    const bySup = new Map()
+    for (const r of buys) {
+      const k = UP(r.supplier)
+      if (!bySup.has(k)) bySup.set(k, { name: r.supplier, tot: 0, n: 0 })
+      const s = bySup.get(k); s.tot += unitOf(r); s.n++
     }
-    return [...map.values()].map((it) => {
-      const buys = [...it.buys].sort((a, b) => (a.purchase_date < b.purchase_date ? 1 : -1)) // newest first
-      const unit = (r) => (Number(r.qty) ? Number(r.net_total) / Number(r.qty) : 0)
-      const prices = buys.map(unit).filter((n) => n > 0)
-      const latest = buys[0]
-      const previous = buys[1]
-      return {
-        ...it, buys,
-        count: buys.length,
-        spend: buys.reduce((s, r) => s + Number(r.net_total || 0), 0),
-        last: latest ? unit(latest) : 0,
-        lastDate: latest?.purchase_date,
-        lastSupplier: latest?.supplier || '',
-        prev: previous ? unit(previous) : null,
-        min: prices.length ? Math.min(...prices) : 0,
-        max: prices.length ? Math.max(...prices) : 0,
-        suppliers: [...new Set(buys.map((r) => KEY(r.supplier)))],
-      }
-    }).sort((a, b) => a.name.localeCompare(b.name))
-  }, [rows])
-
-  const suppliers = useMemo(() => {
-    const map = new Map()
-    for (const r of rows || []) {
-      const k = KEY(r.supplier)
-      if (!map.has(k)) map.set(k, { key: k, name: r.supplier, buys: [] })
-      map.get(k).buys.push(r)
+    return {
+      ...g, buys,
+      count: buys.length,
+      spend: buys.reduce((s, r) => s + Number(r.net_total || 0), 0),
+      last: buys[0] ? unitOf(buys[0]) : 0,
+      prev: buys[1] ? unitOf(buys[1]) : null,
+      lastDate: buys[0]?.purchase_date,
+      lastSupplier: buys[0]?.supplier || '',
+      min: prices.length ? Math.min(...prices) : 0,
+      max: prices.length ? Math.max(...prices) : 0,
+      avg: prices.length ? prices.reduce((a, b) => a + b, 0) / prices.length : 0,
+      supplierRows: [...bySup.values()].map((s) => ({ name: s.name, avg: s.tot / s.n, n: s.n })).sort((a, b) => a.avg - b.avg),
     }
-    return [...map.values()].map((s) => ({
-      ...s,
-      count: s.buys.length,
-      spend: s.buys.reduce((a, r) => a + Number(r.net_total || 0), 0),
-      products: [...new Set(s.buys.map((r) => KEY(r.product)))].length,
-      lastDate: s.buys.map((r) => r.purchase_date).sort().slice(-1)[0],
-    })).sort((a, b) => b.spend - a.spend)
-  }, [rows])
+  }), [rows])
 
-  const hay = (s) => KEY(s).includes(KEY(q))
-  const shownItems = q ? items.filter((i) => hay(i.name) || i.suppliers.some(hay)) : items
-  const shownSuppliers = q ? suppliers.filter((s) => hay(s.name)) : suppliers
+  const suppliers = useMemo(() => groupBy(rows || [], 'supplier', normSupplier).map((g) => ({
+    ...g,
+    count: g.rows.length,
+    spend: g.rows.reduce((a, r) => a + Number(r.net_total || 0), 0),
+    products: new Set(g.rows.map((r) => normProduct(r.product))).size,
+    lastDate: g.rows.map((r) => r.purchase_date).sort().slice(-1)[0],
+  })).sort((a, b) => b.spend - a.spend), [rows])
+
+  // Names that are probably the same but can't be pooled safely — offered, not applied.
+  const tidy = useMemo(() => ({
+    products: suggestMerges(items.map((i) => i.name), normProduct).slice(0, 25),
+    suppliers: suggestMerges(suppliers.map((s) => s.name), normSupplier).slice(0, 25),
+  }), [items, suppliers])
+  const tidyCount = tidy.products.length + tidy.suppliers.length
+
+  // ── search ────────────────────────────────────────────────────────────────
+  // Typo-tolerant: "methylne chloride" finds METHYLENE CHLORIDE.
+  const shownItems = useMemo(() => {
+    if (!q.trim()) return [...items].sort((a, b) => a.name.localeCompare(b.name))
+    return items
+      .map((i) => ({ i, s: Math.max(fuzzyScore(q, i.name), ...i.buys.map((b) => fuzzyScore(q, b.supplier) * 0.8)) }))
+      .filter((x) => x.s > 0).sort((a, b) => b.s - a.s).map((x) => x.i)
+  }, [items, q])
+  const shownSuppliers = useMemo(() => {
+    if (!q.trim()) return suppliers
+    return suppliers.map((s) => ({ s, sc: fuzzyScore(q, s.name) })).filter((x) => x.sc > 0)
+      .sort((a, b) => b.sc - a.sc).map((x) => x.s)
+  }, [suppliers, q])
+
   const totalSpend = (rows || []).reduce((a, r) => a + Number(r.net_total || 0), 0)
 
   // ── import ────────────────────────────────────────────────────────────────
-  // The sheets are laid out: row 1 title, row 2 headings, then DATE | _ |
-  // SUPPLIER | QTY | _ | PRODUCT | _ | _ | NET PRICE. Read by heading rather
-  // than fixed position so a shifted column doesn't import silent rubbish.
   async function pickFile(file) {
     if (!file) return
     setBusy(true)
@@ -103,9 +106,9 @@ export default function PurchasingPage() {
       const XLSX = await import('xlsx')
       const wb = XLSX.read(await file.arrayBuffer(), { cellDates: true })
       const grid = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, raw: true })
-      const headRow = grid.findIndex((r) => (r || []).some((c) => KEY(c) === 'SUPPLIER'))
+      const headRow = grid.findIndex((r) => (r || []).some((c) => UP(c) === 'SUPPLIER'))
       if (headRow === -1) throw new Error('No SUPPLIER heading found — is this a purchases sheet?')
-      const head = grid[headRow].map(KEY)
+      const head = grid[headRow].map(UP)
       const col = (...names) => head.findIndex((h) => names.includes(h))
       const cDate = col('DATE'), cSup = col('SUPPLIER'), cQty = col('QTY')
       const cProd = col('PRODUCT'), cNet = col('NET PRICE', 'NET', 'NETPRICE')
@@ -113,20 +116,18 @@ export default function PurchasingPage() {
 
       const parsed = []
       for (const r of grid.slice(headRow + 1)) {
-        const d = r?.[cDate]
-        if (!(d instanceof Date)) continue        // skips blanks and the totals row
-        const qty = Number(r[cQty]) || 0
-        const net = Number(r[cNet]) || 0
+        if (!(r?.[cDate] instanceof Date)) continue    // skips blanks and the totals row
         const product = String(r[cProd] ?? '').trim()
         const supplier = String(r[cSup] ?? '').trim()
         if (!product && !supplier) continue
-        parsed.push({ purchase_date: iso(d), supplier, product, qty, net_total: net, source: file.name })
+        parsed.push({
+          purchase_date: iso(r[cDate]), supplier, product,
+          qty: Number(r[cQty]) || 0, net_total: Number(r[cNet]) || 0, source: file.name,
+        })
       }
-      // Anything already on file with the same date, supplier, product, qty and
-      // total is almost certainly a re-import rather than a second delivery.
-      const existing = new Set((rows || []).map((r) => [r.purchase_date, KEY(r.supplier), KEY(r.product), Number(r.qty), Number(r.net_total)].join('|')))
-      const dupes = parsed.filter((p) => existing.has([p.purchase_date, KEY(p.supplier), KEY(p.product), p.qty, p.net_total].join('|')))
-      setPreview({ name: file.name, rows: parsed, dupes: new Set(dupes.map((d) => JSON.stringify(d))) })
+      const existing = new Set((rows || []).map((r) => [r.purchase_date, UP(r.supplier), UP(r.product), Number(r.qty), Number(r.net_total)].join('|')))
+      const dupes = new Set(parsed.filter((p) => existing.has([p.purchase_date, UP(p.supplier), UP(p.product), p.qty, p.net_total].join('|'))).map((d) => JSON.stringify(d)))
+      setPreview({ name: file.name, rows: parsed, dupes })
       if (!parsed.length) toastError('No dated rows found in that sheet')
     } catch (e) {
       toastError('Could not read that file: ' + e.message)
@@ -136,8 +137,7 @@ export default function PurchasingPage() {
   }
 
   async function confirmImport(includeDupes) {
-    const all = preview.rows
-    const toAdd = includeDupes ? all : all.filter((r) => !preview.dupes.has(JSON.stringify(r)))
+    const toAdd = includeDupes ? preview.rows : preview.rows.filter((r) => !preview.dupes.has(JSON.stringify(r)))
     if (!toAdd.length) { toast('Nothing new to import'); setPreview(null); return }
     setBusy(true)
     const { data: { user } } = await supabase.auth.getUser()
@@ -145,26 +145,24 @@ export default function PurchasingPage() {
     setBusy(false)
     if (!ok(res, 'importing the purchases')) return
     toast(`Imported ${toAdd.length} purchase${toAdd.length === 1 ? '' : 's'} from ${preview.name}`)
-    setPreview(null)
-    load()
+    setPreview(null); load()
   }
 
   // ── rename / merge ────────────────────────────────────────────────────────
-  // "HAMMOND CHEMICALS" and "HAMMONDS CHEMICALS" are the same supplier; renaming
-  // one onto the other joins their history rather than leaving two half-records.
-  async function doRename() {
-    const { kind, from, to } = renaming
-    const clean = to.trim()
-    if (!clean) { toastError('Enter the name to use'); return }
+  async function applyRename(kind, from, to) {
+    const clean = String(to || '').trim()
+    if (!clean) { toastError('Enter the name to use'); return false }
     setBusy(true)
     const field = kind === 'supplier' ? 'supplier' : 'product'
-    const ids = (rows || []).filter((r) => KEY(r[field]) === KEY(from)).map((r) => r.id)
+    const norm = kind === 'supplier' ? normSupplier : normProduct
+    // Match on the normalised name so every spelling in the group comes along.
+    const ids = (rows || []).filter((r) => norm(r[field]) === norm(from)).map((r) => r.id)
     const res = await supabase.from('purchases').update({ [field]: clean }).in('id', ids)
     setBusy(false)
-    if (!ok(res, 'renaming')) return
-    toast(`${ids.length} row${ids.length === 1 ? '' : 's'} updated to "${clean}"`)
-    setRenaming(null); setOpenItem(null); setOpenSupplier(null)
-    load()
+    if (!ok(res, 'renaming')) return false
+    toast(`${ids.length} row${ids.length === 1 ? '' : 's'} now "${clean}"`)
+    await load()
+    return true
   }
 
   async function saveAdd() {
@@ -174,8 +172,7 @@ export default function PurchasingPage() {
     const { data: { user } } = await supabase.auth.getUser()
     const res = await supabase.from('purchases').insert({
       purchase_date: add.purchase_date, supplier: add.supplier.trim(), product: add.product.trim(),
-      qty: Number(add.qty), net_total: Number(add.net_total) || 0, source: 'entered by hand',
-      created_by: user?.id || null,
+      qty: Number(add.qty), net_total: Number(add.net_total) || 0, source: 'entered by hand', created_by: user?.id || null,
     })
     setBusy(false)
     if (!ok(res, 'saving the purchase')) return
@@ -188,9 +185,7 @@ export default function PurchasingPage() {
     load()
   }
 
-  if (!isAdmin) return (
-    <div className="card"><div className="empty">Purchasing is admin-only.</div></div>
-  )
+  if (!isAdmin) return <div className="card"><div className="empty">Purchasing is admin-only.</div></div>
   if (rows === null) return (
     <div className="card"><div className="skel skel-title" />{[0, 1, 2, 3].map((i) => <div key={i} className="skel skel-row" />)}</div>
   )
@@ -209,60 +204,59 @@ export default function PurchasingPage() {
           </div>
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          <button className="btn btn-g" onClick={() => setAdd(blankAdd)}>＋ Add a purchase</button>
+          <button className="btn btn-g" onClick={() => setAdd({ purchase_date: new Date().toISOString().slice(0, 10), supplier: '', product: '', qty: '', net_total: '' })}>＋ Add a purchase</button>
           <button className="btn btn-a" onClick={() => setTab('import')}>⬆ Import a month</button>
         </div>
       </div>
 
       <div className="sub-nav">
-        {[['catalogue', 'Catalogue'], ['suppliers', 'Suppliers'], ['import', 'Import']].map(([k, label]) => (
+        {[['catalogue', `Catalogue (${items.length})`], ['suppliers', `Suppliers (${suppliers.length})`],
+          ['tidy', `Tidy up${tidyCount ? ` (${tidyCount})` : ''}`], ['import', 'Import']].map(([k, label]) => (
           <a key={k} className={tab === k ? 'on' : ''} style={{ cursor: 'pointer' }} onClick={() => setTab(k)}>{label}</a>
         ))}
       </div>
 
-      {tab !== 'import' && (
+      {(tab === 'catalogue' || tab === 'suppliers') && (
         <div className="filters">
-          <input placeholder="Search product or supplier…" value={q} onChange={(e) => setQ(e.target.value)} />
+          <input placeholder="Search — spelling doesn't have to be perfect…" value={q} onChange={(e) => setQ(e.target.value)} />
+          {q && <span className="muted" style={{ fontSize: 12.5 }}>
+            {(tab === 'catalogue' ? shownItems : shownSuppliers).length} match{(tab === 'catalogue' ? shownItems : shownSuppliers).length === 1 ? '' : 'es'}
+          </span>}
         </div>
       )}
 
       {/* ── CATALOGUE ── */}
       {tab === 'catalogue' && (
         <div className="card">
-          {shownItems.length === 0 ? (
-            <div className="empty">Nothing yet — import a month of purchases to get started.</div>
-          ) : (
+          {items.length === 0 ? <div className="empty">Nothing yet — import a month of purchases to get started.</div>
+            : shownItems.length === 0 ? <div className="empty">Nothing matches “{q}”.</div> : (
             <table className="tbl tbl-cards">
               <thead><tr>
-                <th>Product</th>
-                <th>Last supplier</th>
+                <th>Product</th><th>Last supplier</th>
                 <th style={{ textAlign: 'right' }}>Latest unit price</th>
                 <th style={{ textAlign: 'right' }}>Change</th>
-                <th style={{ textAlign: 'right' }}>Times bought</th>
+                <th style={{ textAlign: 'right' }}>Bought</th>
                 <th style={{ textAlign: 'right' }}>Total spend</th>
               </tr></thead>
               <tbody>
-                {shownItems.map((it) => {
-                  const delta = it.prev ? (it.last - it.prev) / it.prev : null
-                  return (
-                    <tr key={it.key} style={{ cursor: 'pointer' }} onClick={() => setOpenItem(it.key)}>
-                      <td data-label="Product">
-                        <span style={{ fontWeight: 600, color: 'var(--heading)' }}>{it.name}</span>
-                      </td>
-                      <td data-label="Last supplier">{it.lastSupplier}</td>
-                      <td className="mono" style={{ textAlign: 'right' }} data-label="Latest unit price">{unitMoney(it.last)}</td>
-                      <td style={{ textAlign: 'right' }} data-label="Change">
-                        {delta === null ? <span className="muted">—</span> : (
-                          <span style={{ fontWeight: 700, fontSize: 12, color: delta > 0.0001 ? 'var(--bad)' : delta < -0.0001 ? 'var(--accent)' : 'var(--muted)' }}>
-                            {delta > 0.0001 ? '▲' : delta < -0.0001 ? '▼' : '='} {Math.abs(delta * 100).toFixed(1)}%
-                          </span>
-                        )}
-                      </td>
-                      <td className="mono" style={{ textAlign: 'right' }} data-label="Times bought">{it.count}</td>
-                      <td className="mono" style={{ textAlign: 'right' }} data-label="Total spend">{money(it.spend)}</td>
-                    </tr>
-                  )
-                })}
+                {shownItems.map((it) => (
+                  <tr key={it.key} style={{ cursor: 'pointer' }} onClick={() => setOpenItem(it.key)}>
+                    <td data-label="Product">
+                      <span style={{ fontWeight: 600, color: 'var(--heading)' }}>{it.name}</span>
+                      {it.variants.length > 1 && (
+                        <span title={it.variants.map((v) => v.name).join('\n')}
+                          style={{ marginLeft: 7, fontSize: 10, fontWeight: 700, color: 'var(--muted)', background: 'var(--chip-bg)', borderRadius: 5, padding: '2px 6px' }}>
+                          {it.variants.length} spellings
+                        </span>
+                      )}
+                    </td>
+                    <td data-label="Last supplier">{it.lastSupplier}</td>
+                    <td className="mono" style={{ textAlign: 'right' }} data-label="Latest unit price">{unitMoney(it.last)}</td>
+                    <td style={{ textAlign: 'right' }} data-label="Change"><Delta last={it.last} prev={it.prev} /></td>
+                    <td className="mono" style={{ textAlign: 'right' }} data-label="Bought">{it.count}</td>
+                    <td className="mono" style={{ textAlign: 'right' }} data-label="Total spend">{money(it.spend)}</td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           )}
@@ -272,7 +266,7 @@ export default function PurchasingPage() {
       {/* ── SUPPLIERS ── */}
       {tab === 'suppliers' && (
         <div className="card">
-          {shownSuppliers.length === 0 ? <div className="empty">No suppliers yet.</div> : (
+          {shownSuppliers.length === 0 ? <div className="empty">Nothing matches.</div> : (
             <table className="tbl tbl-cards">
               <thead><tr>
                 <th>Supplier</th>
@@ -284,7 +278,14 @@ export default function PurchasingPage() {
               <tbody>
                 {shownSuppliers.map((s) => (
                   <tr key={s.key} style={{ cursor: 'pointer' }} onClick={() => setOpenSupplier(s.key)}>
-                    <td data-label="Supplier"><span style={{ fontWeight: 600, color: 'var(--heading)' }}>{s.name}</span></td>
+                    <td data-label="Supplier">
+                      <span style={{ fontWeight: 600, color: 'var(--heading)' }}>{s.name}</span>
+                      {s.variants.length > 1 && (
+                        <span style={{ marginLeft: 7, fontSize: 10, fontWeight: 700, color: 'var(--muted)', background: 'var(--chip-bg)', borderRadius: 5, padding: '2px 6px' }}>
+                          {s.variants.length} spellings
+                        </span>
+                      )}
+                    </td>
                     <td className="mono" style={{ textAlign: 'right' }} data-label="Products">{s.products}</td>
                     <td className="mono" style={{ textAlign: 'right' }} data-label="Purchases">{s.count}</td>
                     <td className="mono" style={{ textAlign: 'right' }} data-label="Total spend">{money(s.spend)}</td>
@@ -297,6 +298,46 @@ export default function PurchasingPage() {
         </div>
       )}
 
+      {/* ── TIDY UP ── */}
+      {tab === 'tidy' && (
+        <div className="card">
+          <div className="ttl"><h2>Names that look like the same thing</h2></div>
+          <p className="hint" style={{ marginTop: 0 }}>
+            Spellings that differ only by punctuation or LTR/LITRE/L are already pooled automatically — these are the
+            ones that need a human eye. Merging keeps the whole price history together under one name.
+            <b> Different sizes and front/back labels are deliberately never suggested.</b>
+          </p>
+          {tidyCount === 0 ? <div className="empty">Nothing looks like a duplicate. 👍</div> : (
+            <>
+              {[['suppliers', 'supplier'], ['products', 'product']].map(([k, kind]) => tidy[k].length > 0 && (
+                <div key={k} style={{ marginBottom: 18 }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted)', marginBottom: 8 }}>
+                    {kind === 'supplier' ? 'Suppliers' : 'Products'} ({tidy[k].length})
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    {tidy[k].map((m, i) => (
+                      <div key={i} style={{ border: '1px solid var(--line)', borderRadius: 10, padding: '11px 13px', background: 'var(--panel)' }}>
+                        <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 6 }}>{m.why}</div>
+                        <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+                          <span style={{ fontWeight: 600, color: 'var(--heading)', fontSize: 13 }}>{m.a}</span>
+                          <span className="muted">↔</span>
+                          <span style={{ fontWeight: 600, color: 'var(--heading)', fontSize: 13 }}>{m.b}</span>
+                          <span style={{ flex: 1 }} />
+                          <button className="btn btn-g btn-sm" disabled={busy}
+                            onClick={() => applyRename(kind, m.b, m.a)}>Keep “{m.a}”</button>
+                          <button className="btn btn-g btn-sm" disabled={busy}
+                            onClick={() => applyRename(kind, m.a, m.b)}>Keep “{m.b}”</button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </>
+          )}
+        </div>
+      )}
+
       {/* ── IMPORT ── */}
       {tab === 'import' && (
         <div className="card">
@@ -304,10 +345,9 @@ export default function PurchasingPage() {
           {!preview ? (
             <>
               <p className="hint" style={{ marginTop: 0 }}>
-                Choose one of the monthly purchase spreadsheets. It reads the <b>DATE</b>, <b>SUPPLIER</b>, <b>QTY</b>,
-                <b> PRODUCT</b> and <b>NET PRICE</b> columns by their headings, ignores the title and totals rows, and
-                shows you everything before anything is saved. Importing the same month twice is safe — repeats are
-                spotted and skipped.
+                Choose one of the monthly purchase spreadsheets. Columns are found by their headings —
+                <b> DATE</b>, <b>SUPPLIER</b>, <b>QTY</b>, <b>PRODUCT</b>, <b>NET PRICE</b> — the title and totals rows
+                are ignored, and everything is shown before anything is saved. Importing the same month twice is safe.
               </p>
               <input ref={fileRef} type="file" accept=".xlsx,.xls" disabled={busy}
                 onChange={(e) => pickFile(e.target.files?.[0])}
@@ -332,7 +372,7 @@ export default function PurchasingPage() {
                       {preview.rows.map((r, i) => {
                         const dup = preview.dupes.has(JSON.stringify(r))
                         return (
-                          <tr key={i} style={dup ? { opacity: .45 } : undefined} title={dup ? 'Already on file — will be skipped' : ''}>
+                          <tr key={i} style={dup ? { opacity: .45 } : undefined}>
                             <td className="mono">{prettyDate(r.purchase_date)}</td>
                             <td>{r.supplier}</td>
                             <td>{r.product}{dup ? ' · already on file' : ''}</td>
@@ -350,9 +390,7 @@ export default function PurchasingPage() {
                     {busy ? 'Importing…' : `Import ${fresh.length} purchase${fresh.length === 1 ? '' : 's'}`}
                   </button>
                   {preview.dupes.size > 0 && (
-                    <button className="btn btn-g" disabled={busy} onClick={() => confirmImport(true)}>
-                      Import all {preview.rows.length}, including repeats
-                    </button>
+                    <button className="btn btn-g" disabled={busy} onClick={() => confirmImport(true)}>Import all {preview.rows.length}, including repeats</button>
                   )}
                   <button className="btn btn-g" disabled={busy} onClick={() => setPreview(null)}>Cancel</button>
                 </div>
@@ -362,69 +400,106 @@ export default function PurchasingPage() {
         </div>
       )}
 
-      {/* ── one product's price history ── */}
-      {item && (
-        <div className="modal-bg" onClick={() => setOpenItem(null)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 720, textAlign: 'left' }}>
-            <div className="ttl" style={{ marginBottom: 6 }}>
-              <h2 style={{ margin: 0 }}>{item.name}</h2>
-              <div style={{ display: 'flex', gap: 6 }}>
-                <button className="btn btn-g btn-sm" onClick={() => setRenaming({ kind: 'product', from: item.name, to: item.name })}>✎ Rename / merge</button>
-                <button className="btn btn-g btn-sm" onClick={() => setOpenItem(null)}>Close</button>
+      {/* ── PRODUCT ── */}
+      {item && (() => {
+        const points = [...item.buys].filter((b) => Number(b.qty) > 0).reverse()
+          .map((b) => ({ d: b.purchase_date, v: unitOf(b), supplier: b.supplier }))
+        // A 10× spread almost always means the quantity means something
+        // different on different rows, not that the price moved.
+        const suspect = item.min > 0 && item.max / item.min > 10
+        return (
+          <div className="modal-bg" onClick={() => setOpenItem(null)}>
+            <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 760, textAlign: 'left' }}>
+              <div className="ttl" style={{ marginBottom: 4 }}>
+                <h2 style={{ margin: 0 }}>{item.name}</h2>
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <button className="btn btn-g btn-sm" onClick={() => setRenaming({ kind: 'product', from: item.name, to: item.name })}>✎ Rename / merge</button>
+                  <button className="btn btn-g btn-sm" onClick={() => setOpenItem(null)}>Close</button>
+                </div>
               </div>
-            </div>
-            <p className="hint" style={{ marginTop: 0 }}>
-              Bought {item.count} time{item.count === 1 ? '' : 's'} from {item.suppliers.length} supplier{item.suppliers.length === 1 ? '' : 's'} ·
-              {' '}lowest {unitMoney(item.min)} · highest {unitMoney(item.max)} · {money(item.spend)} in total
-            </p>
-            <PriceChart buys={item.buys} />
-            <table className="tbl" style={{ minWidth: 0 }}>
-              <thead><tr><th>Date</th><th>Supplier</th><th style={{ textAlign: 'right' }}>Qty</th><th style={{ textAlign: 'right' }}>Net total</th><th style={{ textAlign: 'right' }}>Unit price</th><th></th></tr></thead>
-              <tbody>
-                {item.buys.map((r) => (
-                  <tr key={r.id}>
-                    <td className="mono">{prettyDate(r.purchase_date)}</td>
-                    <td>{r.supplier}</td>
-                    <td className="mono" style={{ textAlign: 'right' }}>{Number(r.qty)}</td>
-                    <td className="mono" style={{ textAlign: 'right' }}>{money(r.net_total)}</td>
-                    <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{r.qty ? unitMoney(r.net_total / r.qty) : '—'}</td>
-                    <td><button className="btn-dl" onClick={() => removeRow(r)} title="Delete this purchase">×</button></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            <p className="hint">
-              Unit price is the net total divided by the quantity. If a figure looks wrong, check the quantity on that
-              row — a price per pallet and a price per drum will not compare.
-            </p>
-          </div>
-        </div>
-      )}
+              {item.variants.length > 1 && (
+                <p className="hint" style={{ marginTop: 0 }}>
+                  Pooled from {item.variants.length} spellings: {item.variants.map((v) => `${v.name} (×${v.n})`).join(', ')}
+                </p>
+              )}
 
-      {/* ── one supplier ── */}
+              <div className="stat-row">
+                <Stat label="Latest unit price" value={unitMoney(item.last)} sub={`${prettyDate(item.lastDate)} · ${item.lastSupplier}`} big />
+                <Stat label="Change" node={<Delta last={item.last} prev={item.prev} big />} sub={item.prev ? `from ${unitMoney(item.prev)}` : 'first purchase'} />
+                <Stat label="Lowest" value={unitMoney(item.min)} sub={`average ${unitMoney(item.avg)}`} />
+                <Stat label="Highest" value={unitMoney(item.max)} sub={`${item.count} purchase${item.count === 1 ? '' : 's'}`} />
+                <Stat label="Total spend" value={money(item.spend)} sub={`${item.supplierRows.length} supplier${item.supplierRows.length === 1 ? '' : 's'}`} />
+              </div>
+
+              {suspect && (
+                <p className="hint" style={{ background: '#FCF4E2', border: '1px solid var(--warn, #B07E28)', borderRadius: 8, padding: '9px 12px', color: '#7A5511', fontWeight: 600 }}>
+                  ⚠ These unit prices range from {unitMoney(item.min)} to {unitMoney(item.max)}. That is usually the
+                  quantity meaning different things on different rows — per drum on one, per kg on another — rather than
+                  a real price change. Check the Qty column below.
+                </p>
+              )}
+
+              {points.length > 1 && (
+                <>
+                  <div className="chart-title">Unit price for each purchase</div>
+                  <PriceChart points={points} fmt={unitMoney} />
+                </>
+              )}
+
+              {item.supplierRows.length > 1 && (
+                <>
+                  <div className="chart-title">Average unit price by supplier</div>
+                  <SupplierBars rows={item.supplierRows} fmt={unitMoney} />
+                </>
+              )}
+
+              <div className="chart-title">Every purchase</div>
+              <table className="tbl" style={{ minWidth: 0 }}>
+                <thead><tr><th>Date</th><th>Supplier</th><th style={{ textAlign: 'right' }}>Qty</th><th style={{ textAlign: 'right' }}>Net total</th><th style={{ textAlign: 'right' }}>Unit price</th><th></th></tr></thead>
+                <tbody>
+                  {item.buys.map((r) => (
+                    <tr key={r.id}>
+                      <td className="mono">{prettyDate(r.purchase_date)}</td>
+                      <td>{r.supplier}</td>
+                      <td className="mono" style={{ textAlign: 'right' }}>{Number(r.qty)}</td>
+                      <td className="mono" style={{ textAlign: 'right' }}>{money(r.net_total)}</td>
+                      <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{r.qty ? unitMoney(unitOf(r)) : '—'}</td>
+                      <td><button className="btn-dl" onClick={() => removeRow(r)} title="Delete this purchase">×</button></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )
+      })()}
+
+      {/* ── SUPPLIER ── */}
       {sup && (
         <div className="modal-bg" onClick={() => setOpenSupplier(null)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 720, textAlign: 'left' }}>
-            <div className="ttl" style={{ marginBottom: 6 }}>
+          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 760, textAlign: 'left' }}>
+            <div className="ttl" style={{ marginBottom: 4 }}>
               <h2 style={{ margin: 0 }}>{sup.name}</h2>
               <div style={{ display: 'flex', gap: 6 }}>
                 <button className="btn btn-g btn-sm" onClick={() => setRenaming({ kind: 'supplier', from: sup.name, to: sup.name })}>✎ Rename / merge</button>
                 <button className="btn btn-g btn-sm" onClick={() => setOpenSupplier(null)}>Close</button>
               </div>
             </div>
-            <p className="hint" style={{ marginTop: 0 }}>
-              {sup.count} purchase{sup.count === 1 ? '' : 's'} · {sup.products} product{sup.products === 1 ? '' : 's'} · {money(sup.spend)} in total
-            </p>
+            <div className="stat-row">
+              <Stat label="Total spend" value={money(sup.spend)} sub={`${sup.count} purchase${sup.count === 1 ? '' : 's'}`} big />
+              <Stat label="Products" value={String(sup.products)} sub="different lines" />
+              <Stat label="Last purchase" value={prettyDate(sup.lastDate)} />
+            </div>
             <table className="tbl" style={{ minWidth: 0 }}>
               <thead><tr><th>Date</th><th>Product</th><th style={{ textAlign: 'right' }}>Qty</th><th style={{ textAlign: 'right' }}>Net total</th><th style={{ textAlign: 'right' }}>Unit price</th></tr></thead>
               <tbody>
-                {[...sup.buys].sort((a, b) => (a.purchase_date < b.purchase_date ? 1 : -1)).map((r) => (
-                  <tr key={r.id} style={{ cursor: 'pointer' }} onClick={() => { setOpenSupplier(null); setOpenItem(KEY(r.product)) }}>
+                {[...sup.rows].sort((a, b) => (a.purchase_date < b.purchase_date ? 1 : -1)).map((r) => (
+                  <tr key={r.id} style={{ cursor: 'pointer' }} onClick={() => { setOpenSupplier(null); setOpenItem(normProduct(r.product)) }}>
                     <td className="mono">{prettyDate(r.purchase_date)}</td>
                     <td>{r.product}</td>
                     <td className="mono" style={{ textAlign: 'right' }}>{Number(r.qty)}</td>
                     <td className="mono" style={{ textAlign: 'right' }}>{money(r.net_total)}</td>
-                    <td className="mono" style={{ textAlign: 'right' }}>{r.qty ? unitMoney(r.net_total / r.qty) : '—'}</td>
+                    <td className="mono" style={{ textAlign: 'right' }}>{r.qty ? unitMoney(unitOf(r)) : '—'}</td>
                   </tr>
                 ))}
               </tbody>
@@ -433,34 +508,36 @@ export default function PurchasingPage() {
         </div>
       )}
 
-      {/* ── rename / merge ── */}
+      {/* ── RENAME ── */}
       {renaming && (
         <div className="modal-bg" onClick={() => !busy && setRenaming(null)}>
           <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 460, textAlign: 'left' }}>
             <h2 style={{ marginBottom: 6 }}>Rename this {renaming.kind}</h2>
             <p className="hint" style={{ marginTop: 0, marginBottom: 14 }}>
               Every purchase recorded as <b>{renaming.from}</b> is renamed. Type the name of an existing{' '}
-              {renaming.kind} to <b>merge</b> the two together — useful where the same one has been spelled two ways.
+              {renaming.kind} to <b>merge</b> the two together.
             </p>
             <div className="field">
               <label>Name to use</label>
-              <input value={renaming.to} autoFocus
+              <input value={renaming.to} autoFocus list="pur-names"
                 onChange={(e) => setRenaming((r) => ({ ...r, to: e.target.value }))}
-                onKeyDown={(e) => e.key === 'Enter' && doRename()}
-                list="pur-names" />
+                onKeyDown={(e) => e.key === 'Enter' && applyRename(renaming.kind, renaming.from, renaming.to).then((v) => v && (setRenaming(null), setOpenItem(null), setOpenSupplier(null)))} />
               <datalist id="pur-names">
                 {(renaming.kind === 'supplier' ? suppliers : items).map((x) => <option key={x.key} value={x.name} />)}
               </datalist>
             </div>
             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 14 }}>
               <button className="btn btn-g" disabled={busy} onClick={() => setRenaming(null)}>Cancel</button>
-              <button className="btn btn-a" disabled={busy} onClick={doRename}>{busy ? 'Saving…' : 'Rename'}</button>
+              <button className="btn btn-a" disabled={busy}
+                onClick={() => applyRename(renaming.kind, renaming.from, renaming.to).then((v) => v && (setRenaming(null), setOpenItem(null), setOpenSupplier(null)))}>
+                {busy ? 'Saving…' : 'Rename'}
+              </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* ── add one by hand ── */}
+      {/* ── ADD ── */}
       {add && (
         <div className="modal-bg" onClick={() => !busy && setAdd(null)}>
           <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 480, textAlign: 'left' }}>
@@ -468,31 +545,22 @@ export default function PurchasingPage() {
             <p className="hint" style={{ marginTop: 0, marginBottom: 14 }}>For anything bought outside the monthly sheet.</p>
             <div className="row c2" style={{ marginBottom: 0 }}>
               <div className="field"><label>Date</label>
-                <input className="mono" type="date" value={add.purchase_date}
-                  onChange={(e) => setAdd((a) => ({ ...a, purchase_date: e.target.value }))} /></div>
+                <input className="mono" type="date" value={add.purchase_date} onChange={(e) => setAdd((a) => ({ ...a, purchase_date: e.target.value }))} /></div>
               <div className="field"><label>Supplier</label>
-                <input value={add.supplier} list="pur-sups"
-                  onChange={(e) => setAdd((a) => ({ ...a, supplier: e.target.value }))} />
-                <datalist id="pur-sups">{suppliers.map((s) => <option key={s.key} value={s.name} />)}</datalist>
-              </div>
+                <input value={add.supplier} list="pur-sups" onChange={(e) => setAdd((a) => ({ ...a, supplier: e.target.value }))} />
+                <datalist id="pur-sups">{suppliers.map((s) => <option key={s.key} value={s.name} />)}</datalist></div>
             </div>
             <div className="field"><label>Product</label>
-              <input value={add.product} list="pur-prods"
-                onChange={(e) => setAdd((a) => ({ ...a, product: e.target.value }))} />
-              <datalist id="pur-prods">{items.map((i) => <option key={i.key} value={i.name} />)}</datalist>
-            </div>
+              <input value={add.product} list="pur-prods" onChange={(e) => setAdd((a) => ({ ...a, product: e.target.value }))} />
+              <datalist id="pur-prods">{items.map((i) => <option key={i.key} value={i.name} />)}</datalist></div>
             <div className="row c2" style={{ marginBottom: 0 }}>
               <div className="field"><label>Quantity</label>
-                <input className="mono" type="number" min="0" step="any" value={add.qty}
-                  onChange={(e) => setAdd((a) => ({ ...a, qty: e.target.value }))} /></div>
+                <input className="mono" type="number" min="0" step="any" value={add.qty} onChange={(e) => setAdd((a) => ({ ...a, qty: e.target.value }))} /></div>
               <div className="field"><label>Net total (£)</label>
-                <input className="mono" type="number" min="0" step="0.01" value={add.net_total}
-                  onChange={(e) => setAdd((a) => ({ ...a, net_total: e.target.value }))} /></div>
+                <input className="mono" type="number" min="0" step="0.01" value={add.net_total} onChange={(e) => setAdd((a) => ({ ...a, net_total: e.target.value }))} /></div>
             </div>
             {Number(add.qty) > 0 && Number(add.net_total) > 0 && (
-              <p className="hint" style={{ marginTop: 0 }}>
-                = <b>{unitMoney(Number(add.net_total) / Number(add.qty))}</b> per unit
-              </p>
+              <p className="hint" style={{ marginTop: 0 }}>= <b>{unitMoney(Number(add.net_total) / Number(add.qty))}</b> per unit</p>
             )}
             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 14 }}>
               <button className="btn btn-g" disabled={busy} onClick={() => setAdd(null)}>Cancel</button>
@@ -505,39 +573,26 @@ export default function PurchasingPage() {
   )
 }
 
-// Unit price over time. Inline SVG — a line with a point per purchase, so a
-// creeping price is visible at a glance rather than read out of the table.
-function PriceChart({ buys }) {
-  const pts = [...buys]
-    .filter((b) => Number(b.qty) > 0)
-    .map((b) => ({ d: b.purchase_date, v: Number(b.net_total) / Number(b.qty) }))
-    .sort((a, b) => (a.d < b.d ? -1 : 1))
-  if (pts.length < 2) return null
-
-  const W = 640, H = 120, P = 26
-  const vals = pts.map((p) => p.v)
-  const lo = Math.min(...vals), hi = Math.max(...vals)
-  const span = hi - lo || hi || 1
-  const x = (i) => P + (i * (W - 2 * P)) / (pts.length - 1)
-  const y = (v) => H - P - ((v - lo) / span) * (H - 2 * P)
-  const path = pts.map((p, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(p.v).toFixed(1)}`).join(' ')
-  const up = pts[pts.length - 1].v > pts[0].v
-  const stroke = up ? 'var(--bad, #C24E42)' : 'var(--accent)'
-
+// Price movement. Status colours, so it always ships with an arrow and a number
+// — never colour on its own, which red/green can't carry for everyone.
+function Delta({ last, prev, big }) {
+  if (!prev) return <span className="muted">—</span>
+  const d = (last - prev) / prev
+  const flat = Math.abs(d) < 0.0001
+  const colour = flat ? 'var(--muted)' : d > 0 ? 'var(--bad, #C24E42)' : 'var(--accent)'
   return (
-    <div style={{ overflowX: 'auto', margin: '4px 0 14px' }}>
-      <svg viewBox={`0 0 ${W} ${H}`} width="100%" height={H} role="img" aria-label="Unit price over time">
-        <line x1={P} y1={H - P} x2={W - P} y2={H - P} stroke="var(--line)" strokeWidth="1" />
-        <path d={path} fill="none" stroke={stroke} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
-        {pts.map((p, i) => (
-          <g key={i}>
-            <circle cx={x(i)} cy={y(p.v)} r="3.5" fill={stroke} />
-            <title>{`${prettyDate(p.d)} — ${unitMoney(p.v)}`}</title>
-          </g>
-        ))}
-        <text x={P} y={14} fontSize="10" fill="var(--muted)">{unitMoney(hi)}</text>
-        <text x={P} y={H - 6} fontSize="10" fill="var(--muted)">{unitMoney(lo)}</text>
-      </svg>
+    <span style={{ fontWeight: 700, fontSize: big ? 21 : 12, color: colour, whiteSpace: 'nowrap' }}>
+      {flat ? '=' : d > 0 ? '▲' : '▼'} {Math.abs(d * 100).toFixed(1)}%
+    </span>
+  )
+}
+
+function Stat({ label, value, node, sub, big }) {
+  return (
+    <div className="stat-tile">
+      <div className="stat-label">{label}</div>
+      <div className="stat-value" style={big ? { fontSize: 21 } : undefined}>{node || value}</div>
+      {sub && <div className="stat-sub">{sub}</div>}
     </div>
   )
 }
