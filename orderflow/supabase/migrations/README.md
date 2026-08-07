@@ -25,3 +25,4 @@ a new numbered file appears here — run just that one.
 | 013_proforma_links.sql | short public /p/<token> links for proformas (needs SUPABASE_SERVICE_ROLE_KEY env var) |
 | 014_unified_addresses.sql | single `addresses` list per customer (merges invoice + delivery) |
 | 015_messages.sql | staff-to-staff messages for the floating chat panel (private to the two people in each conversation) |
+| 016_purchases.sql | raw material & packaging purchases for the admin Purchasing page (admin-only RLS) |

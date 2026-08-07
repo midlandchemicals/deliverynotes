@@ -50,6 +50,7 @@ const CATALOGUE_LINKS = [
   ['/settings/products', 'Products', 'box'],
   ['/settings/packaging', 'Packaging', 'package'],
   ['/settings/customers', 'Customers', 'users'],
+  ['/settings/purchasing', 'Purchasing', 'box', true],
   ['/settings/prices', 'Price Entry', 'pound', true],
   ['/settings/pricelist', 'Price List', 'pound', true],
   ['/settings/dashboard', 'Insights', 'dashboard', true],
