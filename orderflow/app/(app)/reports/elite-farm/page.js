@@ -19,6 +19,7 @@ export default function EliteFarmPage() {
   const isAdmin = useIsAdmin()
   const [notes, setNotes] = useState(null)
   const [loadError, setLoadError] = useState('')
+  const [orphaned, setOrphaned] = useState(0)
   const [customers, setCustomers] = useState([])
   const [letterheads, setLetterheads] = useState([])
   const [current, setCurrent] = useState('')
@@ -37,6 +38,7 @@ export default function EliteFarmPage() {
       ])
       if (n.error) { setLoadError(n.error); toastError('Could not load delivery notes'); setNotes([]); return }
       setNotes(n.notes)
+      setOrphaned(n.orphaned || 0)
       setCustomers(c.data || [])
       setLetterheads(lh.data || [])
     })()
@@ -66,7 +68,8 @@ export default function EliteFarmPage() {
   const rateFor = (k) => rates[k] || null
   const chosen = useMemo(() => {
     const keys = [current, ...extra].filter(Boolean)
-    return months.filter((m) => keys.includes(m.key))
+    // Oldest first: a multi-month report reads forwards through the year.
+    return months.filter((m) => keys.includes(m.key)).slice().sort((a, b) => (a.key < b.key ? -1 : 1))
   }, [months, current, extra])
   const missingRate = chosen.filter((m) => !rateFor(m.key))
   const month = months.find((m) => m.key === current)
@@ -112,7 +115,7 @@ export default function EliteFarmPage() {
     <div>
       <div className="page-head">
         <div>
-          <h1>{GROUP} commission</h1>
+          <h1>{GROUP} Commission</h1>
           <div className="sub">
             Commission payable on delivery notes to {GROUP} customers · {groupNotes.length} note{groupNotes.length === 1 ? '' : 's'} on file
           </div>
@@ -134,6 +137,12 @@ export default function EliteFarmPage() {
         <p className="hint" style={{ background: '#FBEEEC', border: '1px solid var(--bad, #C24E42)', borderRadius: 8, padding: '10px 12px', color: '#8A2B22', fontWeight: 600 }}>
           ⚠ The delivery notes could not be loaded. The database said:<br />
           <span className="mono" style={{ fontWeight: 400 }}>{loadError}</span>
+        </p>
+      )}
+
+      {orphaned > 0 && (
+        <p className="hint">
+          {orphaned} delivery note{orphaned === 1 ? '' : 's'} left over from deleted orders {orphaned === 1 ? 'was' : 'were'} skipped.
         </p>
       )}
 

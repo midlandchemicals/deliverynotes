@@ -1034,12 +1034,13 @@ function reportFoot(doc, lh, W, M) {
 
 // Commission statement — one section per month, then a grand total.
 // months = [{ label, rate, rows:[{date,docNo,poRef,customer,net}], net, commission }]
+// months arrive oldest-first so the statement reads forwards.
 export function generateCommissionPDF(months, lh, groupName = 'Elite Farm') {
   const doc = new jsPDF({ unit: 'mm', format: 'a4' })
   FONT = registerFonts(doc)
   const W = 210, M = 14
   const [r, g, b] = hexToRgb(lh.color)
-  const span = months.length === 1 ? months[0].label : `${months[months.length - 1].label} – ${months[0].label}`
+  const span = months.length === 1 ? months[0].label : `${months[0].label} – ${months[months.length - 1].label}`
   let y = reportHead(doc, lh, W, M, 'COMMISSION STATEMENT', `${groupName} · ${span}`)
 
   months.forEach((m) => {
@@ -1098,7 +1099,7 @@ export function generateSalesReportPDF(months, lh, title = 'SALES REPORT') {
   FONT = registerFonts(doc)
   const W = 297, M = 12
   const [r, g, b] = hexToRgb(lh.color)
-  const span = months.length === 1 ? months[0].label : `${months[months.length - 1].label} – ${months[0].label}`
+  const span = months.length === 1 ? months[0].label : `${months[0].label} – ${months[months.length - 1].label}`
   let y = reportHead(doc, lh, W, M, title, span)
 
   months.forEach((m) => {

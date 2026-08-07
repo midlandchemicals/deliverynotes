@@ -18,6 +18,7 @@ export default function IlexSalesPage() {
   const isAdmin = useIsAdmin()
   const [notes, setNotes] = useState(null)
   const [loadError, setLoadError] = useState('')
+  const [orphaned, setOrphaned] = useState(0)
   const [letterheads, setLetterheads] = useState([])
   const [current, setCurrent] = useState('')
   const [extra, setExtra] = useState(new Set())
@@ -36,6 +37,7 @@ export default function IlexSalesPage() {
       ])
       if (n.error) { setLoadError(n.error); toastError('Could not load delivery notes'); setNotes([]); return }
       setNotes(n.notes)
+      setOrphaned(n.orphaned || 0)
       setLetterheads(lh.data || [])
     })()
   }, [])
@@ -62,7 +64,8 @@ export default function IlexSalesPage() {
   const month = months.find((m) => m.key === current)
   const chosen = useMemo(() => {
     const keys = [current, ...extra].filter(Boolean)
-    return months.filter((m) => keys.includes(m.key))
+    // Oldest first: a multi-month report reads forwards through the year.
+    return months.filter((m) => keys.includes(m.key)).slice().sort((a, b) => (a.key < b.key ? -1 : 1))
   }, [months, current, extra])
 
 
@@ -94,7 +97,7 @@ export default function IlexSalesPage() {
     <div>
       <div className="page-head">
         <div>
-          <h1>Ilex sales report</h1>
+          <h1>Ilex Sales Reports</h1>
           <div className="sub">
             Newest first · {inScope.length} delivery note{inScope.length === 1 ? '' : 's'} included, of {(notes || []).length} on file
           </div>
@@ -138,6 +141,12 @@ export default function IlexSalesPage() {
         <p className="hint" style={{ background: '#FBEEEC', border: '1px solid var(--bad, #C24E42)', borderRadius: 8, padding: '10px 12px', color: '#8A2B22', fontWeight: 600 }}>
           ⚠ The delivery notes could not be loaded. The database said:<br />
           <span className="mono" style={{ fontWeight: 400 }}>{loadError}</span>
+        </p>
+      )}
+
+      {orphaned > 0 && (
+        <p className="hint">
+          {orphaned} delivery note{orphaned === 1 ? '' : 's'} left over from deleted orders {orphaned === 1 ? 'was' : 'were'} skipped.
         </p>
       )}
 
