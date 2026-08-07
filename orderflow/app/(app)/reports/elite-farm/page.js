@@ -2,10 +2,10 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import { prettyDate } from '@/lib/calc'
+import { prettyDate, fmt } from '@/lib/calc'
 import { ok, toast, toastError } from '@/lib/notify'
 import { useIsAdmin } from '@/app/(app)/PricingGuard'
-import { byMonth, noteNet, customerNameOf, loadReportNotes } from '@/lib/reports'
+import { byMonth, noteNet, noteLines, customerNameOf, loadReportNotes } from '@/lib/reports'
 import { generateCommissionPDF } from '@/lib/pdf'
 import MonthPicker from '../MonthPicker'
 
@@ -25,7 +25,7 @@ export default function EliteFarmPage() {
   const [letterheads, setLetterheads] = useState([])
   const [current, setCurrent] = useState('')
   const [extra, setExtra] = useState(new Set())
-  const [rates, setRates] = useState({})        // monthKey -> 10 | 15
+  const [rates, setRates] = useState({})        // delivery-note id -> 10 | 15
   const [showPicker, setShowPicker] = useState(false)
   const [busy, setBusy] = useState(false)
 
@@ -67,13 +67,17 @@ export default function EliteFarmPage() {
 
   useEffect(() => { if (!current && months.length) setCurrent(months[0].key) }, [months, current])
 
-  const rateFor = (k) => rates[k] || null
+  // The rate is agreed per order, so it lives on the delivery note.
+  const rateFor = (noteId) => rates[noteId] || null
+  const setRate = (noteId, r) => setRates((s) => ({ ...s, [noteId]: s[noteId] === r ? null : r }))
+  const monthCommission = (m) => m.notes.reduce((a, n) => a + (rateFor(n.id) ? (noteNet(n) * rateFor(n.id)) / 100 : 0), 0)
+  const monthUnrated = (m) => m.notes.filter((n) => !rateFor(n.id)).length
   const chosen = useMemo(() => {
     const keys = [current, ...extra].filter(Boolean)
     // Oldest first: a multi-month report reads forwards through the year.
     return months.filter((m) => keys.includes(m.key)).slice().sort((a, b) => (a.key < b.key ? -1 : 1))
   }, [months, current, extra])
-  const missingRate = chosen.filter((m) => !rateFor(m.key))
+  const missingRate = chosen.filter((m) => monthUnrated(m) > 0)
   const month = months.find((m) => m.key === current)
 
   async function setCommissionGroup(id, on) {
@@ -86,7 +90,7 @@ export default function EliteFarmPage() {
 
   async function generate() {
     if (!chosen.length) { toastError('Choose a month first'); return }
-    if (missingRate.length) { toastError(`Choose a rate for ${missingRate.map((m) => m.label).join(', ')}`); return }
+    if (missingRate.length) { toastError('Every delivery note needs a rate before the statement can be produced'); return }
     const head = letterheads.find((l) => `${l.name} ${l.company}`.toUpperCase().includes('ILEX')) || letterheads[0]
     if (!head) { toastError('No letterhead set up to print on'); return }
     // The logo is deliberately not in the list query — fetch it for this one.
@@ -95,13 +99,16 @@ export default function EliteFarmPage() {
     setBusy(false)
     const ilex = full || head
     const payload = chosen.map((m) => {
-      const rate = rateFor(m.key)
-      const rows = m.notes.map((n) => ({
-        date: n.doc_date, docNo: n.doc_no, poRef: n.totals?.po_ref || '',
-        customer: customerNameOf(n), net: noteNet(n),
-      }))
-      const net = rows.reduce((a, x) => a + x.net, 0)
-      return { label: m.label, rate, rows, net, commission: Math.round(net * rate) / 100 }
+      const rows = m.notes.flatMap((n) => {
+        const rate = rateFor(n.id)
+        return noteLines(n).map((l) => ({ ...l, rate, commission: (l.net * rate) / 100 }))
+      })
+      return {
+        label: m.label,
+        rows,
+        net: rows.reduce((a, x) => a + x.net, 0),
+        commission: rows.reduce((a, x) => a + x.commission, 0),
+      }
     })
     generateCommissionPDF(payload, ilex, GROUP)
     toast(`Statement for ${payload.length} month${payload.length === 1 ? '' : 's'} opened`)
@@ -111,7 +118,7 @@ export default function EliteFarmPage() {
   if (notes === null) return <div className="card"><div className="skel skel-title" />{[0, 1, 2].map((i) => <div key={i} className="skel skel-row" />)}</div>
 
   const grandNet = chosen.reduce((a, m) => a + m.net, 0)
-  const grandCom = chosen.reduce((a, m) => a + (rateFor(m.key) ? (m.net * rateFor(m.key)) / 100 : 0), 0)
+  const grandCom = chosen.reduce((a, m) => a + monthCommission(m), 0)
 
   return (
     <div>
@@ -155,50 +162,90 @@ export default function EliteFarmPage() {
         <div className="card">
           <div className="ttl">
             <h2>{month.label}</h2>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-              <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)' }}>Commission rate:</span>
-              {RATES.map((r) => (
-                <label key={r} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, textTransform: 'none', letterSpacing: 0, fontWeight: 600, fontSize: 13, cursor: 'pointer', margin: 0 }}>
-                  <input type="checkbox" checked={rateFor(current) === r}
-                    onChange={() => setRates((s) => ({ ...s, [current]: s[current] === r ? null : r }))}
-                    style={{ width: 'auto', height: 16, accentColor: 'var(--accent)' }} />
-                  {r}%
-                </label>
-              ))}
-            </div>
+            <span className="muted" style={{ fontSize: 12.5 }}>
+              {month.notes.length} delivery note{month.notes.length === 1 ? '' : 's'} · {money(month.net)}
+              {monthUnrated(month) > 0 && <> · <b style={{ color: 'var(--warn, #B07E28)' }}>{monthUnrated(month)} still need a rate</b></>}
+            </span>
           </div>
 
           {month.notes.length === 0 ? <div className="empty">No {GROUP} deliveries in {month.label}.</div> : (
             <>
-              <table className="tbl tbl-cards">
-                <thead><tr>
-                  <th>Date</th><th>Delivery note</th><th>Customer no.</th><th>Customer</th>
-                  <th style={{ textAlign: 'right' }}>Net value</th>
-                  <th style={{ textAlign: 'right' }}>Commission</th>
-                </tr></thead>
-                <tbody>
-                  {month.notes.map((n) => {
-                    const net = noteNet(n)
-                    const rate = rateFor(current)
-                    return (
-                      <tr key={n.id}>
-                        <td className="mono" data-label="Date">{prettyDate(n.doc_date)}</td>
-                        <td className="mono" data-label="Delivery note">{n.doc_no}</td>
-                        <td data-label="Customer no.">{n.totals?.po_ref || '—'}</td>
-                        <td data-label="Customer">{customerNameOf(n)}</td>
-                        <td className="mono" style={{ textAlign: 'right' }} data-label="Net value">{money(net)}</td>
-                        <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }} data-label="Commission">
-                          {rate ? money((net * rate) / 100) : <span className="muted">pick a rate</span>}
-                        </td>
-                      </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
+              {/* One block per delivery note: the rate is agreed per order, so it
+                  is set here rather than for the month as a whole. */}
+              {month.notes.map((n) => {
+                const net = noteNet(n)
+                const rate = rateFor(n.id)
+                const lines = noteLines(n)
+                return (
+                  <div key={n.id} style={{ border: `1px solid ${rate ? 'var(--line)' : 'var(--warn, #B07E28)'}`, borderRadius: 11, padding: '12px 14px', marginBottom: 10 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', alignItems: 'flex-start' }}>
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontWeight: 700, color: 'var(--heading)', fontSize: 14 }}>
+                          {n.doc_no} <span className="muted" style={{ fontWeight: 500, fontSize: 12.5 }}>· {prettyDate(n.doc_date)}</span>
+                        </div>
+                        <div style={{ fontSize: 12.5, marginTop: 2 }}>
+                          {customerNameOf(n)}
+                          {n.totals?.po_ref ? <span className="muted"> · customer no. {n.totals.po_ref}</span> : null}
+                        </div>
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                        <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)' }}>Rate:</span>
+                        {RATES.map((r) => (
+                          <label key={r} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, textTransform: 'none', letterSpacing: 0, fontWeight: 700, fontSize: 13, cursor: 'pointer', margin: 0 }}>
+                            <input type="checkbox" checked={rate === r} onChange={() => setRate(n.id, r)}
+                              style={{ width: 'auto', height: 16, accentColor: 'var(--accent)' }} />
+                            {r}%
+                          </label>
+                        ))}
+                        <span className="mono" style={{ fontSize: 13, fontWeight: 700 }}>
+                          {money(net)}
+                          {rate ? <span style={{ color: 'var(--accent)' }}> → {money((net * rate) / 100)}</span>
+                                : <span style={{ color: 'var(--warn, #B07E28)', fontFamily: 'var(--font-body)', fontSize: 11.5 }}> · pick a rate</span>}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="row c2" style={{ marginTop: 10, marginBottom: 6 }}>
+                      <div className="field" style={{ marginBottom: 0 }}>
+                        <label>Invoice to</label>
+                        <div style={{ fontSize: 12 }}>{lines[0]?.invoiceTo || '—'}</div>
+                      </div>
+                      <div className="field" style={{ marginBottom: 0 }}>
+                        <label>Delivery address</label>
+                        <div style={{ fontSize: 12 }}>{lines[0]?.deliverTo || '—'}</div>
+                      </div>
+                    </div>
+
+                    <table className="tbl tbl-cards" style={{ minWidth: 0 }}>
+                      <thead><tr>
+                        <th>Product</th>
+                        <th style={{ textAlign: 'right' }}>Volume</th>
+                        <th style={{ textAlign: 'right' }}>Qty</th>
+                        <th style={{ textAlign: 'right' }}>Net</th>
+                        <th style={{ textAlign: 'right' }}>Commission</th>
+                      </tr></thead>
+                      <tbody>
+                        {lines.map((l, i) => (
+                          <tr key={i}>
+                            <td data-label="Product">{l.product}</td>
+                            <td className="mono" style={{ textAlign: 'right' }} data-label="Volume">{l.unitVol ? `${fmt(l.unitVol)} L` : '—'}</td>
+                            <td className="mono" style={{ textAlign: 'right' }} data-label="Qty">{l.qty || '—'}</td>
+                            <td className="mono" style={{ textAlign: 'right' }} data-label="Net">{money(l.net)}</td>
+                            <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }} data-label="Commission">
+                              {rate ? money((l.net * rate) / 100) : '—'}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )
+              })}
+
               <div className="stat-row">
                 <Stat label={`${month.label} net sales`} value={money(month.net)} sub={`${month.notes.length} delivery note${month.notes.length === 1 ? '' : 's'}`} />
-                <Stat label="Rate" value={rateFor(current) ? `${rateFor(current)}%` : '—'} sub={rateFor(current) ? 'chosen' : 'tick 10% or 15%'} />
-                <Stat label="Commission this month" value={rateFor(current) ? money((month.net * rateFor(current)) / 100) : '—'} />
+                <Stat label="Rated" value={`${month.notes.length - monthUnrated(month)} of ${month.notes.length}`} sub={monthUnrated(month) > 0 ? 'set a rate on each note' : 'all notes rated'} />
+                <Stat label="Commission this month" value={monthUnrated(month) > 0 ? '—' : money(monthCommission(month))} />
               </div>
             </>
           )}
@@ -210,8 +257,10 @@ export default function EliteFarmPage() {
         <p className="hint" style={{ marginTop: 0 }}>
           {chosen.length === 0 ? 'Choose a month above.' : (
             <>Covering <b>{chosen.map((m) => m.label).join(', ')}</b> — net {money(grandNet)}
-              {missingRate.length === 0 ? <>, commission <b>{money(grandCom)}</b>.</> : <>. Still needs a rate for <b>{missingRate.map((m) => m.label).join(', ')}</b>.</>}
-              {' '}Prints on the Ilex letterhead.</>
+              {missingRate.length === 0
+                ? <>, commission <b>{money(grandCom)}</b>.</>
+                : <>. <b>{missingRate.reduce((a, m) => a + monthUnrated(m), 0)} delivery note(s) still need a rate</b> in {missingRate.map((m) => m.label).join(', ')}.</>}
+              {' '}Prints landscape on the Ilex letterhead.</>
           )}
         </p>
         <button className="btn btn-a" disabled={busy || !chosen.length || missingRate.length > 0} onClick={generate}>
