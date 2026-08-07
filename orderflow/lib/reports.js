@@ -162,18 +162,24 @@ export async function loadReportNotes(supabase, { limit = 3000 } = {}) {
   }
   const raw = res.data || []
 
-  // Deleting an order removes its notes, but notes deleted that way before the
-  // clean-up existed — or by any other route — are left pointing at an order
-  // that has gone. Those are not live sales and must not be reported, so a note
-  // only counts if its order is still there.
-  const ord = await supabase.from('orders').select('id, name:customer_snapshot->>name')
-  if (ord.error) {
-    // Can't verify — report everything rather than silently hiding sales.
-    return { notes: raw, orphaned: 0, error: null }
+  // A delivery note belongs to an order. The trial data proved the foreign key
+  // does not delete notes when their order goes — it blanks order_id instead —
+  // so a note with no order, or one pointing at an order that has gone, is a
+  // leftover and not a sale. Both are excluded.
+  //
+  // The order ids are looked up by id rather than by fetching every order,
+  // because a capped result set would wrongly condemn live notes as orphans.
+  const ids = [...new Set(raw.map((n) => n.order_id).filter(Boolean))]
+  const names = new Map()
+  for (let i = 0; i < ids.length; i += 200) {
+    const chunk = ids.slice(i, i + 200)
+    const ord = await supabase.from('orders').select('id, name:customer_snapshot->>name').in('id', chunk)
+    if (ord.error) return { notes: raw, orphaned: 0, duplicates: 0, error: null }  // can't verify — show everything
+    for (const o of ord.data || []) names.set(o.id, o.name || '')
   }
-  const names = new Map((ord.data || []).map((o) => [o.id, o.name || '']))
+
   const live = raw
-    .filter((n) => !n.order_id || names.has(n.order_id))
+    .filter((n) => n.order_id && names.has(n.order_id))
     .map((n) => ({ ...n, customerName: names.get(n.order_id) || '' }))
 
   // An order can hold several copies of its delivery note — regenerating one
@@ -182,13 +188,11 @@ export async function loadReportNotes(supabase, { limit = 3000 } = {}) {
   // regenerated copy takes a fresh dispatch date it also drops the sale into
   // the month it was reprinted in. One order, one sale: keep the latest copy.
   const byOrder = new Map()
-  const loose = []
   for (const n of live) {
-    if (!n.order_id) { loose.push(n); continue }
     const prev = byOrder.get(n.order_id)
     if (!prev || String(n.created_at || '') > String(prev.created_at || '')) byOrder.set(n.order_id, n)
   }
-  const notes = [...byOrder.values(), ...loose]
+  const notes = [...byOrder.values()]
   return {
     notes,
     orphaned: raw.length - live.length,
