@@ -1035,50 +1035,58 @@ function reportFoot(doc, lh, W, M) {
 // Commission statement — one section per month, then a grand total.
 // months = [{ label, rate, rows:[{date,docNo,poRef,customer,net}], net, commission }]
 // months arrive oldest-first so the statement reads forwards.
+// months = [{ label, rows:[{date,docNo,poRef,customer,invoiceTo,deliverTo,
+//             product,unitVol,qty,net,rate,commission}], net, commission }]
+// The rate belongs to the delivery note, so it is carried on every line of that
+// note; commission is charged line by line and adds up to the note's own.
 export function generateCommissionPDF(months, lh, groupName = 'Elite Farm') {
-  const doc = new jsPDF({ unit: 'mm', format: 'a4' })
+  const doc = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'landscape' })
   FONT = registerFonts(doc)
-  const W = 210, M = 14
+  const W = 297, M = 12
   const [r, g, b] = hexToRgb(lh.color)
   const span = months.length === 1 ? months[0].label : `${months[0].label} – ${months[months.length - 1].label}`
   let y = reportHead(doc, lh, W, M, 'COMMISSION STATEMENT', `${groupName} · ${span}`)
 
   months.forEach((m) => {
     doc.setFont(FONT, 'bold').setFontSize(10).setTextColor(20, 20, 20)
-    doc.text(`${m.label}`, M, y)
-    doc.setFont(FONT, 'normal').setFontSize(9).setTextColor(90, 90, 90)
-    doc.text(`commission at ${m.rate}%`, W - M, y, { align: 'right' })
+    doc.text(m.label, M, y)
     y += 2
-
     autoTable(doc, {
       startY: y + 1,
-      head: [['Date', 'Delivery note', 'Customer no.', 'Customer', 'Net value']],
-      body: m.rows.map((x) => [ukDate(x.date), x.docNo, x.poRef || '—', x.customer, fmtGBP(x.net)]),
+      head: [['Date', 'Del. note', 'Cust. no.', 'Customer', 'Invoice address', 'Delivery address',
+              'Product', 'Vol', 'Qty', 'Net', 'Rate', 'Commission']],
+      body: m.rows.map((x) => [
+        ukDate(x.date), x.docNo, x.poRef || '—', x.customer, x.invoiceTo, x.deliverTo, x.product,
+        x.unitVol ? `${fmt(x.unitVol)} L` : '—', String(x.qty || ''),
+        fmtGBP(x.net), `${x.rate}%`, fmtGBP(x.commission),
+      ]),
       foot: [[
-        { content: `${m.rows.length} delivery note${m.rows.length === 1 ? '' : 's'}`, colSpan: 4, styles: { halign: 'left' } },
-        fmtGBP(m.net),
+        { content: `${m.rows.length} line${m.rows.length === 1 ? '' : 's'} · ${m.label}`, colSpan: 9, styles: { halign: 'left' } },
+        fmtGBP(m.net), '', fmtGBP(m.commission),
       ]],
       theme: 'plain',
-      styles: { font: FONT, fontSize: 8, cellPadding: 2, textColor: [40, 40, 40] },
-      headStyles: { fillColor: [r, g, b], textColor: 255, fontSize: 7.5, fontStyle: 'bold' },
+      styles: { font: FONT, fontSize: 6.8, cellPadding: 1.5, textColor: [40, 40, 40], overflow: 'linebreak' },
+      headStyles: { fillColor: [r, g, b], textColor: 255, fontSize: 6.2, fontStyle: 'bold' },
       footStyles: { fontStyle: 'bold', fillColor: [246, 244, 238], textColor: [20, 20, 20] },
       columnStyles: {
-        0: { cellWidth: 22 }, 1: { cellWidth: 28 }, 2: { cellWidth: 30 },
-        4: { halign: 'right', cellWidth: 26 },
+        0: { cellWidth: 17 }, 1: { cellWidth: 18 }, 2: { cellWidth: 18 },
+        3: { cellWidth: 33 }, 4: { cellWidth: 42 }, 5: { cellWidth: 42 }, 6: { cellWidth: 36 },
+        7: { cellWidth: 14, halign: 'right' }, 8: { cellWidth: 9, halign: 'right' },
+        9: { cellWidth: 20, halign: 'right' }, 10: { cellWidth: 12, halign: 'right' },
+        11: { cellWidth: 22, halign: 'right' },
       },
       margin: { left: M, right: M },
     })
     y = doc.lastAutoTable.finalY + 4
-
     doc.setFont(FONT, 'bold').setFontSize(9).setTextColor(r, g, b)
-    doc.text(`Commission for ${m.label} @ ${m.rate}%: ${fmtGBP(m.commission)}`, W - M, y, { align: 'right' })
+    doc.text(`Commission for ${m.label}: ${fmtGBP(m.commission)}`, W - M, y, { align: 'right' })
     y += 9
-    if (y > 250) { doc.addPage(); y = 20 }
+    if (y > 170) { doc.addPage(); y = 20 }
   })
 
   const netTotal = months.reduce((a, m) => a + m.net, 0)
   const comTotal = months.reduce((a, m) => a + m.commission, 0)
-  if (y > 235) { doc.addPage(); y = 20 }
+  if (y > 160) { doc.addPage(); y = 20 }
   doc.setFillColor(r, g, b).rect(M, y, W - 2 * M, 0.8, 'F')
   y += 8
   doc.setFont(FONT, 'bold').setFontSize(11).setTextColor(20, 20, 20)

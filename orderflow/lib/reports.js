@@ -75,10 +75,12 @@ export function unitVolume(line) {
 // One row per product line, which is what both reports print.
 export function noteLines(note) {
   return (note.lines_snapshot || []).map((l) => ({
+    noteId: note.id,
     date: note.doc_date,
     docNo: note.doc_no,
     poRef: note.totals?.po_ref || '',
     customer: customerNameOf(note),
+    invoiceTo: compactOneLine(note.customer),
     deliverTo: compactOneLine(note.deliver),
     product: l.productName || '',
     pack: packName(l),
