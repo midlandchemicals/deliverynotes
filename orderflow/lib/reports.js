@@ -21,12 +21,32 @@ const SALES_LETTERHEADS = [
   { key: 'fielder', test: (s) => s.includes('FIELDER') },
 ]
 
-export function salesLetterheadOf(note) {
+// The letterhead a note was printed on. Reports pull the name and company out
+// of the snapshot as their own columns (lh_name / lh_company) so the query
+// never drags the embedded logo across — older notes hold a whole base64 image
+// in there, which is what made loading every note grind to a halt.
+export function letterheadName(note) {
   const lh = note?.letterhead_snapshot || {}
-  const s = `${lh.name || ''} ${lh.company || ''}`.toUpperCase()
+  return String(note?.lh_company || note?.lh_name || lh.company || lh.name || '').trim()
+}
+
+export function salesLetterheadOf(note) {
+  const s = `${note?.lh_name || ''} ${note?.lh_company || ''} ${note?.letterhead_snapshot?.name || ''} ${note?.letterhead_snapshot?.company || ''}`.toUpperCase()
   return SALES_LETTERHEADS.find((x) => x.test(s))?.key || null
 }
 export const isSalesLetterhead = (note) => salesLetterheadOf(note) !== null
+
+// Every distinct letterhead present in a set of notes, with counts — so the
+// report can show what it actually found instead of silently matching nothing.
+export function letterheadsPresent(notes) {
+  const map = new Map()
+  for (const n of notes) {
+    const name = letterheadName(n) || '(no letterhead)'
+    if (!map.has(name)) map.set(name, { name, count: 0, auto: isSalesLetterhead(n) })
+    map.get(name).count++
+  }
+  return [...map.values()].sort((a, b) => b.count - a.count)
+}
 
 // Quantity and pack size aren't stored as numbers on older notes, but packDesc
 // is written as "25 × 25 L Container", so both can be read back from it.

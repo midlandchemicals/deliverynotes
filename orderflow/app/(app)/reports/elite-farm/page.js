@@ -29,9 +29,14 @@ export default function EliteFarmPage() {
   useEffect(() => {
     (async () => {
       const [n, c, lh] = await Promise.all([
-        supabase.from('dispatch_notes').select('*').order('doc_date', { ascending: false }),
+        // Lean select: the letterhead name comes across as its own column so the
+        // embedded logo never does — that is what was timing this out.
+        supabase.from('dispatch_notes')
+          .select('id, doc_no, doc_date, customer, deliver, totals, lines_snapshot, lh_name:letterhead_snapshot->>name, lh_company:letterhead_snapshot->>company')
+          .order('doc_date', { ascending: false }),
         supabase.from('customers').select('id, name, commission_group').order('name'),
-        supabase.from('letterheads').select('*').order('name'),
+        // Logos are fetched for the one letterhead we print on, at that moment.
+        supabase.from('letterheads').select('id, name, company, color, address, footer').order('name'),
       ])
       if (n.error) { toastError('Could not load delivery notes: ' + n.error.message); setNotes([]); return }
       setNotes(n.data || [])
@@ -77,11 +82,16 @@ export default function EliteFarmPage() {
     setCustomers((cs) => cs.map((c) => (c.id === id ? { ...c, commission_group: on ? GROUP : '' } : c)))
   }
 
-  function generate() {
+  async function generate() {
     if (!chosen.length) { toastError('Choose a month first'); return }
     if (missingRate.length) { toastError(`Choose a rate for ${missingRate.map((m) => m.label).join(', ')}`); return }
-    const ilex = letterheads.find((l) => `${l.name} ${l.company}`.toUpperCase().includes('ILEX')) || letterheads[0]
-    if (!ilex) { toastError('No letterhead set up to print on'); return }
+    const head = letterheads.find((l) => `${l.name} ${l.company}`.toUpperCase().includes('ILEX')) || letterheads[0]
+    if (!head) { toastError('No letterhead set up to print on'); return }
+    // The logo is deliberately not in the list query — fetch it for this one.
+    setBusy(true)
+    const { data: full } = await supabase.from('letterheads').select('*').eq('id', head.id).single()
+    setBusy(false)
+    const ilex = full || head
     const payload = chosen.map((m) => {
       const rate = rateFor(m.key)
       const rows = m.notes.map((n) => ({
