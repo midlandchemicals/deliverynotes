@@ -3,7 +3,7 @@ import React, { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { splitContact, unifiedAddresses } from '@/lib/calc'
 import Combobox from '@/app/(app)/Combobox'
-import { ok, toastError } from '@/lib/notify'
+import { ok, toast, toastError } from '@/lib/notify'
 
 // Sort addresses alphabetically by their label (falling back to the first line
 // of the address). Blank entries sort to the end so an empty new card doesn't
@@ -183,6 +183,9 @@ export default function CustomersPage() {
   const [rows, setRows] = useState(null)
   const [letterheads, setLetterheads] = useState([])
   const [expandedTiersId, setExpandedTiersId] = useState(null)
+  // { id, name, addresses, prices, terms } while copying a customer
+  const [dup, setDup] = useState(null)
+  const [dupBusy, setDupBusy] = useState(false)
   const [tierRows, setTierRows] = useState({}) // { [customerId]: [{id, pallets_from, pallets_to, charge}] }
   const [q, setQ] = useState('')
   // Screenshot import
@@ -309,6 +312,74 @@ export default function CustomersPage() {
   async function remove(id) {
     if (!ok(await supabase.from('customers').delete().eq('id', id), 'deleting customer')) return
     setRows((r) => r.filter((x) => x.id !== id))
+  }
+
+  // Copy a customer under a new name. Built for the case where one group's
+  // depot list — Velcourt's hundred-odd sites — has to serve a second trading
+  // name: the addresses are the expensive part, everything else is optional.
+  async function duplicateCustomer() {
+    const src = rows.find((r) => r.id === dup.id)
+    const name = dup.name.trim()
+    if (!src) return
+    if (!name) { toastError('Give the new customer a name'); return }
+    if (rows.some((r) => (r.name || '').trim().toLowerCase() === name.toLowerCase())) {
+      toastError('A customer with that name already exists'); return
+    }
+    setDupBusy(true)
+
+    const addresses = dup.addresses ? unifiedAddresses(src) : []
+    const row = {
+      name,
+      // The address list is the whole point, so it's copied as one block —
+      // labels, per-address contacts, invoice default and all.
+      addresses,
+      invoice_addresses: addresses,
+      delivery_addresses: addresses,
+      details: dup.addresses ? (src.details || '') : '',
+      deliver: dup.addresses ? (src.deliver || '') : '',
+      contact_name: dup.addresses ? (src.contact_name || '') : '',
+      email: dup.addresses ? (src.email || '') : '',
+      phone: dup.addresses ? (src.phone || '') : '',
+      default_letterhead_id: src.default_letterhead_id || null,
+      // Charging setup is a separate decision from the address book.
+      label_price: dup.terms ? (src.label_price || 0) : 0,
+      default_delivery_charge: dup.terms ? (src.default_delivery_charge || 0) : 0,
+      free_delivery_above: dup.terms ? (src.free_delivery_above || 0) : 0,
+      delivery_per_pallet: dup.terms ? (src.delivery_per_pallet || 0) : 0,
+      three_tier_pricing: dup.terms ? !!src.three_tier_pricing : false,
+    }
+    const { data: created, error } = await supabase.from('customers').insert(row).select('*').single()
+    if (error || !created) { setDupBusy(false); toastError('Could not create the customer: ' + (error?.message || '')); return }
+
+    let priced = 0, tiers = 0
+    if (dup.prices) {
+      const { data: srcPrices } = await supabase.from('customer_product_prices').select('*').eq('customer_id', src.id)
+      const copy = (srcPrices || []).map(({ id, customer_id, created_at, updated_at, ...rest }) => ({
+        ...rest, customer_id: created.id, updated_at: new Date().toISOString(),
+      }))
+      if (copy.length) {
+        const res = await supabase.from('customer_product_prices').insert(copy)
+        if (res.error) toastError('Prices not copied: ' + res.error.message); else priced = copy.length
+      }
+    }
+    if (dup.terms) {
+      const { data: srcTiers } = await supabase.from('customer_delivery_tiers').select('*').eq('customer_id', src.id)
+      const copy = (srcTiers || []).map(({ id, customer_id, created_at, ...rest }) => ({ ...rest, customer_id: created.id }))
+      if (copy.length) {
+        const res = await supabase.from('customer_delivery_tiers').insert(copy)
+        if (res.error) toastError('Delivery bands not copied: ' + res.error.message); else tiers = copy.length
+      }
+    }
+
+    setDupBusy(false)
+    setRows((r) => [created, ...r].sort((a, b) => (a.name || '').localeCompare(b.name || '')))
+    setDup(null)
+    setQ(name)
+    setExpandedTiersId(created.id)
+    const bits = [`${addresses.length} address${addresses.length === 1 ? '' : 'es'}`]
+    if (priced) bits.push(`${priced} price${priced === 1 ? '' : 's'}`)
+    if (tiers) bits.push(`${tiers} delivery band${tiers === 1 ? '' : 's'}`)
+    toast(`${name} created with ${bits.join(', ')} — ${src.name} is untouched`)
   }
 
   async function toggleTiers(customerId) {
@@ -490,6 +561,11 @@ export default function CustomersPage() {
               <button className={'btn btn-sm ' + (open ? 'btn-a' : 'btn-g')} style={{ flexShrink: 0 }} onClick={() => toggleTiers(it.id)}>
                 {open ? 'Close' : 'Edit'}
               </button>
+              <button className="btn btn-g btn-sm" style={{ flexShrink: 0 }}
+                title={`Copy ${it.name}'s address book to a new customer`}
+                onClick={() => setDup({ id: it.id, name: `${it.name} (copy)`, addresses: true, prices: true, terms: true })}>
+                ⧉ Duplicate
+              </button>
               <button className="btn-dl" style={{ flexShrink: 0, width: 34, height: 30, fontSize: 14 }}
                 onClick={() => { if (confirm(`Delete customer “${it.name}”? This cannot be undone.`)) remove(it.id) }}
                 title="Delete customer">🗑</button>
@@ -605,6 +681,58 @@ export default function CustomersPage() {
           </div>
         )
       })}
+
+      {dup && (() => {
+        const src = rows.find((r) => r.id === dup.id)
+        const addrCount = src ? unifiedAddresses(src).length : 0
+        return (
+          <div className="modal-bg" onClick={() => !dupBusy && setDup(null)}>
+            <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 480, textAlign: 'left' }}>
+              <h2 style={{ marginBottom: 6 }}>Duplicate {src?.name}</h2>
+              <p className="hint" style={{ marginTop: 0, marginBottom: 14 }}>
+                Creates a <b>new, separate customer</b> with a copy of what you tick below.{' '}
+                <b>{src?.name} is not changed</b>, and the two are independent from then on — editing an address on one
+                does not touch the other.
+              </p>
+
+              <div className="field">
+                <label>New customer name</label>
+                <input value={dup.name} autoFocus
+                  onChange={(e) => setDup((d) => ({ ...d, name: e.target.value }))}
+                  onKeyDown={(e) => e.key === 'Enter' && duplicateCustomer()} />
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 9, marginTop: 4 }}>
+                {[
+                  ['addresses', `Address book — ${addrCount} address${addrCount === 1 ? '' : 'es'}`, 'Labels, per-address contacts and the invoice default'],
+                  ['prices', 'Price list', 'Every product and size priced for them, including tiers and seasonal prices'],
+                  ['terms', 'Delivery & label charges', 'Flat charge, free-delivery threshold, per-pallet rate, banded tiers, buyer levels'],
+                ].map(([k, label, sub]) => (
+                  <label key={k} style={{ display: 'flex', gap: 9, alignItems: 'flex-start', textTransform: 'none', letterSpacing: 0, fontWeight: 500, cursor: 'pointer', margin: 0 }}>
+                    <input type="checkbox" checked={dup[k]} onChange={(e) => setDup((d) => ({ ...d, [k]: e.target.checked }))}
+                      style={{ width: 'auto', height: 16, marginTop: 2, accentColor: 'var(--accent)' }} />
+                    <span>
+                      <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--heading)' }}>{label}</span>
+                      <span style={{ display: 'block', fontSize: 11.5, color: 'var(--muted)' }}>{sub}</span>
+                    </span>
+                  </label>
+                ))}
+              </div>
+
+              <p className="hint" style={{ marginBottom: 0 }}>
+                Nothing else comes across — past orders and delivery notes stay with {src?.name}.
+              </p>
+
+              <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 16 }}>
+                <button className="btn btn-g" disabled={dupBusy} onClick={() => setDup(null)}>Cancel</button>
+                <button className="btn btn-a" disabled={dupBusy} onClick={duplicateCustomer}>
+                  {dupBusy ? 'Copying…' : 'Create the copy'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
     </div>
   )
 }
