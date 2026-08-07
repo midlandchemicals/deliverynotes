@@ -80,14 +80,17 @@ export default function AddProductModal({ open, onClose, products, packaging, cu
     setExScope('all'); setExProduct(p.id); setExPack(''); setExQty(nQty || '1'); setStep('existing')
   }
 
-  // Copy EVERYTHING that describes the hazard from another product — UN number,
-  // packing group, class, subsidiary risk, tunnel code, transport category and
-  // the proper shipping name (which carries the "contains …" technical name).
+  // Copy everything that describes the substance from another product — SG, UN
+  // number, packing group, class, subsidiary risk, tunnel code, transport
+  // category and the proper shipping name (which carries the "contains …"
+  // technical name). Not the range: that names the company, not the chemical.
   function copyFrom(p) {
     if (!p) return
     setNSg(String(p.sg ?? ''))
     setNUn(p.un_number || '')
-    if (!nRange) setNRange(p.category || '')
+    // The range is deliberately NOT copied. It is the company this product is
+    // sold under, and a new product goes under its own company's name only —
+    // never the source's, and never the source's appended to it.
     setNPg(p.pg || '')
     setNClass(p.adr_class || '')
     setNSub(p.adr_subsidiary || '')
@@ -380,8 +383,9 @@ export default function AddProductModal({ open, onClose, products, packaging, cu
             <div className="row c2" style={{ marginBottom: 0 }}>
               <div className="field"><label>Product name</label>
                 <input value={nName} onChange={(e) => setNName(e.target.value)} placeholder="e.g. Marpol Spot Off" /></div>
-              <div className="field"><label>Range</label>
+              <div className="field"><label>Company / range</label>
                 <input value={nRange} onChange={(e) => setNRange(e.target.value)} placeholder="e.g. August Race" list="apm-ranges" />
+                <p className="hint" style={{ marginTop: 4, marginBottom: 0 }}>The company this is sold under — its name alone, not added to another.</p>
                 <datalist id="apm-ranges">{categories.map((c) => <option key={c} value={c} />)}</datalist>
               </div>
             </div>
@@ -394,7 +398,7 @@ export default function AddProductModal({ open, onClose, products, packaging, cu
                 placeholder="Search a similar product to copy from…"
               />
               <p className="hint" style={{ marginTop: 4, marginBottom: 0 }}>
-                💡 Copies the SG, UN number, packing group, class, tunnel code and the shipping name (e.g. “contains hydrochloric acid”). You can edit any of it below.
+                💡 Copies the SG, UN number, packing group, class, tunnel code and the shipping name (e.g. “contains hydrochloric acid”). You can edit any of it below. The company above is left for you to set — a copied product keeps its own company, not the one it was copied from.
               </p>
             </div>
 
