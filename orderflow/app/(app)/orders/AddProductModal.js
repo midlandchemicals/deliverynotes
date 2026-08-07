@@ -78,6 +78,7 @@ export default function AddProductModal({ open, onClose, products, packaging, cu
   // Jump from the "new" screen straight into adding a matched existing product.
   function useExistingInstead(p) {
     setExScope('all'); setExProduct(p.id); setExPack(''); setExQty(nQty || '1'); setStep('existing')
+    setExNewRange(customerName && norm(customerName) !== norm(p.category || '') ? customerName : '')
   }
 
   // Copy everything that describes the substance from another product — SG, UN
@@ -274,7 +275,17 @@ export default function AddProductModal({ open, onClose, products, packaging, cu
               <Combobox
                 options={exOptions.map((p) => ({ id: p.id, label: p.category ? `${p.name} (${p.category})` : p.name }))}
                 value={exProduct}
-                onSelect={(id) => { setExProduct(id); setExPack('') }}
+                onSelect={(id) => {
+                  setExProduct(id); setExPack('')
+                  // Bringing something in from another company's range means it
+                  // is being sold under THIS customer's name, so that is the
+                  // range it should be filed under. Their own range is left
+                  // alone — the product is already filed correctly there.
+                  const p = products.find((x) => x.id === id)
+                  const target = exScope === 'all' && customerName && norm(customerName) !== norm(p?.category || '')
+                    ? customerName : ''
+                  setExNewRange(target)
+                }}
                 placeholder={inRange ? `Search ${custLabel}'s products…` : 'Type the product name to search…'}
               />
               {inRange && (
@@ -320,7 +331,8 @@ export default function AddProductModal({ open, onClose, products, packaging, cu
                         ? <>Files <b>{src.name}</b> in the product list under <b>{exNewRange.trim()}</b>, carrying the same SG
                             and hazard details. The tile will show that company from now on, and{' '}
                             {src.category ? <>the existing <b>{src.category}</b> entry is left alone.</> : <>nothing else changes.</>}</>
-                        : <>Leave blank to keep it where it is. Type a different company to sell it under that name instead.</>}
+                        : <>Filled in with the company placing this order. Clear it to leave the product where it is, or type
+                            a different company to file it under that name instead.</>}
                     </p>
                   </div>
                 </div>
