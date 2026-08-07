@@ -19,6 +19,7 @@ export default function IlexSalesPage() {
   const [notes, setNotes] = useState(null)
   const [loadError, setLoadError] = useState('')
   const [orphaned, setOrphaned] = useState(0)
+  const [duplicates, setDuplicates] = useState(0)
   const [letterheads, setLetterheads] = useState([])
   const [current, setCurrent] = useState('')
   const [extra, setExtra] = useState(new Set())
@@ -38,6 +39,7 @@ export default function IlexSalesPage() {
       if (n.error) { setLoadError(n.error); toastError('Could not load delivery notes'); setNotes([]); return }
       setNotes(n.notes)
       setOrphaned(n.orphaned || 0)
+      setDuplicates(n.duplicates || 0)
       setLetterheads(lh.data || [])
     })()
   }, [])
@@ -144,9 +146,10 @@ export default function IlexSalesPage() {
         </p>
       )}
 
-      {orphaned > 0 && (
+      {(orphaned > 0 || duplicates > 0) && (
         <p className="hint">
-          {orphaned} delivery note{orphaned === 1 ? '' : 's'} left over from deleted orders {orphaned === 1 ? 'was' : 'were'} skipped.
+          {orphaned > 0 && <>{orphaned} note{orphaned === 1 ? '' : 's'} from deleted orders skipped. </>}
+          {duplicates > 0 && <>{duplicates} repeat cop{duplicates === 1 ? 'y' : 'ies'} of a delivery note ignored — each order is counted once, using its most recent copy.</>}
         </p>
       )}
 

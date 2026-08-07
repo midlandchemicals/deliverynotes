@@ -148,8 +148,8 @@ export function byMonth(notes) {
 // The name and company are pulled out as their own columns instead. If the
 // server rejects that JSON selector we fall back to the plain columns, so a
 // PostgREST version difference degrades rather than breaks.
-const LEAN = 'id, order_id, doc_no, doc_date, customer, deliver, totals, lines_snapshot, lh_name:letterhead_snapshot->>name, lh_company:letterhead_snapshot->>company'
-const PLAIN = 'id, order_id, doc_no, doc_date, customer, deliver, totals, lines_snapshot, letterhead_snapshot'
+const LEAN = 'id, order_id, created_at, doc_no, doc_date, customer, deliver, totals, lines_snapshot, lh_name:letterhead_snapshot->>name, lh_company:letterhead_snapshot->>company'
+const PLAIN = 'id, order_id, created_at, doc_no, doc_date, customer, deliver, totals, lines_snapshot, letterhead_snapshot'
 
 export async function loadReportNotes(supabase, { limit = 3000 } = {}) {
   let res = await supabase.from('dispatch_notes').select(LEAN)
@@ -172,8 +172,27 @@ export async function loadReportNotes(supabase, { limit = 3000 } = {}) {
     return { notes: raw, orphaned: 0, error: null }
   }
   const names = new Map((ord.data || []).map((o) => [o.id, o.name || '']))
-  const notes = raw
+  const live = raw
     .filter((n) => !n.order_id || names.has(n.order_id))
     .map((n) => ({ ...n, customerName: names.get(n.order_id) || '' }))
-  return { notes, orphaned: raw.length - notes.length, error: null }
+
+  // An order can hold several copies of its delivery note — regenerating one
+  // adds a row rather than replacing it, and each copy carries the full priced
+  // snapshot. Counting them all bills the same goods twice, and because a
+  // regenerated copy takes a fresh dispatch date it also drops the sale into
+  // the month it was reprinted in. One order, one sale: keep the latest copy.
+  const byOrder = new Map()
+  const loose = []
+  for (const n of live) {
+    if (!n.order_id) { loose.push(n); continue }
+    const prev = byOrder.get(n.order_id)
+    if (!prev || String(n.created_at || '') > String(prev.created_at || '')) byOrder.set(n.order_id, n)
+  }
+  const notes = [...byOrder.values(), ...loose]
+  return {
+    notes,
+    orphaned: raw.length - live.length,
+    duplicates: live.length - notes.length,
+    error: null,
+  }
 }
