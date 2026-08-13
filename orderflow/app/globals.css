@@ -644,3 +644,11 @@ body{background:var(--bg-grad)}
   padding:10px 12px;margin-bottom:8px}
 .addr-picker-label{font-size:11.5px;font-weight:700;color:var(--accent);margin-bottom:6px}
 .addr-picker-note{font-size:11px;color:var(--ink);margin-top:6px}
+
+/* Consignment dimensions on the delivery-note panel. */
+.dims-box{border:1px solid var(--line-solid);border-radius:10px;background:var(--panel-2);
+  padding:11px 13px;margin:4px 0 12px}
+@media(max-width:700px){
+  .dims-box .field{margin-bottom:0}
+  .dims-box > div > div{grid-template-columns:1fr 1fr !important}
+}

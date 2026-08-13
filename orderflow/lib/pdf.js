@@ -298,6 +298,17 @@ function renderDeliveryNote(doc, doc_, lh, products, packaging) {
     ty += 5 + noteLines.length * 4.5 + 3
   }
 
+  // Consignment dimensions, when the note is set to carry them.
+  const dimList = doc_.dimensions || []
+  if (dimList.length) {
+    ty += 3
+    doc.setFont(FONT, 'bold').setFontSize(8.5).setTextColor(90, 90, 90).text('DIMENSIONS', M, ty)
+    ty += 5
+    doc.setFont(FONT, 'normal').setFontSize(10).setTextColor(20, 20, 20)
+    dimList.forEach((t) => { doc.text(t, M, ty); ty += 5.4 })
+    ty += 2
+  }
+
   if (showHazard) {
     ty += 4
     const groups = hazardGroups(doc_.lines, products, packaging)
@@ -988,6 +999,16 @@ export async function reprintPDF(d) {
         doc.setFont(FONT, 'normal').setFontSize(9.5).setTextColor(40, 40, 40).text(noteLines, M, ty + 5)
         ty += 5 + noteLines.length * 4.5 + 3
       }
+      const dimList = d.totals?.dimensions || []
+      if (dimList.length) {
+        ty += 3
+        doc.setFont(FONT, 'bold').setFontSize(8.5).setTextColor(90, 90, 90).text('DIMENSIONS', M, ty)
+        ty += 5
+        doc.setFont(FONT, 'normal').setFontSize(10).setTextColor(20, 20, 20)
+        dimList.forEach((t) => { doc.text(t, M, ty); ty += 5.4 })
+        ty += 2
+      }
+
       if (showHazard) {
         ty += 4
         const groups = hazardGroupsFromSnap(d.lines_snapshot)
