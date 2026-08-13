@@ -138,6 +138,24 @@ export default function NewOrderPage() {
     setLines((ls) => ls.filter((l) => !(l.productId === productId && l.packagingId === packagingId)))
   }
 
+  // Take a product out of this customer's range for good. Deliberately NOT the
+  // same thing as taking it off the order — that is the green chip. This deletes
+  // their price for it, so the tile stops appearing on their orders.
+  async function removeFromRange(product) {
+    if (!customerId) return
+    const warn = `Remove ${product.name} from ${custName}'s range?\n\n`
+      + `This is NOT how you take it off this order — click the green chip for that.\n\n`
+      + `It deletes ${custName}'s price for ${product.name}, so it will stop appearing here on their future orders. `
+      + `The product itself stays in the product list and other customers are unaffected.`
+    if (!confirm(warn)) return
+    const res = await supabase.from('customer_product_prices').delete()
+      .eq('customer_id', customerId).eq('product_id', product.id)
+    if (!ok(res, 'removing it from their range')) return
+    setCustomerCatalog((cat) => cat.filter((row) => row.product.id !== product.id))
+    setAvailableByProduct((m) => { const n = { ...m }; delete n[product.id]; return n })
+    toast(`${product.name} removed from ${custName}'s range`)
+  }
+
   // ── "other size" on a quick-add card ──────────────────────────────────────
   // A size the customer has never been priced for. Admins are asked for the
   // price there and then; everyone else just adds it and it shows as unpriced,
@@ -535,7 +553,10 @@ export default function NewOrderPage() {
             <div className="card" style={{ marginBottom: 12 }}>
               <div className="ttl" style={{ marginBottom: 14 }}>
                 <h2 style={{ margin: 0 }}>Quick add</h2>
-                <span className="muted" style={{ fontSize: 12 }}>Click a size → enter qty → ✓ to add. Click a green chip to remove.</span>
+                <span className="muted" style={{ fontSize: 12 }}>
+                  Click a size → enter qty → ✓ to add. Click a green chip to take it off this order.
+                  {isAdmin && <> The 🗑 removes a product from {custName}&apos;s range for good — not from this order.</>}
+                </span>
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 14 }}>
                 {customerCatalog.map(({ product, options }) => {
@@ -548,8 +569,17 @@ export default function NewOrderPage() {
                       padding: '14px 16px',
                       transition: 'border-color 0.15s',
                     }}>
-                      <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 4, lineHeight: 1.3, color: 'var(--fg)' }}>
-                        {product.name}
+                      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+                        <div style={{ flex: 1, fontWeight: 700, fontSize: 14, marginBottom: 4, lineHeight: 1.3, color: 'var(--fg)' }}>
+                          {product.name}
+                        </div>
+                        {isAdmin && (
+                          <button
+                            onClick={() => removeFromRange(product)}
+                            title={`Remove from ${custName}'s range — not the same as taking it off this order`}
+                            style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--faint)', fontSize: 13, lineHeight: 1, padding: '0 2px', flexShrink: 0 }}
+                          >🗑</button>
+                        )}
                       </div>
                       {product.category && (
                         <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 10, textTransform: 'uppercase', letterSpacing: '.04em' }}>{product.category}</div>

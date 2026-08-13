@@ -75,7 +75,10 @@ function InlineCombo({ options, value, onChange }) {
 
 // onProductUpdated(product) — the parent refreshes its products list so the
 // weights and hazard text on the order redraw with the saved values.
-export default function LineEditor({ lines, setLines, products, packaging, availableByProduct, onProductUpdated }) {
+// onAddProduct() — when given, an add button sits under the table. Passed only
+// where the line table is the way products get added: editing an existing
+// order. Order entry has the quick-add grid above it and its own button.
+export default function LineEditor({ lines, setLines, products, packaging, availableByProduct, onProductUpdated, onAddProduct }) {
   const supabase = createClient()
   const [hazEdit, setHazEdit] = useState(null)   // product being edited
   const [sgDraft, setSgDraft] = useState({})     // productId -> typed SG, before it's committed
@@ -101,9 +104,6 @@ export default function LineEditor({ lines, setLines, products, packaging, avail
       if (lowest) patch.packagingId = lowest.id
     }
     setLines(lines.map((l, idx) => (idx === i ? { ...l, ...patch } : l)))
-  }
-  function add() {
-    setLines([...lines, { productId: products[0]?.id || null, packagingId: packaging[0]?.id || null, qty: '1' }])
   }
   function remove(i) {
     setLines(lines.filter((_, idx) => idx !== i))
@@ -243,7 +243,12 @@ export default function LineEditor({ lines, setLines, products, packaging, avail
           })}
         </tbody>
       </table>
-      <button type="button" className="addrow" onClick={add}>+ Add product</button>
+
+      {onAddProduct && (
+        <button type="button" className="btn add-line-btn" onClick={onAddProduct}>
+          ＋ Add a product to this order
+        </button>
+      )}
 
       {/* Confirm before an SG change is written to the catalogue. */}
       {sgPrompt && (

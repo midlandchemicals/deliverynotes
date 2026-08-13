@@ -918,7 +918,6 @@ export default function OrderDetailPage() {
               }}>✏️ Unlock editing</button>
             ) : (
               <>
-                <button className="btn btn-a btn-sm" onClick={() => setShowAdd(true)}>＋ Add a product</button>
                 <button className="btn btn-g btn-sm" onClick={saveLines}>Save products</button>
               </>
             )}
@@ -930,7 +929,9 @@ export default function OrderDetailPage() {
           </p>
         )}
         <div style={editLocked ? { pointerEvents: 'none', opacity: 0.6 } : undefined}>
-          <LineEditor lines={lines} setLines={setLines} products={products} packaging={packaging} availableByProduct={availableByProduct} onProductUpdated={applyProductUpdate} />
+          <LineEditor lines={lines} setLines={setLines} products={products} packaging={packaging}
+            availableByProduct={availableByProduct} onProductUpdated={applyProductUpdate}
+            onAddProduct={editLocked ? undefined : () => setShowAdd(true)} />
         </div>
         <p className="hint">Totals: {fmt(totals.volume)} L · net {fmt(totals.net)} kg · gross {fmt(totals.gross)} kg</p>
         {/* Repeated here so a long product list never means scrolling back up to save. */}
