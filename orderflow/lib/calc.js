@@ -130,7 +130,7 @@ export const VAT_LABEL = `VAT (${Math.round(VAT_RATE * 100)}%)`
 
 // Normalise a qty_tiers jsonb value into sorted, valid bands.
 // Bands may carry their own basis, but the normal case is one ladder measured
-// against the row's setting — which can be 'both'.
+// against the row's default, which any band may override.
 export function parseTiers(raw) {
   return (Array.isArray(raw) ? raw : [])
     .map((t) => ({
