@@ -146,8 +146,7 @@ export default function PricesPage() {
     const last = existing[existing.length - 1]
     const nextFrom = last ? ((last.to != null ? last.to : last.from) + 1) : 1
     const base = row?.price_per_litre || 0
-    // Inherit the row's old setting so an existing ladder keeps its meaning.
-    persistTiers(rowId, [...existing, { from: nextFrom, to: null, ppl: base, basis: row?.tier_basis || 'line' }])
+    persistTiers(rowId, [...existing, { from: nextFrom, to: null, ppl: base }])
   }
 
   // Update a tier locally (string-friendly); save happens on blur.
@@ -481,15 +480,22 @@ export default function PricesPage() {
                         <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.04em', color: 'var(--muted)', marginBottom: 8 }}>
                           Quantity-break tiers — £/litre
                         </div>
-                        {/* Each band names the quantity it is measured against, so a
-                            product can price on its own quantity and on the combined
-                            order quantity at the same time. */}
-                        <p className="hint" style={{ marginTop: 0, marginBottom: 10 }}>
-                          Each band below chooses its own measure. <b>This product</b> counts the{' '}
-                          {pkg?.name || 'packs'} of this product on the line; <b>Whole order</b> counts the packs of
-                          every product on the order set to whole-order for this customer. Where a product band and a
-                          whole-order band both apply, the customer gets the cheaper of the two.
-                        </p>
+                        {/* One ladder; the row says which quantity qualifies for it. */}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
+                          <span style={{ fontSize: 12, color: 'var(--muted)' }}>Bands measured by (default):</span>
+                          <div className="theme-tog" style={{ background: 'var(--field-bg)' }}>
+                            <button className={(row.tier_basis || 'line') === 'line' ? 'on' : ''}
+                              onClick={() => setBasis(row.id, 'line')}>This product’s qty</button>
+                            <button className={row.tier_basis === 'order' ? 'on' : ''}
+                              onClick={() => setBasis(row.id, 'order')}>Combined order qty</button>
+                          </div>
+                          <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>
+                            {row.tier_basis === 'order'
+                              ? 'band chosen by the total packs of all combined-mode products on the order'
+                              : `band chosen by the number of ${pkg?.name || 'packs'} of this product on the line`}
+                            {' '}Any band can be switched on its own row.
+                          </span>
+                        </div>
                         {tiers.length === 0 && (
                           <p className="hint" style={{ marginBottom: 8 }}>
                             No tiers — the flat £{(row.price_per_litre || 0).toFixed(4)}/L above applies to every quantity. Add a tier below to charge less as more is ordered.
@@ -511,10 +517,10 @@ export default function PricesPage() {
                               <div className="theme-tog" style={{ background: 'var(--field-bg)' }}>
                                 <button className={(t.basis || row.tier_basis || 'line') === 'line' ? 'on' : ''}
                                   onClick={() => { updateTierLocal(row.id, i, { basis: 'line' }); setTimeout(() => commitTiers(row.id), 0) }}
-                                  title={`Counted on the ${pkg?.name || 'packs'} of this product`}>This product</button>
+                                  title={`Measured on the ${pkg?.name || 'packs'} of this product alone`}>This product alone</button>
                                 <button className={(t.basis || row.tier_basis) === 'order' ? 'on' : ''}
                                   onClick={() => { updateTierLocal(row.id, i, { basis: 'order' }); setTimeout(() => commitTiers(row.id), 0) }}
-                                  title="Counted on the combined packs across the order">Whole order</button>
+                                  title="Measured on the combined packs across the order">Whole order</button>
                               </div>
                               <span style={{ fontSize: 12, color: 'var(--muted)' }}>→</span>
                               <span style={{ fontSize: 12, color: 'var(--muted)' }}>£</span>
@@ -531,9 +537,10 @@ export default function PricesPage() {
                         })}
                         <button className="btn btn-g btn-sm" style={{ marginTop: 4 }} onClick={() => addTier(row.id)}>＋ Add tier</button>
                         <p className="hint" style={{ marginTop: 8 }}>
-                          Leave <b>to</b> blank for the top band (e.g. “10 and above”). Bands measured the same way
-                          should not overlap — a product band and a whole-order band are free to, and the cheaper one
-                          wins. Tiers show on the Price List and its PDF export.
+                          Leave <b>to</b> blank for the top band (e.g. “10 and above”). Bands should not overlap.
+                          {' '}A ladder can mix the two — bands on the whole order plus one measured on this product
+                          alone, say — and where more than one band applies the customer gets the cheapest of them.
+                          Bands measured the same way should not overlap.
                         </p>
                       </td>
                     </tr>
