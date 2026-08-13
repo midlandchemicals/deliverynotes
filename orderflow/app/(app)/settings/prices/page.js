@@ -158,6 +158,21 @@ export default function PricesPage() {
     }))
   }
 
+  // Set one band's measure. Built from the array we already hold and persisted
+  // in the same step — going through state and reading it back on a timeout
+  // picked up the previous render's tiers and undid the change.
+  function setTierBasis(rowId, idx, basis) {
+    const row = rowById(rowId)
+    if (!row) return
+    const next = (row.qty_tiers || []).map((t, i) => (i === idx ? { ...t, basis } : t))
+    persistTiers(rowId, next.map((t) => ({
+      from: parseInt(t.from) || 0,
+      to: t.to === '' || t.to == null ? null : (parseInt(t.to) || null),
+      ppl: parseFloat(t.ppl) || 0,
+      ...(t.basis === 'line' || t.basis === 'order' ? { basis: t.basis } : {}),
+    })))
+  }
+
   // Normalise a tier row's values to numbers and persist the whole array.
   function commitTiers(rowId) {
     const row = rowById(rowId)
@@ -166,6 +181,9 @@ export default function PricesPage() {
       from: parseInt(t.from) || 0,
       to: t.to === '' || t.to == null ? null : (parseInt(t.to) || null),
       ppl: parseFloat(t.ppl) || 0,
+      // Keep whichever quantity this band is measured against — dropping it
+      // silently reverted the band to the row's default.
+      ...(t.basis === 'line' || t.basis === 'order' ? { basis: t.basis } : {}),
     }))
     persistTiers(rowId, clean)
   }
@@ -516,10 +534,10 @@ export default function PricesPage() {
                                 onBlur={() => commitTiers(row.id)} />
                               <div className="theme-tog tog-sm">
                                 <button className={(t.basis || row.tier_basis || 'line') === 'line' ? 'on' : ''}
-                                  onClick={() => { updateTierLocal(row.id, i, { basis: 'line' }); setTimeout(() => commitTiers(row.id), 0) }}
+                                  onClick={() => setTierBasis(row.id, i, 'line')}
                                   title={`Measured on the ${pkg?.name || 'packs'} of this product alone`}>This product alone</button>
                                 <button className={(t.basis || row.tier_basis) === 'order' ? 'on' : ''}
-                                  onClick={() => { updateTierLocal(row.id, i, { basis: 'order' }); setTimeout(() => commitTiers(row.id), 0) }}
+                                  onClick={() => setTierBasis(row.id, i, 'order')}
                                   title="Measured on the combined packs across the order">Whole order</button>
                               </div>
                               <span style={{ fontSize: 12, color: 'var(--muted)' }}>→</span>
