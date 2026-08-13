@@ -1028,7 +1028,7 @@ export default function OrderDetailPage() {
                             onBlur={(e) => setAgreedPrice(i, e.target.value)}
                           />
                           <span style={{ fontSize: 10.5, color: 'var(--gold)', fontWeight: 700 }}>
-                            ✎ agreed price · <a style={{ cursor: 'pointer', textDecoration: 'underline' }} onClick={() => setAgreedPrice(i, null)}>remove</a>
+                            ✎ edited for this order · <a style={{ cursor: 'pointer', textDecoration: 'underline' }} onClick={() => setAgreedPrice(i, null)}>undo</a>
                           </span>
                           <a style={{ fontSize: 10.5, color: 'var(--muted)', cursor: 'pointer', textDecoration: 'underline' }}
                             title={`Make this ${custName}'s standard price for every future order`}
@@ -1048,9 +1048,9 @@ export default function OrderDetailPage() {
                         >
                           <span className="mono" style={{ fontWeight: 700, fontSize: 15, color: 'var(--accent)' }}>£{effPpl.toFixed(4)}</span>
                           <span style={{ fontSize: 10.5, color: 'var(--accent)' }}>🗓 seasonal · {prettyDate(season.from)} – {prettyDate(season.to)}</span>
-                          <a style={{ fontSize: 10.5, color: 'var(--muted)', cursor: 'pointer', textDecoration: 'underline' }}
-                            title="Set a negotiated one-off price for this order — the price list is not changed"
-                            onClick={() => setAgreedPrice(i, effPpl ? effPpl.toFixed(4) : '')}>✎ agreed price</a>
+                          <button className="edit-price-btn"
+                            title="Change the price for this order only — the price list is not changed"
+                            onClick={() => setAgreedPrice(i, effPpl ? effPpl.toFixed(4) : '')}>✎ Edit price for this order</button>
                         </div>
                       ) : tierApplied ? (
                         // A quantity tier is in effect — show ONLY the charged price.
@@ -1063,9 +1063,9 @@ export default function OrderDetailPage() {
                         >
                           <span className="mono" style={{ fontWeight: 700, fontSize: 15, color: 'var(--accent)' }}>£{effPpl.toFixed(4)}</span>
                           <span style={{ fontSize: 10.5, color: 'var(--accent)' }}>⇅ tier price · {isOrderBasis ? `${bandQty} combined` : `${c.qty} packs`}</span>
-                          <a style={{ fontSize: 10.5, color: 'var(--muted)', cursor: 'pointer', textDecoration: 'underline' }}
-                            title="Set a negotiated one-off price for this order — the price list is not changed"
-                            onClick={() => setAgreedPrice(i, effPpl ? effPpl.toFixed(4) : '')}>✎ agreed price</a>
+                          <button className="edit-price-btn"
+                            title="Change the price for this order only — the price list is not changed"
+                            onClick={() => setAgreedPrice(i, effPpl ? effPpl.toFixed(4) : '')}>✎ Edit price for this order</button>
                         </div>
                       ) : (
                         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2 }}>
@@ -1076,9 +1076,9 @@ export default function OrderDetailPage() {
                             onChange={(e) => setPrices((p) => ({ ...p, [priceKey]: e.target.value }))}
                             onBlur={(e) => askPriceScope(i, c, priceKey, e.target.value)}
                           />
-                          <a style={{ fontSize: 10.5, color: 'var(--muted)', cursor: 'pointer', textDecoration: 'underline' }}
-                            title="Set a negotiated one-off price for this order — the price list is not changed"
-                            onClick={() => setAgreedPrice(i, effPpl ? effPpl.toFixed(4) : '')}>✎ agreed price</a>
+                          <button className="edit-price-btn"
+                            title="Change the price for this order only — the price list is not changed"
+                            onClick={() => setAgreedPrice(i, effPpl ? effPpl.toFixed(4) : '')}>✎ Edit price for this order</button>
                         </div>
                       )}
                     </td>
@@ -1452,7 +1452,7 @@ export default function OrderDetailPage() {
                   }}>
                   <div style={{ fontSize: 16, fontWeight: 800, color: '#7A5511' }}>📄 THIS ORDER ONLY</div>
                   <div style={{ fontSize: 13, color: '#7A5511', marginTop: 4 }}>
-                    A one-off agreed price for this order. {custName}&apos;s price list <b>stays at £{s.before.toFixed(4)}/L</b> for next time.
+                    The price is changed on this order only. {custName}&apos;s price list <b>stays at £{s.before.toFixed(4)}/L</b> for next time.
                   </div>
                 </button>
 

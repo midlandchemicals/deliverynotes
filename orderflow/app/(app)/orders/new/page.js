@@ -488,13 +488,19 @@ export default function NewOrderPage() {
           <Section n={3} title="Addresses" state={sectionState(3)}>
             <Field label="Invoice to">
               {invoiceOptions.length > 1 && (
-                <div style={{ marginBottom: 6 }}>
+                <div className="addr-picker">
+                  <div className="addr-picker-label">
+                    📍 {invoiceOptions.length} saved addresses — pick the right one
+                  </div>
                   <Combobox
                     options={invoiceOptions.map((a, i) => ({ id: String(i), label: `${a.verified ? '✓ ' : ''}${a.invoice_default ? '🧾 ' : ''}${a.label || firstLine(a.text) || `Address ${i + 1}`}` }))}
                     value={String(invoiceIdx)}
                     onSelect={(id) => pickInvoiceAddr(+id)}
                     placeholder="Choose the invoice address…"
                   />
+                  <div className="addr-picker-note">
+                    Using <b>{invoiceOptions[invoiceIdx]?.label || firstLine(invoiceOptions[invoiceIdx]?.text) || 'the first one'}</b> — the box below fills in from this.
+                  </div>
                 </div>
               )}
               <textarea value={custDetails} onChange={(e) => setCustDetails(e.target.value)} placeholder="Company / invoice address — or type one in" style={{ minHeight: 90 }} />
@@ -502,13 +508,19 @@ export default function NewOrderPage() {
 
             <Field label="Delivery address">
               {deliveryOptions.length > 1 && (
-                <div style={{ marginBottom: 6 }}>
+                <div className="addr-picker">
+                  <div className="addr-picker-label">
+                    📍 {deliveryOptions.length} saved addresses — pick the right one
+                  </div>
                   <Combobox
                     options={deliveryOptions.map((a, i) => ({ id: String(i), label: `${a.verified ? '✓ ' : ''}${a.invoice_default ? '🧾 ' : ''}${a.label || firstLine(a.text) || `Address ${i + 1}`}` }))}
                     value={String(deliveryIdx)}
                     onSelect={(id) => pickDeliveryAddr(+id)}
                     placeholder="Choose the delivery address…"
                   />
+                  <div className="addr-picker-note">
+                    Using <b>{deliveryOptions[deliveryIdx]?.label || firstLine(deliveryOptions[deliveryIdx]?.text) || 'the first one'}</b> — the box below fills in from this.
+                  </div>
                 </div>
               )}
               <textarea value={custDeliver} onChange={(e) => { setCustDeliver(e.target.value); setAddrConfirmed(false) }} placeholder="Delivery address — or type one in" style={{ minHeight: 90 }} />
