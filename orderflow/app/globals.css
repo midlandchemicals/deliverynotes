@@ -629,3 +629,18 @@ body{background:var(--bg-grad)}
   background:#FCF4E2;border:2px solid var(--warn,#B07E28);color:#7A5511}
 .add-line-btn:hover{background:#F8ECCF}
 @media(max-width:600px){.add-line-btn{width:100%}}
+
+/* "Edit price for this order" — a real button rather than a faint link, since
+   changing a price on one order is a deliberate act people were missing. */
+.edit-price-btn{margin-top:3px;padding:5px 11px;border-radius:8px;cursor:pointer;
+  background:#FCF4E2;border:1.5px solid var(--warn,#B07E28);color:#7A5511;
+  font-family:var(--font-body);font-size:11.5px;font-weight:700;white-space:nowrap}
+.edit-price-btn:hover{background:#F8ECCF}
+
+/* Address chooser on order entry. It sat as a bare combobox above a filled-in
+   textarea, so it read as decoration and people typed over the address instead
+   of picking the right one. Boxed and labelled so it can't be walked past. */
+.addr-picker{border:1.5px solid var(--accent);border-radius:10px;background:var(--accent-soft);
+  padding:10px 12px;margin-bottom:8px}
+.addr-picker-label{font-size:11.5px;font-weight:700;color:var(--accent);margin-bottom:6px}
+.addr-picker-note{font-size:11px;color:var(--ink);margin-top:6px}
