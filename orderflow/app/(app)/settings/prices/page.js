@@ -514,7 +514,7 @@ export default function PricesPage() {
                               <input className="mono" style={{ width: 56, textAlign: 'right' }} value={t.to ?? ''} placeholder="∞"
                                 onChange={(e) => updateTierLocal(row.id, i, { to: e.target.value })}
                                 onBlur={() => commitTiers(row.id)} />
-                              <div className="theme-tog" style={{ background: 'var(--field-bg)' }}>
+                              <div className="theme-tog tog-sm">
                                 <button className={(t.basis || row.tier_basis || 'line') === 'line' ? 'on' : ''}
                                   onClick={() => { updateTierLocal(row.id, i, { basis: 'line' }); setTimeout(() => commitTiers(row.id), 0) }}
                                   title={`Measured on the ${pkg?.name || 'packs'} of this product alone`}>This product alone</button>
