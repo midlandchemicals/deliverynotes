@@ -129,11 +129,26 @@ export const VAT_LABEL = `VAT (${Math.round(VAT_RATE * 100)}%)`
 // Priority: seasonal window > quantity-break tier > base price.
 
 // Normalise a qty_tiers jsonb value into sorted, valid bands.
+// Each band carries its own basis, so one product can price on its own
+// quantity AND on the combined order quantity at the same time — "1–5 of this
+// → £1.32, but 12+ across the order → £1.18". Bands saved before that was
+// possible have no basis of their own and fall back to the row's.
 export function parseTiers(raw) {
   return (Array.isArray(raw) ? raw : [])
-    .map((t) => ({ from: Number(t.from) || 0, to: t.to == null || t.to === '' ? null : Number(t.to), ppl: Number(t.ppl) || 0 }))
+    .map((t) => ({
+      from: Number(t.from) || 0,
+      to: t.to == null || t.to === '' ? null : Number(t.to),
+      ppl: Number(t.ppl) || 0,
+      basis: t.basis === 'order' || t.basis === 'line' ? t.basis : null,
+    }))
     .filter((t) => t.ppl > 0)
     .sort((a, b) => a.from - b.from)
+}
+
+// Does this price row take part in the combined whole-order count? True when
+// the row itself is set that way, or any single band is.
+export function usesCombinedQty(tiers = [], basis = 'line') {
+  return basis === 'order' || (tiers || []).some((t) => t.basis === 'order')
 }
 
 // base: base/list £/L · tiers: parsed bands · basis: 'line' | 'order'
@@ -141,9 +156,18 @@ export function parseTiers(raw) {
 // lineQty: packs on this line · combinedQty: total packs of 'order'-basis lines
 export function resolveLinePpl({ base = 0, tiers = [], basis = 'line', season = null, orderDate = null, lineQty = 0, combinedQty = 0 }) {
   if (season && seasonalActive(season.from, season.to, orderDate)) return Number(season.ppl) || 0
-  const q = basis === 'order' ? combinedQty : (parseFloat(lineQty) || 0)
-  const hit = tiers.find((t) => q >= t.from && (t.to == null || q <= t.to))
-  return hit ? hit.ppl : (parseFloat(base) || 0)
+  const lineN = parseFloat(lineQty) || 0
+  const orderN = parseFloat(combinedQty) || 0
+  // A band is measured against whichever quantity it names — its own, or the
+  // row's setting when it doesn't name one.
+  const matches = tiers.filter((t) => {
+    const q = (t.basis || basis) === 'order' ? orderN : lineN
+    return q >= t.from && (t.to == null || q <= t.to)
+  })
+  if (!matches.length) return parseFloat(base) || 0
+  // Where a product band and a combined-order band both apply, the customer
+  // gets the better of the two — the cheaper price they have qualified for.
+  return matches.reduce((best, t) => (t.ppl < best ? t.ppl : best), matches[0].ppl)
 }
 
 // Pull contact details (name / email / phone) OUT of an address block.

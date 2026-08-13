@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import { computeLine, docTotals, fmt, prettyDate, splitContact, labelCount, PRICE_LEVELS, seasonalActive, resolveLinePpl, parseTiers, VAT_RATE, VAT_LABEL, ORDER_STATUSES, STATUS_NEW, STATUS_BOARD, STATUS_DONE, normalizeStatus, extractDeliveryInstructions, nextNo, unifiedAddresses, todayISO } from '@/lib/calc'
+import { computeLine, docTotals, fmt, prettyDate, splitContact, labelCount, PRICE_LEVELS, seasonalActive, resolveLinePpl, parseTiers, usesCombinedQty, VAT_RATE, VAT_LABEL, ORDER_STATUSES, STATUS_NEW, STATUS_BOARD, STATUS_DONE, normalizeStatus, extractDeliveryInstructions, nextNo, unifiedAddresses, todayISO } from '@/lib/calc'
 import { generateDispatchPDF, generateOfficeCopyPDF, reprintPDF, generatePurchaseOrderPDF, generateProformaPDF } from '@/lib/pdf'
 import { printBoardNote } from '@/lib/boardnote'
 import { toast, toastError, ok } from '@/lib/notify'
@@ -509,7 +509,7 @@ export default function OrderDetailPage() {
       const c = computeLine(l, products, packaging)
       if (!c.product || !c.packaging) return sum
       const key = `${c.product.id}::${c.packaging.id}`
-      return tierBasis[key] === 'order' ? sum + (c.qty || 0) : sum
+      return usesCombinedQty(priceTiers[key] || [], tierBasis[key]) ? sum + (c.qty || 0) : sum
     }, 0)
   }
 
