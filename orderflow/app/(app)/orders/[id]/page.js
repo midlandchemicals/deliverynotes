@@ -1414,11 +1414,14 @@ export default function OrderDetailPage() {
                   return (
                     <>The note will read:
                       {dd.rows.map((r, i) => (
-                        <span key={i} style={{ display: 'block', fontFamily: '"IBM Plex Mono", monospace', fontWeight: 700, color: 'var(--fg)' }}>
-                          {r.label} — {r.line} · TOTAL VOLUME {m3(r.volume)} m³
+                        <span key={i} style={{ display: 'block', marginTop: 4, fontFamily: '"IBM Plex Mono", monospace' }}>
+                          <span style={{ display: 'block', fontWeight: 800, color: 'var(--fg)' }}>
+                            {r.label} — TOTAL VOLUME {m3(r.volume)} m³
+                          </span>
+                          <span style={{ display: 'block', color: 'var(--muted)' }}>{r.line}</span>
                         </span>
                       ))}
-                      <span style={{ display: 'block', marginTop: 3, fontFamily: '"IBM Plex Mono", monospace', fontWeight: 800, color: 'var(--accent)' }}>
+                      <span style={{ display: 'block', marginTop: 6, fontFamily: '"IBM Plex Mono", monospace', fontWeight: 800, color: 'var(--accent)' }}>
                         TOTAL GROSS VOLUME (COMBINED) {m3(dd.total)} m³
                       </span>
                     </>

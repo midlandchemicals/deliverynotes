@@ -37,38 +37,42 @@ function compactAddress(text, maxLen = 52) {
 }
 
 
-// Consignment dimensions in their own box: a row per pack type with its own
-// cubic metres, then the combined figure. `dims` is { rows, total }; older
-// notes hold a plain array of strings, which is drawn as-is.
+// Consignment dimensions in their own box. Each pack type takes two lines —
+// its total volume, then the breakdown that produced it — with the combined
+// figure at the foot. Stacked rather than columned so nothing collides when a
+// line runs long. `dims` is { rows, total }; older notes hold plain strings.
 function drawDimensionsBox(doc, ty, dims, r, g, b, M, W) {
   const rows = Array.isArray(dims) ? dims.map((line) => ({ label: '', line, volume: null })) : (dims?.rows || [])
   if (!rows.length) return ty
   const total = Array.isArray(dims) ? null : dims?.total
   const m3 = (n) => (Math.round((n || 0) * 1000) / 1000).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 3 })
 
-  const h = 9 + rows.length * 5.6 + (total != null ? 7.5 : 0) + 3
+  const rowH = 11.5
+  const h = 9 + rows.length * rowH + (total != null ? 9 : 0) + 3
   if (ty + h > 258) { doc.addPage(); ty = 20 }
   doc.setDrawColor(r, g, b).setLineWidth(0.4).setFillColor(252, 252, 250)
   doc.roundedRect(M, ty, W - 2 * M, h, 2, 2, 'FD')
 
   let y = ty + 6
   doc.setFont(FONT, 'bold').setFontSize(7.5).setTextColor(r, g, b).text('DIMENSIONS', M + 5, y)
-  y += 5.5
+  y += 6
   rows.forEach((row) => {
-    doc.setFont(FONT, 'normal').setFontSize(9.5).setTextColor(25, 25, 25)
-    doc.text(`${row.label ? row.label + ' — ' : ''}${row.line}`, M + 5, y)
+    doc.setFont(FONT, 'bold').setFontSize(10).setTextColor(25, 25, 25)
+    doc.text(row.volume != null ? `${row.label} — TOTAL VOLUME ${m3(row.volume)} m³` : row.line, M + 5, y)
+    y += 5
     if (row.volume != null) {
-      doc.setFont(FONT, 'bold')
-      doc.text(`TOTAL VOLUME ${m3(row.volume)} m³`, W - M - 5, y, { align: 'right' })
+      doc.setFont(FONT, 'normal').setFontSize(9.5).setTextColor(70, 70, 70)
+      doc.text(row.line, M + 5, y)
+      y += 6.5
+    } else {
+      y += 1.5
     }
-    y += 5.6
   })
   if (total != null) {
-    doc.setDrawColor(200, 200, 195).setLineWidth(0.2).line(M + 5, y - 1.5, W - M - 5, y - 1.5)
-    y += 3.5
-    doc.setFont(FONT, 'bold').setFontSize(10.5).setTextColor(r, g, b)
-    doc.text('TOTAL GROSS VOLUME (COMBINED)', M + 5, y)
-    doc.text(`${m3(total)} m³`, W - M - 5, y, { align: 'right' })
+    doc.setDrawColor(200, 200, 195).setLineWidth(0.2).line(M + 5, y - 3, W - M - 5, y - 3)
+    y += 2.5
+    doc.setFont(FONT, 'bold').setFontSize(11).setTextColor(r, g, b)
+    doc.text(`TOTAL GROSS VOLUME (COMBINED) ${m3(total)} m³`, M + 5, y)
   }
   return ty + h + 4
 }
