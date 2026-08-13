@@ -613,7 +613,7 @@ export default function OrderDetailPage() {
   const palletCount = parseInt(extraPallets, 10) || 0
   const DEFAULT_DIMS = {
     pallet: { n: String(palletCount), l: '1.2', w: '1.0', h: '1.0' },
-    ibc: { n: String(ibcCount), l: '1.0', w: '1.0', h: '1.2' },
+    ibc: { n: String(ibcCount), l: '1.2', w: '1.0', h: '1.2' },
   }
   // Untouched fields track the counts; once edited the typed values stand.
   const dimVals = {
