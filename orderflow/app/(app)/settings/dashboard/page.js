@@ -1,8 +1,9 @@
 'use client'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { computeLine, PRICE_LEVELS, seasonalActive, parseTiers, resolveLinePpl, labelCount, normalizeStatus, STATUS_NEW, STATUS_DONE } from '@/lib/calc'
 import PricingGuard from '@/app/(app)/PricingGuard'
+import { groupProductNames, productKeyMap } from '@/lib/insights'
 
 function gbp(n) {
   return '£' + (Math.round((n || 0) * 100) / 100).toLocaleString('en-GB', { minimumFractionDigits: 0, maximumFractionDigits: 0 })
@@ -143,109 +144,34 @@ export default function DashboardPage() {
         return { total, byName }
       }
 
-      const now = new Date()
-      const thisMonthKey = `${now.getFullYear()}-${now.getMonth()}`
-      const lastM = new Date(now.getFullYear(), now.getMonth() - 1, 1)
-      const lastMonthKey = `${lastM.getFullYear()}-${lastM.getMonth()}`
-
-      let totalRevenue = 0, dispatchedRevenue = 0, pipelineValue = 0
-      let thisMonthRev = 0, lastMonthRev = 0
-      const byMonth = {}            // 'YYYY-M' -> value
-      const byCompany = {}          // lhId|'default' -> value
-      // Per-company breakdowns for the toggleable panels — 'all' = overall.
-      const custByCo = { all: {} }  // coKey -> { custId: value }
-      const prodByCo = { all: {} }  // coKey -> { productName: value }
-      const statusCount = { [STATUS_NEW]: 0, [STATUS_DONE]: 0 }
-
-      for (const o of orders) {
-        // Dispatched orders use their locked snapshot; the rest are pipeline.
+      // One record per order, so any period, company or customer view is just a
+      // filter over the same list — rather than a fixed set of all-time totals,
+      // which is what made this page unable to answer "what happened in July".
+      const records = orders.map((o) => {
         const dn = dnByOrder[o.id]
         const { total, byName } = dn ? lockedValue(dn) : estimateValue(o)
-        totalRevenue += total
-        if (dn) dispatchedRevenue += total
-        else pipelineValue += total
-        const st = normalizeStatus(o.status)
-        statusCount[st] = (statusCount[st] || 0) + 1
-
-        const d = new Date(o.order_date || o.created_at)
-        const mk = `${d.getFullYear()}-${d.getMonth()}`
-        byMonth[mk] = (byMonth[mk] || 0) + total
-        if (mk === thisMonthKey) thisMonthRev += total
-        if (mk === lastMonthKey) lastMonthRev += total
-
+        const iso = String(dn?.doc_date || o.order_date || o.created_at || '').slice(0, 10)
         let coKey = (o.customer_id && custLh[o.customer_id]) || 'default'
-        if (coKey === defaultLh?.id) coKey = 'default' // explicit Midland = default
-        byCompany[coKey] = (byCompany[coKey] || 0) + total
-        if (!custByCo[coKey]) custByCo[coKey] = {}
-        if (!prodByCo[coKey]) prodByCo[coKey] = {}
-        if (o.customer_id) {
-          custByCo.all[o.customer_id] = (custByCo.all[o.customer_id] || 0) + total
-          custByCo[coKey][o.customer_id] = (custByCo[coKey][o.customer_id] || 0) + total
+        if (coKey === defaultLh?.id) coKey = 'default'
+        return {
+          id: o.id,
+          date: iso,
+          month: iso.slice(0, 7),
+          year: iso.slice(0, 4),
+          customerId: o.customer_id || null,
+          customerName: custName[o.customer_id] || '—',
+          coKey,
+          coName: (coKey === 'default' ? defaultLh : lhById[coKey])?.company
+            || (coKey === 'default' ? defaultLh : lhById[coKey])?.name || 'Unknown',
+          coColor: (coKey === 'default' ? defaultLh : lhById[coKey])?.color || '#1F6E4E',
+          dispatched: !!dn,
+          status: normalizeStatus(o.status),
+          total,
+          lines: Object.entries(byName).map(([name, value]) => ({ name, value })),
         }
-        for (const [name, v] of Object.entries(byName)) {
-          prodByCo.all[name] = (prodByCo.all[name] || 0) + v
-          prodByCo[coKey][name] = (prodByCo[coKey][name] || 0) + v
-        }
-      }
+      }).filter((r) => r.month)
 
-      // Two revenue series: calendar year (Jan–Dec, default) and UK financial
-      // year (Apr–Mar) — the chart toggles between them.
-      function buildSeries(startYear, startMonth) {
-        const series = []
-        let total = 0
-        for (let i = 0; i < 12; i++) {
-          const dt = new Date(startYear, startMonth + i, 1)
-          const mk = `${dt.getFullYear()}-${dt.getMonth()}`
-          const v = byMonth[mk] || 0
-          total += v
-          series.push({ label: MONTHS[dt.getMonth()], year: dt.getFullYear(), value: v })
-        }
-        return { series, total }
-      }
-      const calYear = now.getFullYear()
-      const cal = buildSeries(calYear, 0)
-      const fyStartYear = now.getMonth() >= 3 ? calYear : calYear - 1
-      const fy = buildSeries(fyStartYear, 3)
-      const revenueViews = {
-        cal: { label: String(calYear), name: 'Calendar year', series: cal.series, total: cal.total },
-        fy: { label: `${fyStartYear}-${String((fyStartYear + 1) % 100).padStart(2, '0')}`, name: 'Financial year', series: fy.series, total: fy.total },
-      }
-
-      // Top-8 lists per company key ('all' + each company with any revenue)
-      const topCustomersBy = {}
-      for (const [coKey, m] of Object.entries(custByCo)) {
-        topCustomersBy[coKey] = Object.entries(m)
-          .map(([id, v]) => ({ name: custName[id] || '—', value: v }))
-          .sort((a, b) => b.value - a.value).slice(0, 8)
-      }
-      const topProductsBy = {}
-      for (const [coKey, m] of Object.entries(prodByCo)) {
-        topProductsBy[coKey] = Object.entries(m)
-          .map(([name, v]) => ({ name: name || '—', value: v }))
-          .sort((a, b) => b.value - a.value).slice(0, 8)
-      }
-      // Toggle options: Overall + every company that has revenue
-      const coName = (coKey) => {
-        const lh = coKey === 'default' ? defaultLh : lhById[coKey]
-        return lh?.company || lh?.name || 'Unknown'
-      }
-      const companyOptions = [
-        { key: 'all', label: 'Overall' },
-        ...Object.keys(byCompany).sort((a, b) => byCompany[b] - byCompany[a]).map((coKey) => ({ key: coKey, label: coName(coKey) })),
-      ]
-
-      const companies = Object.entries(byCompany).map(([id, v]) => {
-        const lh = id === 'default' ? defaultLh : lhById[id]
-        return { name: lh?.company || lh?.name || 'Unknown', color: lh?.color || '#1FA86B', value: v }
-      }).sort((a, b) => b.value - a.value)
-
-      const orderCount = orders.length
-
-      setData({
-        totalRevenue, dispatchedRevenue, pipelineValue, orderCount,
-        revenueViews, topCustomersBy, topProductsBy, companyOptions, companies,
-        hasPrices: prices.length > 0,
-      })
+      setData({ records, hasPrices: prices.length > 0 })
     })()
   }, [])
 
@@ -254,143 +180,363 @@ export default function DashboardPage() {
       {data === null ? (
         <div className="card"><div className="empty">Crunching the numbers…</div></div>
       ) : (
-        <Dashboard d={data} />
+        <Insights records={data.records} hasPrices={data.hasPrices} />
       )}
     </PricingGuard>
   )
 }
 
-function Dashboard({ d }) {
-  const [co, setCo] = useState('all') // company filter for the top panels
-  const [revView, setRevView] = useState('cal') // 'cal' (default) | 'fy'
-  const topCustomers = d.topCustomersBy[co] || d.topCustomersBy.all || []
-  const topProducts = d.topProductsBy[co] || d.topProductsBy.all || []
+// ── the page ────────────────────────────────────────────────────────────────
+// Everything is scoped to a period. A month by default, because that is the
+// question people actually ask; a year or all time when they want the shape.
+function Insights({ records, hasPrices }) {
+  const [mode, setMode] = useState('month')      // 'month' | 'year' | 'all'
+  const [periodKey, setPeriodKey] = useState('')
+  const [co, setCo] = useState('all')
+  const [drill, setDrill] = useState(null)       // customerId being examined
+  const [splitKeys, setSplitKeys] = useState(new Set())
+
+  // Splits are a display preference, so they live in the browser rather than
+  // needing a table and a migration.
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem('insightsSplit')
+      if (raw) setSplitKeys(new Set(JSON.parse(raw)))
+    } catch { /* ignore malformed storage */ }
+  }, [])
+  function toggleSplit(key) {
+    setSplitKeys((s) => {
+      const n = new Set(s)
+      n.has(key) ? n.delete(key) : n.add(key)
+      try { localStorage.setItem('insightsSplit', JSON.stringify([...n])) } catch {}
+      return n
+    })
+  }
+
+  const months = useMemo(() => [...new Set(records.map((r) => r.month))].sort().reverse(), [records])
+  const years = useMemo(() => [...new Set(records.map((r) => r.year))].sort().reverse(), [records])
+  useEffect(() => {
+    if (periodKey) return
+    if (mode === 'month' && months.length) setPeriodKey(months[0])
+    if (mode === 'year' && years.length) setPeriodKey(years[0])
+  }, [mode, months, years, periodKey])
+
+  function changeMode(m) {
+    setMode(m)
+    setPeriodKey(m === 'month' ? (months[0] || '') : m === 'year' ? (years[0] || '') : '')
+  }
+
+  const companies = useMemo(() => {
+    const m = new Map()
+    for (const r of records) {
+      if (!m.has(r.coKey)) m.set(r.coKey, { key: r.coKey, label: r.coName, value: 0 })
+      m.get(r.coKey).value += r.total
+    }
+    return [...m.values()].sort((a, b) => b.value - a.value)
+  }, [records])
+
+  // The records the whole page is about.
+  const inPeriod = useMemo(() => records.filter((r) => {
+    if (mode === 'month' && r.month !== periodKey) return false
+    if (mode === 'year' && r.year !== periodKey) return false
+    if (co !== 'all' && r.coKey !== co) return false
+    return true
+  }), [records, mode, periodKey, co])
+
+  const scope = drill ? inPeriod.filter((r) => r.customerId === drill) : inPeriod
+  const drillName = drill ? (records.find((r) => r.customerId === drill)?.customerName || '') : ''
+
+  // ── figures for the chosen period ──
+  const revenue = scope.reduce((a, r) => a + r.total, 0)
+  const dispatched = scope.filter((r) => r.dispatched)
+  const dispatchedRev = dispatched.reduce((a, r) => a + r.total, 0)
+  const avg = scope.length ? revenue / scope.length : 0
+
+  // Previous comparable period, so a figure has something to be judged against.
+  const prevKey = mode === 'month'
+    ? months[months.indexOf(periodKey) + 1]
+    : mode === 'year' ? years[years.indexOf(periodKey) + 1] : null
+  const prevRevenue = prevKey
+    ? records.filter((r) => (mode === 'month' ? r.month : r.year) === prevKey)
+        .filter((r) => co === 'all' || r.coKey === co)
+        .filter((r) => !drill || r.customerId === drill)
+        .reduce((a, r) => a + r.total, 0)
+    : null
+
+  const customers = useMemo(() => {
+    const m = new Map()
+    for (const r of inPeriod) {
+      if (!r.customerId) continue
+      if (!m.has(r.customerId)) m.set(r.customerId, { id: r.customerId, name: r.customerName, value: 0, orders: 0 })
+      const c = m.get(r.customerId); c.value += r.total; c.orders++
+    }
+    return [...m.values()].sort((a, b) => b.value - a.value)
+  }, [inPeriod])
+
+  // ── products, with the near-duplicate names pooled ──
+  const products = useMemo(() => {
+    const weights = {}
+    for (const r of scope) for (const l of r.lines) weights[l.name] = (weights[l.name] || 0) + l.value
+    const groups = groupProductNames(Object.keys(weights), splitKeys, weights)
+    const keyOf = productKeyMap(groups)
+    const totals = new Map()
+    for (const r of scope) {
+      for (const l of r.lines) {
+        const k = keyOf.get(l.name)
+        if (!k) continue
+        if (!totals.has(k)) totals.set(k, 0)
+        totals.set(k, totals.get(k) + l.value)
+      }
+    }
+    return groups
+      .map((g) => ({ ...g, value: totals.get(g.key) || 0 }))
+      .filter((g) => g.value !== 0)
+      .sort((a, b) => b.value - a.value)
+  }, [scope, splitKeys])
+  const mergedCount = products.filter((p) => p.names.length > 1).length
+
+  // Twelve periods of context behind the chart.
+  const trend = useMemo(() => {
+    const keys = (mode === 'year' ? years : months).slice(0, 12).reverse()
+    return keys.map((k) => ({
+      key: k,
+      label: mode === 'year' ? k : monthShort(k),
+      value: records
+        .filter((r) => (mode === 'year' ? r.year : r.month) === k)
+        .filter((r) => co === 'all' || r.coKey === co)
+        .filter((r) => !drill || r.customerId === drill)
+        .reduce((a, r) => a + r.total, 0),
+    }))
+  }, [records, months, years, mode, co, drill])
+
+  const periodLabel = mode === 'all' ? 'All time' : mode === 'year' ? periodKey : monthLong(periodKey)
 
   return (
     <div>
-      <div className="card">
-        <div className="ttl">
-          <h2>Financial Dashboard</h2>
-          <span className="muted" style={{ fontSize: 12 }}>All figures are the gross order total ex-VAT (products + delivery + labels) · dispatched orders use what was billed at the time; pipeline uses current prices</span>
-        </div>
-        {!d.hasPrices && (
-          <p className="hint" style={{ color: 'var(--bad, #b3261e)' }}>
-            No customer prices are set yet, so revenue figures will read £0. Add prices under Price Entry to populate this dashboard.
-          </p>
-        )}
-
-        {/* KPI cards */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 14, marginTop: 6 }}>
-          <Kpi label="Total revenue (ex VAT)" value={gbp(d.totalRevenue)} accent="#1FA86B" />
-          <Kpi label="Dispatched revenue (ex VAT)" value={gbp(d.dispatchedRevenue)} accent="#197B55" />
-          <Kpi label="Pipeline (ex VAT, not dispatched)" value={gbp(d.pipelineValue)} accent="#c2410c" />
-          <Kpi label="Orders placed" value={d.orderCount.toLocaleString()} accent="#2d6cdf" />
-        </div>
-      </div>
-
-      {/* Revenue — calendar year by default, toggleable to financial year */}
-      <div className="card" style={{ marginTop: 12 }}>
-        <div className="ttl" style={{ marginBottom: 16 }}>
-          <h3 style={{ margin: 0 }}>Revenue — {d.revenueViews[revView].label} <span style={{ color: 'var(--accent)', marginLeft: 8 }}>{gbp(d.revenueViews[revView].total)}</span></h3>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <span className={'chip' + (revView === 'cal' ? ' on' : '')} onClick={() => setRevView('cal')}>Calendar year</span>
-            <span className={'chip' + (revView === 'fy' ? ' on' : '')} onClick={() => setRevView('fy')}>Financial year</span>
+      <div className="page-head">
+        <div>
+          <h1>Insights</h1>
+          <div className="sub">
+            {drill ? <>{drillName} · {periodLabel}</> : <>{periodLabel}{co !== 'all' ? ` · ${companies.find((c) => c.key === co)?.label}` : ''}</>}
+            {' '}· {scope.length} order{scope.length === 1 ? '' : 's'}
           </div>
         </div>
-        <MonthBars series={d.revenueViews[revView].series} />
-      </div>
-
-      {/* Company toggle for the top-customer / top-product panels */}
-      {d.companyOptions.length > 2 && (
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 14 }}>
-          {d.companyOptions.map((c) => (
-            <span key={c.key} className={'chip' + (co === c.key ? ' on' : '')} onClick={() => setCo(c.key)}>{c.label}</span>
+        <div className="theme-tog" style={{ background: 'var(--field-bg)' }}>
+          {[['month', 'Monthly'], ['year', 'Yearly'], ['all', 'All time']].map(([k, label]) => (
+            <button key={k} className={mode === k ? 'on' : ''} onClick={() => changeMode(k)}>{label}</button>
           ))}
         </div>
-      )}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 12, marginTop: 12 }}>
-        {/* Top customers */}
-        <div className="card" style={{ margin: 0 }}>
-          <div className="ttl" style={{ marginBottom: 14 }}><h3 style={{ margin: 0 }}>Top customers{co !== 'all' ? ` — ${(d.companyOptions.find((c) => c.key === co) || {}).label}` : ''}</h3></div>
-          <RankBars rows={topCustomers} color="#2d6cdf" />
-        </div>
-        {/* Top products */}
-        <div className="card" style={{ margin: 0 }}>
-          <div className="ttl" style={{ marginBottom: 14 }}><h3 style={{ margin: 0 }}>Top products by revenue{co !== 'all' ? ` — ${(d.companyOptions.find((c) => c.key === co) || {}).label}` : ''}</h3></div>
-          <RankBars rows={topProducts} color="#7a5cff" />
-        </div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 12, marginTop: 12 }}>
-        {/* Revenue by company */}
-        <div className="card" style={{ margin: 0 }}>
-          <div className="ttl" style={{ marginBottom: 14 }}><h3 style={{ margin: 0 }}>Revenue by company</h3></div>
-          {d.companies.length === 0 ? (
-            <div className="empty">No data yet.</div>
-          ) : (
-            <RankBars rows={d.companies.map((c) => ({ name: c.name, value: c.value, color: c.color }))} color="#1FA86B" perRowColor />
+      {!hasPrices && (
+        <p className="hint" style={{ background: '#FCF4E2', border: '1px solid var(--warn, #B07E28)', borderRadius: 8, padding: '9px 12px', color: '#7A5511', fontWeight: 600 }}>
+          ⚠ No prices are set up yet, so revenue will read zero.
+        </p>
+      )}
+
+      {mode !== 'all' && (
+        <div className="card">
+          <div className="ttl"><h2>{mode === 'month' ? 'Month' : 'Year'}</h2></div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7 }}>
+            {(mode === 'month' ? months : years).map((k) => (
+              <button key={k} className={'chip' + (periodKey === k ? ' on' : '')} onClick={() => setPeriodKey(k)}>
+                {mode === 'month' ? monthLong(k) : k}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {companies.length > 1 && (
+        <div className="card">
+          <div className="ttl"><h2>Company</h2></div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7 }}>
+            <button className={'chip' + (co === 'all' ? ' on' : '')} onClick={() => { setCo('all'); setDrill(null) }}>All companies</button>
+            {companies.map((c) => (
+              <button key={c.key} className={'chip' + (co === c.key ? ' on' : '')} onClick={() => { setCo(c.key); setDrill(null) }}>{c.label}</button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {drill && (
+        <p className="hint" style={{ background: 'var(--accent-soft)', border: '1px solid var(--accent)', borderRadius: 8, padding: '9px 12px' }}>
+          Showing <b>{drillName}</b> only.{' '}
+          <a style={{ color: 'var(--accent)', fontWeight: 700, cursor: 'pointer', textDecoration: 'underline' }} onClick={() => setDrill(null)}>
+            Back to everyone
+          </a>
+        </p>
+      )}
+
+      <div className="stat-row">
+        <Stat label={`Revenue · ${periodLabel}`} value={gbp(revenue)}
+          sub={prevRevenue != null ? deltaText(revenue, prevRevenue, mode) : `${scope.length} orders`} big />
+        <Stat label="Orders" value={String(scope.length)} sub={`${dispatched.length} dispatched`} />
+        <Stat label="Average order" value={gbp2(avg)} />
+        <Stat label="Dispatched value" value={gbp(dispatchedRev)} sub={gbp(revenue - dispatchedRev) + ' still open'} />
+        <Stat label={drill ? 'Products bought' : 'Customers'} value={String(drill ? products.length : customers.length)}
+          sub={drill ? `${products.length} after merging` : 'with an order'} />
+      </div>
+
+      <div className="card">
+        <div className="ttl">
+          <h2>{mode === 'year' ? 'Revenue by year' : 'Revenue by month'}</h2>
+          <span className="muted" style={{ fontSize: 12 }}>{mode === 'all' ? 'last 12 months' : 'the chosen period is highlighted'}</span>
+        </div>
+        <TrendChart points={trend} selected={periodKey} onPick={(k) => { if (mode !== 'all') setPeriodKey(k) }} />
+      </div>
+
+      {!drill && (
+        <div className="card">
+          <div className="ttl">
+            <h2>Customers</h2>
+            <span className="muted" style={{ fontSize: 12 }}>click one for its own breakdown</span>
+          </div>
+          {customers.length === 0 ? <div className="empty">Nothing in {periodLabel}.</div> : (
+            <RankBars rows={customers.map((c) => ({ key: c.id, label: c.name, value: c.value, note: `${c.orders} order${c.orders === 1 ? '' : 's'}` }))}
+              onPick={(id) => setDrill(id)} />
           )}
         </div>
+      )}
+
+      <div className="card">
+        <div className="ttl">
+          <h2>Products{drill ? ` — ${drillName}` : ''}</h2>
+          <span className="muted" style={{ fontSize: 12 }}>
+            {mergedCount > 0 ? `${mergedCount} name${mergedCount === 1 ? '' : 's'} merged automatically` : 'no duplicate names found'}
+          </span>
+        </div>
+        {products.length === 0 ? <div className="empty">Nothing in {periodLabel}.</div> : (
+          <RankBars
+            rows={products.map((p) => ({
+              key: p.key, label: p.label, value: p.value,
+              merged: p.names.length > 1 ? p.names : null,
+              split: splitKeys.has(p.key),
+            }))}
+            onSplit={toggleSplit}
+          />
+        )}
       </div>
+
+      {drill && (
+        <div className="card">
+          <div className="ttl"><h2>{drillName} — orders in {periodLabel}</h2></div>
+          <table className="tbl tbl-cards">
+            <thead><tr><th>Date</th><th>Products</th><th>Status</th><th style={{ textAlign: 'right' }}>Value</th></tr></thead>
+            <tbody>
+              {[...scope].sort((a, b) => (a.date < b.date ? 1 : -1)).map((r) => (
+                <tr key={r.id}>
+                  <td className="mono" data-label="Date">{r.date}</td>
+                  <td data-label="Products">{r.lines.map((l) => l.name).join(', ') || '—'}</td>
+                  <td data-label="Status">{r.status}</td>
+                  <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }} data-label="Value">{gbp2(r.total)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   )
 }
 
-function Kpi({ label, value, accent, sub, subColor, small }) {
+// ── little pieces ───────────────────────────────────────────────────────────
+const monthShort = (k) => {
+  const [y, m] = k.split('-')
+  return `${MONTHS[+m - 1]} ${String(y).slice(2)}`
+}
+const monthLong = (k) => {
+  const [y, m] = String(k || '').split('-')
+  return y && m ? new Date(+y, +m - 1, 1).toLocaleDateString('en-GB', { month: 'long', year: 'numeric' }) : k || ''
+}
+function deltaText(now, prev, mode) {
+  const unit = mode === 'year' ? 'year' : 'month'
+  if (!prev) return `nothing in the previous ${unit}`
+  const d = ((now - prev) / prev) * 100
+  const dir = d > 0.5 ? '▲' : d < -0.5 ? '▼' : '='
+  return `${dir} ${Math.abs(d).toFixed(0)}% on the previous ${unit} (${gbp(prev)})`
+}
+
+function Stat({ label, value, sub, big }) {
   return (
-    <div style={{
-      padding: small ? '4px 16px' : '6px 18px',
-      borderLeft: `3px solid ${accent}`,
-    }}>
-      <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted)' }}>{label}</div>
-      <div style={{ fontSize: small ? 22 : 30, fontWeight: 800, color: 'var(--ink)', marginTop: 6, lineHeight: 1.1, fontFamily: 'var(--mono, monospace)' }}>{value}</div>
-      {sub && <div style={{ fontSize: 12, fontWeight: 700, marginTop: 5, color: subColor || 'var(--muted)' }}>{sub}</div>}
+    <div className="stat-tile">
+      <div className="stat-label">{label}</div>
+      <div className="stat-value" style={big ? { fontSize: 21 } : undefined}>{value}</div>
+      {sub && <div className="stat-sub">{sub}</div>}
     </div>
   )
 }
 
-function MonthBars({ series }) {
-  const max = Math.max(1, ...series.map((s) => s.value))
+// Revenue over time. One measure, one colour; the chosen period is the only
+// thing picked out, and clicking a column selects that period.
+function TrendChart({ points, selected, onPick }) {
+  if (!points.length) return <div className="empty">Nothing to chart yet.</div>
+  const max = Math.max(...points.map((p) => p.value), 1)
   return (
-    <div style={{ display: 'flex', alignItems: 'flex-end', gap: 'clamp(4px, 1.5vw, 14px)', height: 200, paddingTop: 20 }}>
-      {series.map((s, i) => {
-        const h = (s.value / max) * 100
+    <div style={{ display: 'flex', alignItems: 'flex-end', gap: 6, height: 170, padding: '4px 0' }}>
+      {points.map((p) => {
+        const on = p.key === selected
         return (
-          <div key={i} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', height: '100%', justifyContent: 'flex-end' }}>
-            <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--ink)', marginBottom: 4, whiteSpace: 'nowrap' }}>
-              {s.value > 0 ? gbp(s.value) : ''}
+          <button key={p.key} onClick={() => onPick?.(p.key)} title={`${p.label} · ${gbp(p.value)}`}
+            style={{ flex: 1, minWidth: 0, background: 'none', border: 'none', padding: 0, cursor: onPick ? 'pointer' : 'default',
+                     display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', height: '100%', gap: 4 }}>
+            <div style={{ fontSize: 9.5, color: on ? 'var(--accent)' : 'var(--faint)', fontWeight: on ? 800 : 600, whiteSpace: 'nowrap' }}>
+              {p.value ? gbp(p.value) : ''}
             </div>
             <div style={{
-              width: '78%', height: `${h}%`, minHeight: s.value > 0 ? 3 : 0,
-              background: 'linear-gradient(180deg, #2bc985 0%, #1FA86B 100%)',
-              borderRadius: '5px 5px 0 0', transition: 'height 0.3s',
+              height: `${Math.max((p.value / max) * 100, p.value ? 2 : 0.5)}%`,
+              background: on ? 'var(--accent)' : 'var(--chip-bg)',
+              borderRadius: '4px 4px 0 0', transition: 'background .15s',
             }} />
-            <div style={{ fontSize: 10, color: 'var(--muted)', marginTop: 6, fontWeight: 600 }}>{s.label}</div>
-          </div>
+            <div style={{ fontSize: 10, color: on ? 'var(--accent)' : 'var(--muted)', fontWeight: on ? 800 : 500, whiteSpace: 'nowrap', overflow: 'hidden' }}>
+              {p.label}
+            </div>
+          </button>
         )
       })}
     </div>
   )
 }
 
-function RankBars({ rows, color, perRowColor }) {
-  if (!rows.length) return <div className="empty">No data yet.</div>
-  const max = Math.max(1, ...rows.map((r) => r.value))
+// Ranked bars. One measure across names, so every bar is the same colour —
+// length already carries the value.
+function RankBars({ rows, onPick, onSplit }) {
+  const max = Math.max(...rows.map((r) => r.value), 1)
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
-      {rows.map((r, i) => {
-        const w = (r.value / max) * 100
-        const c = perRowColor ? (r.color || color) : color
-        return (
-          <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <div style={{ width: 130, fontSize: 12.5, fontWeight: 600, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={r.name}>{r.name}</div>
-            <div style={{ flex: 1, background: 'var(--panel-2)', borderRadius: 6, height: 22, position: 'relative', overflow: 'hidden' }}>
-              <div style={{ width: `${w}%`, height: '100%', background: c, borderRadius: 6, minWidth: r.value > 0 ? 2 : 0, transition: 'width 0.3s' }} />
-            </div>
-            <div style={{ width: 72, textAlign: 'right', fontSize: 12.5, fontWeight: 700, color: 'var(--ink)', fontFamily: 'monospace' }}>{gbp(r.value)}</div>
+      {rows.slice(0, 15).map((r) => (
+        <div key={r.key} style={{ display: 'grid', gridTemplateColumns: 'minmax(120px,30%) 1fr auto', gap: 10, alignItems: 'center' }}>
+          <div style={{ minWidth: 0 }}>
+            <button
+              onClick={() => onPick?.(r.key)}
+              style={{ background: 'none', border: 'none', padding: 0, textAlign: 'left', font: 'inherit',
+                       cursor: onPick ? 'pointer' : 'default', color: onPick ? 'var(--accent)' : 'var(--ink)',
+                       fontWeight: 600, fontSize: 12.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '100%' }}
+              title={r.merged ? r.merged.join('\n') : r.label}>
+              {r.label}
+            </button>
+            {r.merged && (
+              <span style={{ marginLeft: 6, fontSize: 9.5, fontWeight: 700, color: 'var(--muted)', background: 'var(--chip-bg)', borderRadius: 5, padding: '1px 5px', whiteSpace: 'nowrap' }}
+                title={`Merged from:\n${r.merged.join('\n')}`}>
+                {r.merged.length} names
+                <button onClick={() => onSplit?.(r.key)} title="Keep these names apart"
+                  style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--muted)', padding: '0 0 0 4px', font: 'inherit' }}>✂</button>
+              </span>
+            )}
+            {r.split && (
+              <button onClick={() => onSplit?.(r.key)} title="Merge similar names again"
+                style={{ marginLeft: 6, fontSize: 9.5, fontWeight: 700, color: 'var(--warn, #B07E28)', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
+                kept apart · undo
+              </button>
+            )}
+            {r.note && <div style={{ fontSize: 10.5, color: 'var(--faint)' }}>{r.note}</div>}
           </div>
-        )
-      })}
+          <div style={{ background: 'var(--panel-2)', borderRadius: 4, height: 18 }}>
+            <div style={{ width: `${Math.max((r.value / max) * 100, 1.5)}%`, height: '100%', background: 'var(--accent)', borderRadius: '0 4px 4px 0' }} />
+          </div>
+          <div className="mono" style={{ fontSize: 12.5, fontWeight: 700, whiteSpace: 'nowrap' }}>{gbp(r.value)}</div>
+        </div>
+      ))}
     </div>
   )
 }
