@@ -81,6 +81,12 @@ export default function OrderDetailPage() {
   // Export orders carry no VAT. Held on the order, since the same customer can
   // have both kinds, and snapshotted onto the note at dispatch.
   const [noVat, setNoVat] = useState(false)
+  // Consignment dimensions for the note. Pallets and IBCs stand differently —
+  // a pallet is wider than it is tall, an IBC the other way round — so each has
+  // its own row. Shown on the note only when ticked; an export order ticks it
+  // automatically because the paperwork needs it.
+  const [showDims, setShowDims] = useState(false)
+  const [dims, setDims] = useState(null)   // { pallet:{n,l,w,h}, ibc:{n,l,w,h} } once touched
   const [showHazard, setShowHazard] = useState(true)
   const [batchModal, setBatchModal] = useState(null) // null | [{ name, batch, na }]
   const [busy, setBusy] = useState(false)
@@ -128,6 +134,7 @@ export default function OrderDetailPage() {
       setOrder(o.data); setProducts(p.data || []); setPackaging(k.data || []); setLetterheads(lhData)
       setLines(o.data?.lines || [])
       setNoVat(!!o.data?.no_vat)
+      if (o.data?.no_vat) setShowDims(true)
 
       // Default to Midland Chem letterhead if it exists
       const midlandIdx = lhData.findIndex(
@@ -390,7 +397,11 @@ export default function OrderDetailPage() {
       return
     }
     setOrder((o) => (o ? { ...o, no_vat: next } : o))
-    toast(next ? 'VAT removed — this order is not VAT chargeable' : 'VAT restored on this order')
+    // Export paperwork has to carry the consignment dimensions.
+    if (next) setShowDims(true)
+    toast(next
+      ? 'VAT removed — this order is not VAT chargeable, and dimensions will print on the note'
+      : 'VAT restored on this order')
   }
 
   async function saveLines() {
@@ -599,6 +610,28 @@ export default function OrderDetailPage() {
     return sum + (((c.vol || 0) > 500) ? (c.qty || 0) : 0)
   }, 0)
   const totalPallets = ibcCount + (parseInt(extraPallets, 10) || 0)
+  const palletCount = parseInt(extraPallets, 10) || 0
+  const DEFAULT_DIMS = {
+    pallet: { n: String(palletCount), l: '1.2', w: '1.0', h: '1.0' },
+    ibc: { n: String(ibcCount), l: '1.2', w: '1.0', h: '1.2' },
+  }
+  // Untouched fields track the counts; once edited the typed values stand.
+  const dimVals = {
+    pallet: { ...DEFAULT_DIMS.pallet, ...(dims?.pallet || {}) },
+    ibc: { ...DEFAULT_DIMS.ibc, ...(dims?.ibc || {}) },
+  }
+  const setDim = (kind, field, v) => setDims((d) => ({
+    ...(d || {}),
+    [kind]: { ...(d?.[kind] || DEFAULT_DIMS[kind]), [field]: v },
+  }))
+  // "3 x 1.2M (L) x 1.0M (W) x 1.0M (H)"
+  const dimLine = (d) => `${d.n} x ${d.l}M (L) x ${d.w}M (W) x ${d.h}M (H)`
+  const dimLines = () => {
+    const out = []
+    if ((parseInt(dimVals.ibc.n, 10) || 0) > 0) out.push(`${dimLine(dimVals.ibc)} — IBC${dimVals.ibc.n === '1' ? '' : 's'}`)
+    if ((parseInt(dimVals.pallet.n, 10) || 0) > 0) out.push(`${dimLine(dimVals.pallet)} — pallet${dimVals.pallet.n === '1' ? '' : 's'}`)
+    return out
+  }
 
   // Step 1 — validate, then open the batch-number modal
   // Re-evaluate delivery charge whenever anything that affects it changes.
@@ -711,6 +744,7 @@ export default function OrderDetailPage() {
       contact,
       customerName: order.customer_snapshot?.name || '',
       lines, options, pallets: totalPallets, showHazard, batches, mfgDates,
+      dimensions: showDims ? dimLines() : [],
       deliveryCharge: parseFloat(deliveryCharge) || 0,
     }
     const { totals } = generateDispatchPDF(docData, lh, products, packaging, prices)
@@ -742,6 +776,7 @@ export default function OrderDetailPage() {
         label_total: labelTotal || 0,
         po_ref: order.po_ref || '',
         no_vat: noVat,
+        dimensions: showDims ? dimLines() : [],
       },
       options, created_by: user?.id || null,
     })
@@ -1333,6 +1368,40 @@ export default function OrderDetailPage() {
             </p>
           </div>
         </div>
+        {/* Dimensions. Off by default; an export order turns it on because the
+            paperwork requires it. Pre-filled from the load, all four fields
+            editable in case a consignment is stacked or over-height. */}
+        <div className="dims-box">
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, textTransform: 'none', letterSpacing: 0, fontWeight: 700, fontSize: 13, cursor: 'pointer', margin: 0, color: showDims ? 'var(--accent)' : 'var(--ink)' }}>
+            <input type="checkbox" checked={showDims} onChange={(e) => setShowDims(e.target.checked)}
+              style={{ width: 'auto', height: 16, accentColor: 'var(--accent)' }} />
+            📐 Print dimensions on the delivery note
+            {noVat && <span style={{ fontWeight: 600, fontSize: 11.5, color: 'var(--warn, #B07E28)' }}>· required for an export order</span>}
+          </label>
+
+          {showDims && (
+            <div style={{ marginTop: 10 }}>
+              {[['ibc', 'IBCs'], ['pallet', 'Pallets']].map(([kind, label]) => (
+                <div key={kind} style={{ display: 'grid', gridTemplateColumns: '78px repeat(4, minmax(0,1fr))', gap: 7, alignItems: 'end', marginBottom: 8 }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)', paddingBottom: 9 }}>{label}</div>
+                  {[['n', 'Number'], ['l', 'Length (m)'], ['w', 'Width (m)'], ['h', 'Height (m)']].map(([f, flabel]) => (
+                    <div className="field" key={f} style={{ marginBottom: 0 }}>
+                      <label style={{ fontSize: 9.5 }}>{flabel}</label>
+                      <input className="mono" style={{ fontSize: 12.5, padding: '7px 9px', textAlign: 'right' }}
+                        value={dimVals[kind][f]} onChange={(e) => setDim(kind, f, e.target.value)} />
+                    </div>
+                  ))}
+                </div>
+              ))}
+              <p className="hint" style={{ marginTop: 4, marginBottom: 0 }}>
+                {dimLines().length
+                  ? <>The note will read:{dimLines().map((t, i) => <span key={i} style={{ display: 'block', fontFamily: '"IBM Plex Mono", monospace', fontWeight: 700, color: 'var(--fg)' }}>{t}</span>)}</>
+                  : <>Nothing to print — set a number against IBCs or pallets above.</>}
+              </p>
+            </div>
+          )}
+        </div>
+
         <div className="row c2" style={{ marginBottom: 10 }}>
           <div className="field"><label>Invoice To (on PDF)</label>
             <textarea value={invoiceTo} onChange={(e) => setInvoiceTo(e.target.value)} style={{ minHeight: 62 }} /></div>
