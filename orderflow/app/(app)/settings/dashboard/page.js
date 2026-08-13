@@ -1,7 +1,7 @@
 'use client'
 import { useEffect, useMemo, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { computeLine, PRICE_LEVELS, seasonalActive, parseTiers, resolveLinePpl, labelCount, normalizeStatus, STATUS_NEW, STATUS_DONE } from '@/lib/calc'
+import { computeLine, PRICE_LEVELS, seasonalActive, parseTiers, resolveLinePpl, usesCombinedQty, labelCount, normalizeStatus, STATUS_NEW, STATUS_DONE } from '@/lib/calc'
 import PricingGuard from '@/app/(app)/PricingGuard'
 import { groupProductNames, productKeyMap } from '@/lib/insights'
 
@@ -99,7 +99,7 @@ export default function DashboardPage() {
           const c = computeLine(l, products, packaging)
           if (!c.product || !c.packaging) return sum
           const k = `${o.customer_id}::${c.product.id}::${c.packaging.id}`
-          return basisMap[k] === 'order' ? sum + (c.qty || 0) : sum
+          return usesCombinedQty(tierMap[k] || [], basisMap[k]) ? sum + (c.qty || 0) : sum
         }, 0)
         const threeTier = custThreeTier[o.customer_id]
         const lvlCol = levelCol(o.price_level || 'trade')

@@ -310,7 +310,7 @@ export default function PriceListPage() {
                                 fontSize: 12, background: 'rgba(31,168,107,0.12)', border: '1px solid rgba(31,168,107,0.35)',
                                 borderRadius: 6, padding: '2px 8px', fontFamily: 'monospace', color: 'var(--ink)',
                               }}>
-                                <b>{bandLabel(t)} {r.basis === 'order' ? 'combined' : r.pkg.name}</b>: £{t.ppl.toFixed(4)}/L{t.ppp != null ? ` · £${t.ppp.toFixed(2)}/pack` : ''}
+                                <b>{bandLabel(t)} {(t.basis || r.basis) === 'order' ? 'combined' : r.pkg.name}</b>: £{t.ppl.toFixed(4)}/L{t.ppp != null ? ` · £${t.ppp.toFixed(2)}/pack` : ''}
                               </span>
                             ))}
                           </div>

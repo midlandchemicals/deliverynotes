@@ -480,9 +480,9 @@ export default function PricesPage() {
                         <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.04em', color: 'var(--muted)', marginBottom: 8 }}>
                           Quantity-break tiers — £/litre
                         </div>
-                        {/* Mode: this line's qty, or combined IBCs across all combined-mode products on the order */}
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
-                          <span style={{ fontSize: 12, color: 'var(--muted)' }}>Band decided by:</span>
+                        {/* One ladder; the row says which quantity qualifies for it. */}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
+                          <span style={{ fontSize: 12, color: 'var(--muted)' }}>Bands measured by (default):</span>
                           <div className="theme-tog" style={{ background: 'var(--field-bg)' }}>
                             <button className={(row.tier_basis || 'line') === 'line' ? 'on' : ''}
                               onClick={() => setBasis(row.id, 'line')}>This product’s qty</button>
@@ -493,6 +493,7 @@ export default function PricesPage() {
                             {row.tier_basis === 'order'
                               ? 'band chosen by the total packs of all combined-mode products on the order'
                               : `band chosen by the number of ${pkg?.name || 'packs'} of this product on the line`}
+                            {' '}Any band can be switched on its own row.
                           </span>
                         </div>
                         {tiers.length === 0 && (
@@ -513,7 +514,15 @@ export default function PricesPage() {
                               <input className="mono" style={{ width: 56, textAlign: 'right' }} value={t.to ?? ''} placeholder="∞"
                                 onChange={(e) => updateTierLocal(row.id, i, { to: e.target.value })}
                                 onBlur={() => commitTiers(row.id)} />
-                              <span style={{ fontSize: 12, color: 'var(--muted)' }}>{row.tier_basis === 'order' ? 'packs (combined)' : (pkg?.name || 'packs')} →</span>
+                              <div className="theme-tog" style={{ background: 'var(--field-bg)' }}>
+                                <button className={(t.basis || row.tier_basis || 'line') === 'line' ? 'on' : ''}
+                                  onClick={() => { updateTierLocal(row.id, i, { basis: 'line' }); setTimeout(() => commitTiers(row.id), 0) }}
+                                  title={`Measured on the ${pkg?.name || 'packs'} of this product alone`}>This product alone</button>
+                                <button className={(t.basis || row.tier_basis) === 'order' ? 'on' : ''}
+                                  onClick={() => { updateTierLocal(row.id, i, { basis: 'order' }); setTimeout(() => commitTiers(row.id), 0) }}
+                                  title="Measured on the combined packs across the order">Whole order</button>
+                              </div>
+                              <span style={{ fontSize: 12, color: 'var(--muted)' }}>→</span>
                               <span style={{ fontSize: 12, color: 'var(--muted)' }}>£</span>
                               <input className="mono" style={{ width: 90, textAlign: 'right' }} value={t.ppl ?? ''} placeholder="0.0000"
                                 onChange={(e) => updateTierLocal(row.id, i, { ppl: e.target.value })}
@@ -529,9 +538,9 @@ export default function PricesPage() {
                         <button className="btn btn-g btn-sm" style={{ marginTop: 4 }} onClick={() => addTier(row.id)}>＋ Add tier</button>
                         <p className="hint" style={{ marginTop: 8 }}>
                           Leave <b>to</b> blank for the top band (e.g. “10 and above”). Bands should not overlap.
-                          {row.tier_basis === 'order'
-                            ? ' Combined mode: the band is chosen by the total packs of every product on the order that is also set to “Combined order qty” for this customer — so a mix of products counts together.'
-                            : ' Tiers show on the Price List and its PDF export.'}
+                          {' '}A ladder can mix the two — bands on the whole order plus one measured on this product
+                          alone, say — and where more than one band applies the customer gets the cheapest of them.
+                          Bands measured the same way should not overlap.
                         </p>
                       </td>
                     </tr>

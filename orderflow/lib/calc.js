@@ -129,21 +129,42 @@ export const VAT_LABEL = `VAT (${Math.round(VAT_RATE * 100)}%)`
 // Priority: seasonal window > quantity-break tier > base price.
 
 // Normalise a qty_tiers jsonb value into sorted, valid bands.
+// Bands may carry their own basis, but the normal case is one ladder measured
+// against the row's default, which any band may override.
 export function parseTiers(raw) {
   return (Array.isArray(raw) ? raw : [])
-    .map((t) => ({ from: Number(t.from) || 0, to: t.to == null || t.to === '' ? null : Number(t.to), ppl: Number(t.ppl) || 0 }))
+    .map((t) => ({
+      from: Number(t.from) || 0,
+      to: t.to == null || t.to === '' ? null : Number(t.to),
+      ppl: Number(t.ppl) || 0,
+      basis: t.basis === 'order' || t.basis === 'line' ? t.basis : null,
+    }))
     .filter((t) => t.ppl > 0)
     .sort((a, b) => a.from - b.from)
+}
+
+// Does this price row take part in the combined whole-order count? True when
+// the row is measured on the whole order — or on both — or any single band is.
+export function usesCombinedQty(tiers = [], basis = 'line') {
+  return basis === 'order' || (tiers || []).some((t) => t.basis === 'order')
 }
 
 // base: base/list £/L · tiers: parsed bands · basis: 'line' | 'order'
 // season: {from,to,ppl} | null · orderDate: 'YYYY-MM-DD'
 // lineQty: packs on this line · combinedQty: total packs of 'order'-basis lines
+// basis is the ladder's DEFAULT measure; any band may name its own, so one
+// ladder can run mostly on the combined order quantity and still carry a band
+// measured on this product alone. Where more than one band applies, the
+// customer gets the cheapest they qualify for.
 export function resolveLinePpl({ base = 0, tiers = [], basis = 'line', season = null, orderDate = null, lineQty = 0, combinedQty = 0 }) {
   if (season && seasonalActive(season.from, season.to, orderDate)) return Number(season.ppl) || 0
-  const q = basis === 'order' ? combinedQty : (parseFloat(lineQty) || 0)
-  const hit = tiers.find((t) => q >= t.from && (t.to == null || q <= t.to))
-  return hit ? hit.ppl : (parseFloat(base) || 0)
+  const lineN = parseFloat(lineQty) || 0
+  const orderN = parseFloat(combinedQty) || 0
+  const inBand = (t, q) => q >= t.from && (t.to == null || q <= t.to)
+
+  const matches = tiers.filter((t) => inBand(t, (t.basis || basis) === 'order' ? orderN : lineN))
+  if (!matches.length) return parseFloat(base) || 0
+  return matches.reduce((best, t) => (t.ppl < best ? t.ppl : best), matches[0].ppl)
 }
 
 // Pull contact details (name / email / phone) OUT of an address block.
