@@ -434,7 +434,10 @@ export function generateOfficeCopyPDF(doc_, lh, products, packaging, pricing = {
   const subtotal = lineData.reduce((s, d) => s + d.lineTotal, 0)
   const delivery = parseFloat(deliveryCharge) || 0
   const labels = parseFloat(labelTotal) || 0
-  const vat = Math.round((subtotal + labels + delivery) * VAT_RATE * 100) / 100
+  // An export order carries no VAT; the invoicing copy has to say so rather
+  // than simply showing a zero, which reads as an oversight.
+  const noVat = !!doc_.noVat
+  const vat = noVat ? 0 : Math.round((subtotal + labels + delivery) * VAT_RATE * 100) / 100
   const grandTotal = subtotal + labels + delivery + vat
 
   const hasMfg = lineData.some((ld) => ld.mfg)
@@ -471,7 +474,7 @@ export function generateOfficeCopyPDF(doc_, lh, products, packaging, pricing = {
     ...(labels > 0   ? [{ label: 'Labels',   val: f2(labels),   bold: false }] : []),
     ...(delivery > 0 ? [{ label: 'Delivery', val: f2(delivery), bold: false }] : []),
     { label: 'Total (ex VAT)',        val: f2(subtotal + labels + delivery), semi: true },
-    { label: VAT_LABEL,               val: f2(vat),        bold: false },
+    ...(noVat ? [] : [{ label: VAT_LABEL, val: f2(vat), bold: false }]),
     { label: 'Grand total',           val: f2(grandTotal), bold: true  },
   ]
   if (ty + totRows.length * 7 > 270) { doc.addPage(); ty = 20 }
@@ -481,6 +484,13 @@ export function generateOfficeCopyPDF(doc_, lh, products, packaging, pricing = {
     doc.text(label, tx, ty); doc.text(val, W - M, ty, { align: 'right' })
     ty += bold ? 7 : 6
   })
+
+  if (noVat) {
+    ty += 2
+    doc.setFont(FONT, 'bold').setFontSize(10).setTextColor(25, 25, 25)
+    doc.text('VAT is not chargeable on this order', W - M, ty, { align: 'right' })
+    ty += 7
+  }
 
   if (doc_.options) {
     ty += 4
@@ -681,7 +691,8 @@ export function generateProformaPDF(doc_, lh, products, packaging, pricing = {},
   const subtotal = lineData.reduce((x, d) => x + d.lineTotal, 0)
   const delivery = parseFloat(deliveryCharge) || 0
   const labels = parseFloat(labelTotal) || 0
-  const vat = Math.round((subtotal + labels + delivery) * VAT_RATE * 100) / 100
+  const noVat = !!doc_.noVat
+  const vat = noVat ? 0 : Math.round((subtotal + labels + delivery) * VAT_RATE * 100) / 100
   const grandTotal = subtotal + labels + delivery + vat
 
   autoTable(doc, {
@@ -706,7 +717,7 @@ export function generateProformaPDF(doc_, lh, products, packaging, pricing = {},
     ...(labels > 0 ? [{ label: 'Labels', val: f2(labels) }] : []),
     ...(delivery > 0 ? [{ label: 'Delivery', val: f2(delivery) }] : []),
     { label: 'Total (ex VAT)', val: f2(subtotal + labels + delivery), semi: true },
-    { label: VAT_LABEL, val: f2(vat) },
+    ...(noVat ? [] : [{ label: VAT_LABEL, val: f2(vat) }]),
     { label: 'Total due', val: f2(grandTotal), bold: true },
   ]
   if (ty + totRows.length * 7 + 55 > 285) { doc.addPage(); ty = 20 }
@@ -716,6 +727,13 @@ export function generateProformaPDF(doc_, lh, products, packaging, pricing = {},
     doc.text(label, tx, ty); doc.text(val, W - M, ty, { align: 'right' })
     ty += bold ? 7 : 6
   })
+
+  if (noVat) {
+    ty += 2
+    doc.setFont(FONT, 'bold').setFontSize(10).setTextColor(25, 25, 25)
+    doc.text('VAT is not chargeable on this order', W - M, ty, { align: 'right' })
+    ty += 7
+  }
 
   // Bank details for payment
   ty += 4

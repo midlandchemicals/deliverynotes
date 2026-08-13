@@ -78,6 +78,9 @@ export default function OrderDetailPage() {
   const [palletsFlash, setPalletsFlash] = useState(false)
   const [docNoOverride, setDocNoOverride] = useState('') // optional manual DN number
   const [deliveryTouched, setDeliveryTouched] = useState(false) // user typed a delivery charge by hand
+  // Export orders carry no VAT. Held on the order, since the same customer can
+  // have both kinds, and snapshotted onto the note at dispatch.
+  const [noVat, setNoVat] = useState(false)
   const [showHazard, setShowHazard] = useState(true)
   const [batchModal, setBatchModal] = useState(null) // null | [{ name, batch, na }]
   const [busy, setBusy] = useState(false)
@@ -124,6 +127,7 @@ export default function OrderDetailPage() {
       const lhData = lh.data || []
       setOrder(o.data); setProducts(p.data || []); setPackaging(k.data || []); setLetterheads(lhData)
       setLines(o.data?.lines || [])
+      setNoVat(!!o.data?.no_vat)
 
       // Default to Midland Chem letterhead if it exists
       const midlandIdx = lhData.findIndex(
@@ -283,7 +287,7 @@ export default function OrderDetailPage() {
   function runProforma() {
     generateProformaPDF(
       {
-        docNo: order.order_no, poRef: order.po_ref || '', date: todayISO(),
+        docNo: order.order_no, poRef: order.po_ref || '', date: todayISO(), noVat,
         orderDate: order.order_date || null,
         invoiceTo, deliver: splitContact(order.customer_snapshot?.deliver || '').address,
         lines,
@@ -376,6 +380,17 @@ export default function OrderDetailPage() {
   async function setStatus(status) {
     if (!ok(await supabase.from('orders').update({ status }).eq('id', id), 'updating status')) return
     setOrder({ ...order, status })
+  }
+
+  async function toggleNoVat() {
+    const next = !noVat
+    setNoVat(next)
+    if (!ok(await supabase.from('orders').update({ no_vat: next }).eq('id', id), 'saving the VAT setting')) {
+      setNoVat(!next)
+      return
+    }
+    setOrder((o) => (o ? { ...o, no_vat: next } : o))
+    toast(next ? 'VAT removed — this order is not VAT chargeable' : 'VAT restored on this order')
   }
 
   async function saveLines() {
@@ -534,6 +549,7 @@ export default function OrderDetailPage() {
     const mfgDates = (d.lines_snapshot || []).map((s) => s.mfg_date || '')
     const doc_ = {
       docNo: d.doc_no, poRef: order.po_ref || '', date: d.doc_date,
+      noVat: !!(d.totals?.no_vat ?? noVat),
       orderDate: order.order_date || null,
       invoiceTo: d.customer, deliver: d.deliver,
       contact: d.totals?.contact,
@@ -725,6 +741,7 @@ export default function OrderDetailPage() {
         delivery_charge: parseFloat(deliveryCharge) || 0,
         label_total: labelTotal || 0,
         po_ref: order.po_ref || '',
+        no_vat: noVat,
       },
       options, created_by: user?.id || null,
     })
@@ -1075,7 +1092,7 @@ export default function OrderDetailPage() {
           </table>
           {(() => {
             const delivery = parseFloat(deliveryCharge) || 0
-            const vat = Math.round((orderTotal + labelTotal + delivery) * VAT_RATE * 100) / 100
+            const vat = noVat ? 0 : Math.round((orderTotal + labelTotal + delivery) * VAT_RATE * 100) / 100
             const grandTotal = orderTotal + labelTotal + delivery + vat
             return (
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6, marginTop: 14 }}>
@@ -1129,9 +1146,28 @@ export default function OrderDetailPage() {
                     <span>Total (ex VAT)</span>
                     <span className="mono">{(orderTotal + labelTotal + delivery) > 0 ? `£${(orderTotal + labelTotal + delivery).toFixed(2)}` : '—'}</span>
                   </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', fontSize: 13 }}>
-                    <span className="muted">{VAT_LABEL}</span>
-                    <span className="mono">{orderTotal > 0 || delivery > 0 ? `£${vat.toFixed(2)}` : '—'}</span>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', fontSize: 13, alignItems: 'center', gap: 8 }}>
+                    {noVat ? (
+                      <>
+                        <span style={{ fontWeight: 700, color: 'var(--warn, #B07E28)' }}>
+                          VAT is not chargeable on this order
+                        </span>
+                        <a style={{ fontSize: 11.5, color: 'var(--muted)', cursor: 'pointer', textDecoration: 'underline', whiteSpace: 'nowrap' }}
+                          onClick={toggleNoVat}>put VAT back</a>
+                      </>
+                    ) : (
+                      <>
+                        <span className="muted" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                          {VAT_LABEL}
+                          <button
+                            onClick={toggleNoVat}
+                            title="Remove VAT — for an export order"
+                            style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--muted)', fontSize: 14, lineHeight: 1, padding: '0 2px' }}
+                          >✕</button>
+                        </span>
+                        <span className="mono">{orderTotal > 0 || delivery > 0 ? `£${vat.toFixed(2)}` : '—'}</span>
+                      </>
+                    )}
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', fontSize: 17, fontWeight: 700, borderTop: '1px solid var(--border)', paddingTop: 6 }}>
                     <span>Grand total</span>
@@ -1345,7 +1381,7 @@ export default function OrderDetailPage() {
                     <>
                       <button className="btn btn-g btn-sm" onClick={() => generateProformaPDF(
                         {
-                          docNo: d.doc_no || order.order_no, date: todayISO(),
+                          docNo: d.doc_no || order.order_no, date: todayISO(), noVat: !!(d.totals?.no_vat ?? noVat),
                           orderDate: order.order_date || null,
                           invoiceTo: d.customer || invoiceTo,
                           deliver: d.deliver || splitContact(order.customer_snapshot?.deliver || '').address,

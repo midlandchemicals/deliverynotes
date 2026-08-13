@@ -27,3 +27,4 @@ a new numbered file appears here — run just that one.
 | 015_messages.sql | staff-to-staff messages for the floating chat panel (private to the two people in each conversation) |
 | 016_purchases.sql | raw material & packaging purchases for the admin Purchasing page (admin-only RLS) |
 | 017_commission_group.sql | marks which customers earn Elite Farm commission (for the monthly statement) |
+| 018_no_vat.sql | per-order "no VAT" flag for export orders |

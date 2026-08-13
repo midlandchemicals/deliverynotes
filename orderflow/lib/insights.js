@@ -1,7 +1,7 @@
 // Grouping for the Insights page.
 //
-// Product names on delivery notes are typed by hand and drift: "CITRUAL" and
-// "CITRUAL DEGREASER" are the same thing sold under a slightly longer name, and
+// Product names on delivery notes are typed by hand and drift: "CITURAL" and
+// "CITURAL DEGREASER" are the same thing sold under a slightly longer name, and
 // reporting them as two products makes the top-sellers list wrong. Names are
 // merged automatically, shown with an indicator, and can be split apart again.
 
@@ -19,7 +19,7 @@ function couldBeSameThing(a, b) {
 }
 
 // True when `short` is `long` with more words on the end — the shape that
-// "CITRUAL" / "CITRUAL DEGREASER" takes.
+// "CITURAL" / "CITURAL DEGREASER" takes.
 function isWordPrefix(short, long) {
   return short.length >= 4 && long.startsWith(short + ' ')
 }
