@@ -102,9 +102,6 @@ export default function LineEditor({ lines, setLines, products, packaging, avail
     }
     setLines(lines.map((l, idx) => (idx === i ? { ...l, ...patch } : l)))
   }
-  function add() {
-    setLines([...lines, { productId: products[0]?.id || null, packagingId: packaging[0]?.id || null, qty: '1' }])
-  }
   function remove(i) {
     setLines(lines.filter((_, idx) => idx !== i))
   }
@@ -243,7 +240,6 @@ export default function LineEditor({ lines, setLines, products, packaging, avail
           })}
         </tbody>
       </table>
-      <button type="button" className="addrow" onClick={add}>+ Add product</button>
 
       {/* Confirm before an SG change is written to the catalogue. */}
       {sgPrompt && (
