@@ -36,6 +36,43 @@ function compactAddress(text, maxLen = 52) {
   return out.join('\n')
 }
 
+
+// Consignment dimensions in their own box: a row per pack type with its own
+// cubic metres, then the combined figure. `dims` is { rows, total }; older
+// notes hold a plain array of strings, which is drawn as-is.
+function drawDimensionsBox(doc, ty, dims, r, g, b, M, W) {
+  const rows = Array.isArray(dims) ? dims.map((line) => ({ label: '', line, volume: null })) : (dims?.rows || [])
+  if (!rows.length) return ty
+  const total = Array.isArray(dims) ? null : dims?.total
+  const m3 = (n) => (Math.round((n || 0) * 1000) / 1000).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 3 })
+
+  const h = 9 + rows.length * 5.6 + (total != null ? 7.5 : 0) + 3
+  if (ty + h > 258) { doc.addPage(); ty = 20 }
+  doc.setDrawColor(r, g, b).setLineWidth(0.4).setFillColor(252, 252, 250)
+  doc.roundedRect(M, ty, W - 2 * M, h, 2, 2, 'FD')
+
+  let y = ty + 6
+  doc.setFont(FONT, 'bold').setFontSize(7.5).setTextColor(r, g, b).text('DIMENSIONS', M + 5, y)
+  y += 5.5
+  rows.forEach((row) => {
+    doc.setFont(FONT, 'normal').setFontSize(9.5).setTextColor(25, 25, 25)
+    doc.text(`${row.label ? row.label + ' — ' : ''}${row.line}`, M + 5, y)
+    if (row.volume != null) {
+      doc.setFont(FONT, 'bold')
+      doc.text(`TOTAL VOLUME ${m3(row.volume)} m³`, W - M - 5, y, { align: 'right' })
+    }
+    y += 5.6
+  })
+  if (total != null) {
+    doc.setDrawColor(200, 200, 195).setLineWidth(0.2).line(M + 5, y - 1.5, W - M - 5, y - 1.5)
+    y += 3.5
+    doc.setFont(FONT, 'bold').setFontSize(10.5).setTextColor(r, g, b)
+    doc.text('TOTAL GROSS VOLUME (COMBINED)', M + 5, y)
+    doc.text(`${m3(total)} m³`, W - M - 5, y, { align: 'right' })
+  }
+  return ty + h + 4
+}
+
 function hazardGroups(lines, products, packaging) {
   const map = {}
   lines.forEach((l) => {
@@ -298,16 +335,7 @@ function renderDeliveryNote(doc, doc_, lh, products, packaging) {
     ty += 5 + noteLines.length * 4.5 + 3
   }
 
-  // Consignment dimensions, when the note is set to carry them.
-  const dimList = doc_.dimensions || []
-  if (dimList.length) {
-    ty += 3
-    doc.setFont(FONT, 'bold').setFontSize(8.5).setTextColor(90, 90, 90).text('DIMENSIONS', M, ty)
-    ty += 5
-    doc.setFont(FONT, 'normal').setFontSize(10).setTextColor(20, 20, 20)
-    dimList.forEach((t) => { doc.text(t, M, ty); ty += 5.4 })
-    ty += 2
-  }
+  ty = drawDimensionsBox(doc, ty + 3, doc_.dimensions, r, g, b, M, W)
 
   if (showHazard) {
     ty += 4
@@ -999,15 +1027,7 @@ export async function reprintPDF(d) {
         doc.setFont(FONT, 'normal').setFontSize(9.5).setTextColor(40, 40, 40).text(noteLines, M, ty + 5)
         ty += 5 + noteLines.length * 4.5 + 3
       }
-      const dimList = d.totals?.dimensions || []
-      if (dimList.length) {
-        ty += 3
-        doc.setFont(FONT, 'bold').setFontSize(8.5).setTextColor(90, 90, 90).text('DIMENSIONS', M, ty)
-        ty += 5
-        doc.setFont(FONT, 'normal').setFontSize(10).setTextColor(20, 20, 20)
-        dimList.forEach((t) => { doc.text(t, M, ty); ty += 5.4 })
-        ty += 2
-      }
+      ty = drawDimensionsBox(doc, ty + 3, d.totals?.dimensions, r, g, b, M, W)
 
       if (showHazard) {
         ty += 4

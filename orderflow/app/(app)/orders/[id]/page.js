@@ -626,12 +626,26 @@ export default function OrderDetailPage() {
   }))
   // "3 x 1.2M (L) x 1.0M (W) x 1.0M (H)"
   const dimLine = (d) => `${d.n} x ${d.l}M (L) x ${d.w}M (W) x ${d.h}M (H)`
-  const dimLines = () => {
-    const out = []
-    if ((parseInt(dimVals.ibc.n, 10) || 0) > 0) out.push(`${dimLine(dimVals.ibc)} — IBC${dimVals.ibc.n === '1' ? '' : 's'}`)
-    if ((parseInt(dimVals.pallet.n, 10) || 0) > 0) out.push(`${dimLine(dimVals.pallet)} — pallet${dimVals.pallet.n === '1' ? '' : 's'}`)
-    return out
+  // Cubic metres for a row: count × L × W × H.
+  const dimVolume = (d) => (parseFloat(d.n) || 0) * (parseFloat(d.l) || 0) * (parseFloat(d.w) || 0) * (parseFloat(d.h) || 0)
+  const m3 = (n) => (Math.round(n * 1000) / 1000).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 3 })
+  // What goes on the note: a row per pack type with its own total, then the
+  // combined figure. Kept structured so the note can box and align it.
+  const dimData = () => {
+    const rows = []
+    for (const [kind, label] of [['ibc', 'IBC'], ['pallet', 'Pallet']]) {
+      const d = dimVals[kind]
+      const n = parseInt(d.n, 10) || 0
+      if (n <= 0) continue
+      rows.push({
+        label: n === 1 ? label : `${label}s`,
+        line: dimLine(d),
+        volume: dimVolume(d),
+      })
+    }
+    return { rows, total: rows.reduce((a, r) => a + r.volume, 0) }
   }
+  const dimLines = () => dimData().rows.map((r) => `${r.line} — ${r.label}`)
 
   // Step 1 — validate, then open the batch-number modal
   // Re-evaluate delivery charge whenever anything that affects it changes.
@@ -744,7 +758,7 @@ export default function OrderDetailPage() {
       contact,
       customerName: order.customer_snapshot?.name || '',
       lines, options, pallets: totalPallets, showHazard, batches, mfgDates,
-      dimensions: showDims ? dimLines() : [],
+      dimensions: showDims ? dimData() : null,
       deliveryCharge: parseFloat(deliveryCharge) || 0,
     }
     const { totals } = generateDispatchPDF(docData, lh, products, packaging, prices)
@@ -776,7 +790,7 @@ export default function OrderDetailPage() {
         label_total: labelTotal || 0,
         po_ref: order.po_ref || '',
         no_vat: noVat,
-        dimensions: showDims ? dimLines() : [],
+        dimensions: showDims ? dimData() : null,
       },
       options, created_by: user?.id || null,
     })
@@ -1394,9 +1408,22 @@ export default function OrderDetailPage() {
                 </div>
               ))}
               <p className="hint" style={{ marginTop: 4, marginBottom: 0 }}>
-                {dimLines().length
-                  ? <>The note will read:{dimLines().map((t, i) => <span key={i} style={{ display: 'block', fontFamily: '"IBM Plex Mono", monospace', fontWeight: 700, color: 'var(--fg)' }}>{t}</span>)}</>
-                  : <>Nothing to print — set a number against IBCs or pallets above.</>}
+                {(() => {
+                  const dd = dimData()
+                  if (!dd.rows.length) return <>Nothing to print — set a number against IBCs or pallets above.</>
+                  return (
+                    <>The note will read:
+                      {dd.rows.map((r, i) => (
+                        <span key={i} style={{ display: 'block', fontFamily: '"IBM Plex Mono", monospace', fontWeight: 700, color: 'var(--fg)' }}>
+                          {r.label} — {r.line} · TOTAL VOLUME {m3(r.volume)} m³
+                        </span>
+                      ))}
+                      <span style={{ display: 'block', marginTop: 3, fontFamily: '"IBM Plex Mono", monospace', fontWeight: 800, color: 'var(--accent)' }}>
+                        TOTAL GROSS VOLUME (COMBINED) {m3(dd.total)} m³
+                      </span>
+                    </>
+                  )
+                })()}
               </p>
             </div>
           )}
