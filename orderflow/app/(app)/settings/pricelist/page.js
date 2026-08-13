@@ -73,6 +73,9 @@ export default function PriceListPage() {
                   to: t.to != null && t.to !== '' ? Number(t.to) : null,
                   ppl: tppl,
                   ppp: vol > 0 ? tppl * vol : null,
+                  // Each band may name its own measure; dropping it here made
+                  // every band read "combined" whatever it was set to.
+                  basis: t.basis === 'line' || t.basis === 'order' ? t.basis : null,
                 }
               })
               .filter((t) => t.from != null && t.ppl > 0)
@@ -303,7 +306,11 @@ export default function PriceListPage() {
                         <td style={{ ...gridTd, borderTop: 'none', paddingTop: 0, paddingBottom: 9 }} colSpan={5}>
                           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
                             <span style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.04em', color: 'var(--accent)' }}>
-                              {r.basis === 'order' ? 'Qty breaks (combined order)' : 'Qty breaks'}
+                              {(() => {
+                                const measures = new Set(r.tiers.map((t) => t.basis || r.basis))
+                                if (measures.size > 1) return 'Qty breaks (mixed)'
+                                return measures.has('order') ? 'Qty breaks (combined order)' : 'Qty breaks'
+                              })()}
                             </span>
                             {r.tiers.map((t, ti) => (
                               <span key={ti} style={{

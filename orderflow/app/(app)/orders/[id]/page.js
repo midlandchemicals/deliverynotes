@@ -1053,6 +1053,17 @@ export default function OrderDetailPage() {
                 const tierApplied = !seasonApplied && (priceTiers[priceKey] || []).length > 0 && effPpl !== ppl
                 const isOrderBasis = tierBasis[priceKey] === 'order'
                 const bandQty = isOrderBasis ? combinedSchemeQty() : c.qty
+                // Which band actually produced this price, and on which count.
+                const wonBand = (() => {
+                  const combined = combinedSchemeQty()
+                  const hits = (priceTiers[priceKey] || []).filter((t) => {
+                    const q = (t.basis || tierBasis[priceKey]) === 'order' ? combined : c.qty
+                    return q >= t.from && (t.to == null || q <= t.to)
+                  })
+                  if (!hits.length) return null
+                  return hits.reduce((best, t) => (t.ppl < best.ppl ? t : best), hits[0])
+                })()
+                const wonOnOrder = wonBand ? (wonBand.basis || tierBasis[priceKey]) === 'order' : isOrderBasis
                 const unitPrice = effPpl * (c.vol || 0)
                 const lineTotal = unitPrice * c.qty
                 return (
@@ -1111,7 +1122,10 @@ export default function OrderDetailPage() {
                           title={`Quantity-break tier for ${bandQty} ${isOrderBasis ? 'combined packs on the order' : 'packs'}. List price £${(parseFloat(prices[priceKey]) || 0).toFixed(4)}/L is not charged at this quantity.`}
                         >
                           <span className="mono" style={{ fontWeight: 700, fontSize: 15, color: 'var(--accent)' }}>£{effPpl.toFixed(4)}</span>
-                          <span style={{ fontSize: 10.5, color: 'var(--accent)' }}>⇅ tier price · {isOrderBasis ? `${bandQty} combined` : `${c.qty} packs`}</span>
+                          <span style={{ fontSize: 10.5, color: 'var(--accent)' }}>
+                            ⇅ tier price · {wonOnOrder ? `${combinedSchemeQty()} combined` : `${c.qty} of this`}
+                            {wonBand ? ` · band ${wonBand.from}–${wonBand.to ?? '∞'}` : ''}
+                          </span>
                           <button className="edit-price-btn"
                             title="Change the price for this order only — the price list is not changed"
                             onClick={() => setAgreedPrice(i, effPpl ? effPpl.toFixed(4) : '')}>✎ Edit price for this order</button>
