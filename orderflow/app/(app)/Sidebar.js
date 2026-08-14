@@ -3,7 +3,7 @@ import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import { fetchIsAdmin, resetRoleCache } from '@/lib/roles'
+import { fetchIsAdmin, fetchIsRahul, resetRoleCache } from '@/lib/roles'
 
 function nameFromEmail(email) {
   if (!email) return ''
@@ -37,6 +37,9 @@ const ICONS = {
   doc: (
     <svg width="15" height="15" viewBox="0 0 15 15"><rect x="2.5" y="1.5" width="10" height="12" rx="1.5" fill="none" stroke="currentColor" strokeWidth="1.6" /><rect x="4.5" y="4" width="6" height="1.5" rx=".75" fill="currentColor" /><rect x="4.5" y="7" width="6" height="1.5" rx=".75" fill="currentColor" opacity=".55" /></svg>
   ),
+  target: (
+    <svg width="15" height="15" viewBox="0 0 15 15"><circle cx="7.5" cy="7.5" r="6" fill="none" stroke="currentColor" strokeWidth="1.5" /><circle cx="7.5" cy="7.5" r="3.4" fill="none" stroke="currentColor" strokeWidth="1.5" /><circle cx="7.5" cy="7.5" r="1.3" fill="currentColor" /></svg>
+  ),
 }
 
 const MAIN_LINKS = [
@@ -64,9 +67,11 @@ export default function Sidebar({ email, openCount }) {
   const router = useRouter()
   const supabase = createClient()
   const [isAdmin, setIsAdmin] = useState(true) // optimistic; corrected on load
+  const [isRahul, setIsRahul] = useState(false) // leads tracker — his alone
   const [menuOpen, setMenuOpen] = useState(false)
 
   useEffect(() => { fetchIsAdmin().then(setIsAdmin) }, [])
+  useEffect(() => { fetchIsRahul().then(setIsRahul) }, [])
   useEffect(() => { setMenuOpen(false) }, [path]) // close mobile menu on navigation
 
   async function signOut() {
@@ -111,6 +116,15 @@ export default function Sidebar({ email, openCount }) {
             {label}
           </Link>
         ))}
+        {isRahul && (
+          <>
+            <div className="nav-label">Sales</div>
+            <Link href="/settings/leads" className={isActive('/settings/leads') ? 'on' : ''}>
+              {ICONS.target}
+              Leads
+            </Link>
+          </>
+        )}
       </nav>
       <div className="user-row">
         <div className="avatar">{(nameFromEmail(email) || '?').charAt(0)}</div>

@@ -1,6 +1,6 @@
 'use client'
 import { useState, useEffect } from 'react'
-import { fetchIsAdmin } from '@/lib/roles'
+import { fetchIsAdmin, fetchIsRahul } from '@/lib/roles'
 import { toastError } from '@/lib/notify'
 
 // Role-based pricing visibility (replaces the old password gate).
@@ -11,6 +11,13 @@ export function useIsAdmin() {
   const [isAdmin, setIsAdmin] = useState(null) // null = still checking
   useEffect(() => { fetchIsAdmin().then(setIsAdmin) }, [])
   return isAdmin
+}
+
+// Same shape, but for the single Rahul-only leads tracker. null = still checking.
+export function useIsRahul() {
+  const [isRahul, setIsRahul] = useState(null)
+  useEffect(() => { fetchIsRahul().then(setIsRahul) }, [])
+  return isRahul
 }
 
 // Wrapper — renders children only for admins. General users see nothing
