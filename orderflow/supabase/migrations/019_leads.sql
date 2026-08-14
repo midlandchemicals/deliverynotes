@@ -44,6 +44,6 @@ alter table leads enable row level security;
 -- Change the address below if his login ever changes.
 do $$ begin
   create policy "rahul only" on leads for all to authenticated
-    using (lower(auth.jwt() ->> 'email') = 'rahulpathakappleid@gmail.com')
-    with check (lower(auth.jwt() ->> 'email') = 'rahulpathakappleid@gmail.com');
+    using (lower(auth.jwt() ->> 'email') = 'rahul@midlandchem.com')
+    with check (lower(auth.jwt() ->> 'email') = 'rahul@midlandchem.com');
 exception when duplicate_object then null; end $$;

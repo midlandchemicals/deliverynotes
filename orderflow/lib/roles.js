@@ -31,7 +31,7 @@ export function fetchIsAdmin() {
 // Rahul's login. The leads tracker is his alone (not shared with the other
 // admins, Sunny & Louise), so it's gated on this specific address rather than
 // the admin role. Kept here so the app and the SQL policy agree in one place.
-export const RAHUL_EMAIL = 'rahulpathakappleid@gmail.com'
+export const RAHUL_EMAIL = 'rahul@midlandchem.com'
 
 let cachedEmailPromise = null
 export function fetchUserEmail() {
