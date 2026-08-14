@@ -28,5 +28,28 @@ export function fetchIsAdmin() {
   return cachedPromise
 }
 
+// Rahul's login. The leads tracker is his alone (not shared with the other
+// admins, Sunny & Louise), so it's gated on this specific address rather than
+// the admin role. Kept here so the app and the SQL policy agree in one place.
+export const RAHUL_EMAIL = 'rahulpathakappleid@gmail.com'
+
+let cachedEmailPromise = null
+export function fetchUserEmail() {
+  if (!cachedEmailPromise) {
+    cachedEmailPromise = (async () => {
+      try {
+        const supabase = createClient()
+        const { data: { user } } = await supabase.auth.getUser()
+        return (user?.email || '').trim().toLowerCase()
+      } catch { return '' }
+    })()
+  }
+  return cachedEmailPromise
+}
+
+export function fetchIsRahul() {
+  return fetchUserEmail().then((email) => email === RAHUL_EMAIL)
+}
+
 // Allow re-check after sign-out/sign-in within the same tab.
-export function resetRoleCache() { cachedPromise = null }
+export function resetRoleCache() { cachedPromise = null; cachedEmailPromise = null }
