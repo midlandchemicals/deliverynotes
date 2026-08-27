@@ -439,6 +439,16 @@ export default function OrderDetailPage() {
     if (order?.id) supabase.from('orders').update({ price_level: lvl }).eq('id', order.id)
   }
 
+  // Retrospectively move which month this order counts towards on Insights and
+  // the sales report. monthStr is 'YYYY-MM', or '' to fall back to its own date.
+  // This is a reporting-only figure — it never touches the customer's paperwork.
+  async function saveReportMonth(monthStr) {
+    const val = monthStr ? `${monthStr}-01` : null
+    if (!ok(await supabase.from('orders').update({ report_month: val }).eq('id', id), 'setting the invoice month')) return
+    setOrder((o) => ({ ...o, report_month: val }))
+    toast(val ? `Now reported in ${new Date(monthStr + '-01T00:00:00').toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })}` : 'Back to its own date')
+  }
+
   // Build the price columns to upsert — includes the active level for 3-tier.
   function priceUpsertCols(ppl) {
     const cols = { price_per_litre: ppl }
@@ -1283,6 +1293,32 @@ export default function OrderDetailPage() {
             </div>
           )}
           <p className="hint">Enter £ per litre — unit price and line total are calculated automatically. Prices are saved against this customer for future orders. Products marked with * attract a label charge — set the £/label rate above (pre-filled from customer settings).</p>
+
+          {/* Reporting-only invoice month. zIndex lifts it above the edit-lock
+              overlay so it can still be changed retrospectively on locked orders. */}
+          {(() => {
+            const natural = String(latestNote?.doc_date || order.order_date || order.created_at || '').slice(0, 7)
+            const naturalLabel = natural ? new Date(natural + '-01T00:00:00').toLocaleDateString('en-GB', { month: 'long', year: 'numeric' }) : '—'
+            const current = order.report_month ? String(order.report_month).slice(0, 7) : ''
+            return (
+              <div style={{ marginTop: 12, borderTop: '1px solid var(--border)', paddingTop: 12, position: 'relative', zIndex: 6, display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                <div>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--heading)' }}>Invoice in month</div>
+                  <div style={{ fontSize: 11, color: 'var(--muted)' }}>
+                    Reports &amp; Insights only — never on the customer’s documents.{current ? '' : ` Currently its own date · ${naturalLabel}.`}
+                  </div>
+                </div>
+                <span style={{ flex: 1 }} />
+                <input className="mono" type="month" value={current} onChange={(e) => saveReportMonth(e.target.value)} style={{ width: 160 }} />
+                {current && (
+                  <a style={{ fontSize: 11.5, color: 'var(--muted)', cursor: 'pointer', textDecoration: 'underline', whiteSpace: 'nowrap' }}
+                    title={`Report it in its own month instead (${naturalLabel})`}
+                    onClick={() => saveReportMonth('')}>reset to {naturalLabel}</a>
+                )}
+              </div>
+            )
+          })()}
+
           {/* zIndex lifts this above the edit-lock overlay — the proforma is a
               read-only document, so it must stay printable on locked orders */}
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 10, position: 'relative', zIndex: 6 }}>
