@@ -1217,3 +1217,43 @@ export function generateSalesReportPDF(months, lh, title = 'SALES REPORT') {
   reportFoot(doc, lh, W, M)
   window.open(URL.createObjectURL(new Blob([doc.output('arraybuffer')], { type: 'application/pdf' })), '_blank')
 }
+
+// Purchasing report — a single table (by month, supplier or product), printed
+// landscape on the Midland letterhead. The caller has already formatted every
+// cell to a string, so this just lays them out.
+//   stats: [{ label, value }] shown as a row of figures under the header
+//   head:  column headings; rows: string[][]; columnStyles: autoTable styles
+//   footCells: an optional autoTable foot row (e.g. a total)
+export function generatePurchasingReportPDF({ lh, title = 'PURCHASING REPORT', subtitle = '', stats = [], head, rows, columnStyles = {}, footCells }) {
+  const doc = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'landscape' })
+  FONT = registerFonts(doc)
+  const W = 297, M = 12
+  const [r, g, b] = hexToRgb(lh.color)
+  let y = reportHead(doc, lh, W, M, title, subtitle)
+
+  if (stats.length) {
+    const colW = (W - 2 * M) / Math.min(stats.length, 5)
+    stats.slice(0, 5).forEach((s, i) => {
+      const x = M + i * colW
+      doc.setFont(FONT, 'normal').setFontSize(7).setTextColor(120, 120, 120).text(String(s.label).toUpperCase(), x, y)
+      doc.setFont(FONT, 'bold').setFontSize(11).setTextColor(20, 20, 20).text(String(s.value), x, y + 6)
+    })
+    y += 14
+  }
+
+  autoTable(doc, {
+    startY: y,
+    head: [head],
+    body: rows,
+    foot: footCells ? [footCells] : undefined,
+    theme: 'plain',
+    styles: { font: FONT, fontSize: 7.5, cellPadding: 1.8, textColor: [40, 40, 40], overflow: 'linebreak' },
+    headStyles: { fillColor: [r, g, b], textColor: 255, fontSize: 7, fontStyle: 'bold' },
+    footStyles: { fontStyle: 'bold', fillColor: [246, 244, 238], textColor: [20, 20, 20] },
+    columnStyles,
+    margin: { left: M, right: M },
+  })
+
+  reportFoot(doc, lh, W, M)
+  window.open(URL.createObjectURL(new Blob([doc.output('arraybuffer')], { type: 'application/pdf' })), '_blank')
+}

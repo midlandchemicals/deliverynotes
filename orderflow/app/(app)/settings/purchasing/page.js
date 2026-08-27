@@ -5,6 +5,7 @@ import { prettyDate, dateISO, todayISO } from '@/lib/calc'
 import { ok, toast, toastError } from '@/lib/notify'
 import { useCanSeePurchasing } from '@/app/(app)/PricingGuard'
 import { UP, normProduct, normSupplier, fuzzyScore, groupBy, suggestMerges } from '@/lib/purchasing'
+import { generatePurchasingReportPDF } from '@/lib/pdf'
 import PriceChart from './PriceChart'
 import SupplierBars from './SupplierBars'
 
@@ -19,6 +20,12 @@ const unitMoney = (n) => (n >= 100 ? money(n) : '£' + (Math.round((n || 0) * 10
 // dateISO reads the local calendar — see the note on it in lib/calc.
 const iso = (d) => dateISO(d)
 const unitOf = (r) => (Number(r.qty) ? Number(r.net_total) / Number(r.qty) : 0)
+const monthKey = (d) => String(d || '').slice(0, 7)
+const monthLabel = (k) => {
+  const [y, m] = String(k || '').split('-')
+  if (!y || !m) return k || ''
+  return new Date(+y, +m - 1, 1).toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })
+}
 
 export default function PurchasingPage() {
   const supabase = createClient()
@@ -32,6 +39,7 @@ export default function PurchasingPage() {
   const [busy, setBusy] = useState(false)
   const [preview, setPreview] = useState(null)
   const [add, setAdd] = useState(null)
+  const [report, setReport] = useState({ mode: 'month', month: '', supplierKey: '', productKey: '' })
   const fileRef = useRef(null)
 
   async function load() {
@@ -98,6 +106,81 @@ export default function PurchasingPage() {
   }, [suppliers, q])
 
   const totalSpend = (rows || []).reduce((a, r) => a + Number(r.net_total || 0), 0)
+
+  // ── report ─────────────────────────────────────────────────────────────────
+  // Months present in the data, newest first, for the "by month" report.
+  const months = useMemo(() => {
+    const set = new Set((rows || []).map((r) => monthKey(r.purchase_date)).filter(Boolean))
+    return [...set].sort().reverse()
+  }, [rows])
+  useEffect(() => { if (months.length && !report.month) setReport((r) => ({ ...r, month: months[0] })) }, [months]) // eslint-disable-line
+
+  async function generateReport() {
+    const { data: lhs } = await supabase.from('letterheads').select('*').order('name')
+    const lh = (lhs || []).find((l) => `${l.name} ${l.company}`.toUpperCase().includes('MIDLAND')) || (lhs || [])[0]
+    if (!lh) { toastError('No letterhead set up to print on'); return }
+    const line = (n) => `${n} purchase${n === 1 ? '' : 's'}`
+
+    if (report.mode === 'month') {
+      const m = report.month
+      const list = (rows || []).filter((r) => monthKey(r.purchase_date) === m)
+        .sort((a, b) => (a.purchase_date < b.purchase_date ? -1 : a.purchase_date > b.purchase_date ? 1 : UP(a.supplier).localeCompare(UP(b.supplier))))
+      if (!list.length) { toastError('No purchases in that month'); return }
+      const total = list.reduce((s, r) => s + Number(r.net_total || 0), 0)
+      generatePurchasingReportPDF({
+        lh, title: 'PURCHASING REPORT', subtitle: monthLabel(m),
+        stats: [
+          { label: 'Purchases', value: String(list.length) },
+          { label: 'Total spend', value: money(total) },
+          { label: 'Suppliers', value: String(new Set(list.map((r) => normSupplier(r.supplier))).size) },
+          { label: 'Products', value: String(new Set(list.map((r) => normProduct(r.product))).size) },
+        ],
+        head: ['Date', 'Supplier', 'Product', 'Qty', 'Net', 'Unit price'],
+        rows: list.map((r) => [prettyDate(r.purchase_date), r.supplier, r.product, String(Number(r.qty) || 0), money(r.net_total), r.qty ? unitMoney(unitOf(r)) : '—']),
+        columnStyles: { 0: { cellWidth: 26 }, 1: { cellWidth: 70 }, 2: { cellWidth: 95 }, 3: { cellWidth: 20, halign: 'right' }, 4: { cellWidth: 32, halign: 'right' }, 5: { cellWidth: 30, halign: 'right' } },
+        footCells: [{ content: line(list.length), colSpan: 4, styles: { halign: 'left' } }, money(total), ''],
+      })
+      toast(`Report for ${monthLabel(m)} opened`)
+    } else if (report.mode === 'supplier') {
+      const g = suppliers.find((s) => s.key === report.supplierKey)
+      if (!g) { toastError('Pick a supplier first'); return }
+      const list = [...g.rows].sort((a, b) => (a.purchase_date < b.purchase_date ? -1 : 1))
+      const total = list.reduce((s, r) => s + Number(r.net_total || 0), 0)
+      generatePurchasingReportPDF({
+        lh, title: 'SUPPLIER REPORT', subtitle: g.name,
+        stats: [
+          { label: 'Total spend', value: money(total) },
+          { label: 'Purchases', value: String(list.length) },
+          { label: 'Products', value: String(new Set(list.map((r) => normProduct(r.product))).size) },
+          { label: 'Last purchase', value: prettyDate(list.map((r) => r.purchase_date).sort().slice(-1)[0]) },
+        ],
+        head: ['Date', 'Product', 'Qty', 'Net', 'Unit price'],
+        rows: list.map((r) => [prettyDate(r.purchase_date), r.product, String(Number(r.qty) || 0), money(r.net_total), r.qty ? unitMoney(unitOf(r)) : '—']),
+        columnStyles: { 0: { cellWidth: 30 }, 1: { cellWidth: 151 }, 2: { cellWidth: 24, halign: 'right' }, 3: { cellWidth: 34, halign: 'right' }, 4: { cellWidth: 34, halign: 'right' } },
+        footCells: [{ content: line(list.length), colSpan: 3, styles: { halign: 'left' } }, money(total), ''],
+      })
+      toast(`Report for ${g.name} opened`)
+    } else {
+      const g = items.find((i) => i.key === report.productKey)
+      if (!g) { toastError('Pick a product first'); return }
+      const list = [...g.buys].sort((a, b) => (a.purchase_date < b.purchase_date ? -1 : 1))
+      generatePurchasingReportPDF({
+        lh, title: 'PRODUCT REPORT', subtitle: g.name,
+        stats: [
+          { label: 'Latest unit', value: unitMoney(g.last) },
+          { label: 'Lowest', value: unitMoney(g.min) },
+          { label: 'Average', value: unitMoney(g.avg) },
+          { label: 'Highest', value: unitMoney(g.max) },
+          { label: 'Total spend', value: money(g.spend) },
+        ],
+        head: ['Date', 'Supplier', 'Qty', 'Net', 'Unit price'],
+        rows: list.map((r) => [prettyDate(r.purchase_date), r.supplier, String(Number(r.qty) || 0), money(r.net_total), r.qty ? unitMoney(unitOf(r)) : '—']),
+        columnStyles: { 0: { cellWidth: 30 }, 1: { cellWidth: 151 }, 2: { cellWidth: 24, halign: 'right' }, 3: { cellWidth: 34, halign: 'right' }, 4: { cellWidth: 34, halign: 'right' } },
+        footCells: [{ content: line(list.length), colSpan: 3, styles: { halign: 'left' } }, money(g.spend), ''],
+      })
+      toast(`Report for ${g.name} opened`)
+    }
+  }
 
   // ── import ────────────────────────────────────────────────────────────────
   async function pickFile(file) {
@@ -212,7 +295,7 @@ export default function PurchasingPage() {
 
       <div className="sub-nav">
         {[['catalogue', `Catalogue (${items.length})`], ['suppliers', `Suppliers (${suppliers.length})`],
-          ['tidy', `Tidy up${tidyCount ? ` (${tidyCount})` : ''}`], ['import', 'Import']].map(([k, label]) => (
+          ['report', 'Report'], ['tidy', `Tidy up${tidyCount ? ` (${tidyCount})` : ''}`], ['import', 'Import']].map(([k, label]) => (
           <a key={k} className={tab === k ? 'on' : ''} style={{ cursor: 'pointer' }} onClick={() => setTab(k)}>{label}</a>
         ))}
       </div>
@@ -336,6 +419,82 @@ export default function PurchasingPage() {
               ))}
             </>
           )}
+        </div>
+      )}
+
+      {/* ── REPORT ── */}
+      {tab === 'report' && (
+        <div className="card">
+          <div className="ttl"><h2>Generate a report</h2></div>
+          <p className="hint" style={{ marginTop: 0 }}>
+            A printable PDF, on the Midland letterhead. Choose what it covers — a whole month, everything from one
+            supplier, or the full history of one product.
+          </p>
+
+          <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap', marginBottom: 14 }}>
+            {[['month', 'By month'], ['supplier', 'By supplier'], ['product', 'By product']].map(([k, label]) => (
+              <button key={k} className={'chip' + (report.mode === k ? ' on' : '')}
+                onClick={() => setReport((r) => ({ ...r, mode: k }))}>{label}</button>
+            ))}
+          </div>
+
+          <div className="field" style={{ maxWidth: 420 }}>
+            {report.mode === 'month' && (
+              <>
+                <label>Month</label>
+                <select value={report.month} onChange={(e) => setReport((r) => ({ ...r, month: e.target.value }))}>
+                  {months.length === 0 && <option value="">No purchases on file</option>}
+                  {months.map((m) => <option key={m} value={m}>{monthLabel(m)}</option>)}
+                </select>
+              </>
+            )}
+            {report.mode === 'supplier' && (
+              <>
+                <label>Supplier</label>
+                <select value={report.supplierKey} onChange={(e) => setReport((r) => ({ ...r, supplierKey: e.target.value }))}>
+                  <option value="">Choose a supplier…</option>
+                  {[...suppliers].sort((a, b) => a.name.localeCompare(b.name)).map((s) => (
+                    <option key={s.key} value={s.key}>{s.name} ({s.count})</option>
+                  ))}
+                </select>
+              </>
+            )}
+            {report.mode === 'product' && (
+              <>
+                <label>Product</label>
+                <select value={report.productKey} onChange={(e) => setReport((r) => ({ ...r, productKey: e.target.value }))}>
+                  <option value="">Choose a product…</option>
+                  {[...items].sort((a, b) => a.name.localeCompare(b.name)).map((i) => (
+                    <option key={i.key} value={i.key}>{i.name} ({i.count})</option>
+                  ))}
+                </select>
+              </>
+            )}
+          </div>
+
+          {(() => {
+            let n = 0, total = 0, ready = false
+            if (report.mode === 'month' && report.month) {
+              const list = (rows || []).filter((r) => monthKey(r.purchase_date) === report.month)
+              n = list.length; total = list.reduce((s, r) => s + Number(r.net_total || 0), 0); ready = n > 0
+            } else if (report.mode === 'supplier') {
+              const g = suppliers.find((s) => s.key === report.supplierKey)
+              if (g) { n = g.count; total = g.spend; ready = true }
+            } else if (report.mode === 'product') {
+              const g = items.find((i) => i.key === report.productKey)
+              if (g) { n = g.count; total = g.spend; ready = true }
+            }
+            return (
+              <p className="hint" style={{ marginTop: 4 }}>
+                {ready ? <>Covers <b>{n}</b> purchase{n === 1 ? '' : 's'} · <b>{money(total)}</b>.</> : 'Make a choice above.'}
+              </p>
+            )
+          })()}
+
+          <button className="btn btn-a" onClick={generateReport}
+            disabled={report.mode === 'month' ? !report.month : report.mode === 'supplier' ? !report.supplierKey : !report.productKey}>
+            📄 Generate report
+          </button>
         </div>
       )}
 
