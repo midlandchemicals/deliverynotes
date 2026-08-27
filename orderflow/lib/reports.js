@@ -122,11 +122,27 @@ export function noteNet(note) {
   return (note.lines_snapshot || []).reduce((a, l) => a + (Number(l.line_total) || 0), 0)
 }
 
+// The month a note counts towards. Normally its dispatch date, but an admin can
+// pin the order to a different month (order-entry popup, or the Ilex tick-box),
+// which is carried on the note as reportMonth ('YYYY-MM').
+export function effectiveMonth(note) {
+  return note?.reportMonth || monthKey(note?.doc_date)
+}
+
+// First of the month `delta` months from a 'YYYY-MM' key, as a 'YYYY-MM-01'
+// date string — what orders.report_month stores.
+export function shiftMonth(key, delta) {
+  const [y, m] = String(key || '').split('-').map(Number)
+  if (!y || !m) return null
+  const d = new Date(y, (m - 1) + delta, 1)
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`
+}
+
 // Group notes into months, newest month first, each with its notes newest first.
 export function byMonth(notes) {
   const map = new Map()
   for (const n of notes) {
-    const k = monthKey(n.doc_date)
+    const k = effectiveMonth(n)
     if (!k) continue
     if (!map.has(k)) map.set(k, [])
     map.get(k).push(n)
@@ -173,16 +189,20 @@ export async function loadReportNotes(supabase, { limit = 3000 } = {}) {
   // because a capped result set would wrongly condemn live notes as orphans.
   const ids = [...new Set(raw.map((n) => n.order_id).filter(Boolean))]
   const names = new Map()
+  const reportMonths = new Map()   // order id -> 'YYYY-MM' override, when set
   for (let i = 0; i < ids.length; i += 200) {
     const chunk = ids.slice(i, i + 200)
-    const ord = await supabase.from('orders').select('id, name:customer_snapshot->>name').in('id', chunk)
+    const ord = await supabase.from('orders').select('id, name:customer_snapshot->>name, report_month').in('id', chunk)
     if (ord.error) return { notes: raw, orphaned: 0, duplicates: 0, error: null }  // can't verify — show everything
-    for (const o of ord.data || []) names.set(o.id, o.name || '')
+    for (const o of ord.data || []) {
+      names.set(o.id, o.name || '')
+      if (o.report_month) reportMonths.set(o.id, String(o.report_month).slice(0, 7))
+    }
   }
 
   const live = raw
     .filter((n) => n.order_id && names.has(n.order_id))
-    .map((n) => ({ ...n, customerName: names.get(n.order_id) || '' }))
+    .map((n) => ({ ...n, customerName: names.get(n.order_id) || '', reportMonth: reportMonths.get(n.order_id) || null }))
 
   // An order can hold several copies of its delivery note — regenerating one
   // adds a row rather than replacing it, and each copy carries the full priced

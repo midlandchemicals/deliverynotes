@@ -3,7 +3,7 @@ import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import { fetchIsAdmin, fetchIsRahul, resetRoleCache } from '@/lib/roles'
+import { fetchIsAdmin, fetchIsRahul, fetchCanSeePurchasing, resetRoleCache } from '@/lib/roles'
 
 function nameFromEmail(email) {
   if (!email) return ''
@@ -68,10 +68,12 @@ export default function Sidebar({ email, openCount }) {
   const supabase = createClient()
   const [isAdmin, setIsAdmin] = useState(true) // optimistic; corrected on load
   const [isRahul, setIsRahul] = useState(false) // leads tracker — his alone
+  const [canPurchasing, setCanPurchasing] = useState(false) // admins + Rob
   const [menuOpen, setMenuOpen] = useState(false)
 
   useEffect(() => { fetchIsAdmin().then(setIsAdmin) }, [])
   useEffect(() => { fetchIsRahul().then(setIsRahul) }, [])
+  useEffect(() => { fetchCanSeePurchasing().then(setCanPurchasing) }, [])
   useEffect(() => { setMenuOpen(false) }, [path]) // close mobile menu on navigation
 
   async function signOut() {
@@ -88,7 +90,10 @@ export default function Sidebar({ email, openCount }) {
     return path.startsWith(href)
   }
 
-  const catalogueLinks = CATALOGUE_LINKS.filter(([, , , adminOnly]) => !adminOnly || isAdmin)
+  // Purchasing is admin-only for everyone except Rob, who is allowed in on his
+  // own (role 'purchasing'); every other admin-only link stays admin-only.
+  const catalogueLinks = CATALOGUE_LINKS.filter(([href, , , adminOnly]) =>
+    href === '/settings/purchasing' ? (isAdmin || canPurchasing) : (!adminOnly || isAdmin))
 
   return (
     <aside className={'sidebar' + (menuOpen ? ' open' : '')}>

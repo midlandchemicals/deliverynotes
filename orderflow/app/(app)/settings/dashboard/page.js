@@ -151,13 +151,17 @@ export default function DashboardPage() {
         const dn = dnByOrder[o.id]
         const { total, byName } = dn ? lockedValue(dn) : estimateValue(o)
         const iso = String(dn?.doc_date || o.order_date || o.created_at || '').slice(0, 10)
+        // An admin can pin an order to a different reporting month; when set, it
+        // decides which month/year bucket the order falls in (the actual date is
+        // still kept for display and sorting).
+        const bucket = o.report_month ? String(o.report_month).slice(0, 10) : iso
         let coKey = (o.customer_id && custLh[o.customer_id]) || 'default'
         if (coKey === defaultLh?.id) coKey = 'default'
         return {
           id: o.id,
           date: iso,
-          month: iso.slice(0, 7),
-          year: iso.slice(0, 4),
+          month: bucket.slice(0, 7),
+          year: bucket.slice(0, 4),
           customerId: o.customer_id || null,
           customerName: custName[o.customer_id] || '—',
           coKey,
