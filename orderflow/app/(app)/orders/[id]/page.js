@@ -39,6 +39,7 @@ export default function OrderDetailPage() {
   const [letterheads, setLetterheads] = useState([])
   const [lines, setLines] = useState([])
   const [dispatched, setDispatched] = useState([])
+  const [showPrior, setShowPrior] = useState(false) // reveal superseded copies
   // Once a delivery note exists the order is frozen against accidental edits;
   // the ✏️ button unlocks it deliberately.
   const [editLocked, setEditLocked] = useState(false)
@@ -413,8 +414,11 @@ export default function OrderDetailPage() {
   // order.lines is what's actually on file — anything different on screen is
   // unsaved, and drives the sticky "you haven't saved" bar at the bottom.
   const linesDirty = !editLocked && !!order && JSON.stringify(lines) !== JSON.stringify(order.lines || [])
-  // Notes are held newest-first, so the top one is the current paperwork.
-  const latestNote = dispatched[0] || null
+  // Live copies (never superseded) vs. earlier versions kept for the record.
+  // Both are newest-first, so the top current copy is the paperwork in force.
+  const currentNotes = dispatched.filter((d) => !d.superseded_at)
+  const priorNotes = dispatched.filter((d) => d.superseded_at)
+  const latestNote = currentNotes[0] || dispatched[0] || null
 
   // Lines with nothing to invoice against — these gate the invoicing copy.
   const unpricedLines = lines.filter((l) => {
@@ -793,8 +797,13 @@ export default function OrderDetailPage() {
         dimensions: showDims ? dimData() : null,
       },
       options, created_by: user?.id || null,
-    })
+    }).select('id').single()
     if (!ok(inserted, 'saving the delivery note record')) { setBusy(false); return }
+    // This copy is now the live one — stamp every earlier copy of this order as
+    // superseded so it drops out of view (kept, not deleted, in case the record
+    // of what was sent before the edit is ever needed).
+    await supabase.from('dispatch_notes').update({ superseded_at: new Date().toISOString() })
+      .eq('order_id', id).is('superseded_at', null).neq('id', inserted.data.id)
     ok(await supabase.from('orders').update({ status: STATUS_DONE }).eq('id', id), 'updating order status')
     setOrder({ ...order, status: STATUS_DONE })
     const refreshed = await supabase.from('dispatch_notes').select('*').eq('order_id', id).order('created_at', { ascending: false })
@@ -1464,22 +1473,21 @@ export default function OrderDetailPage() {
       {dispatched.length > 0 && (
         <div className="card">
           <StepHead n={6} title="Delivery notes on this order" state={reviewState(6)} />
-          {dispatched.length > 1 && (
+          {currentNotes.length > 1 && (
             <p className="hint" style={{ marginTop: 0, marginBottom: 12 }}>
-              You’ve generated this note {dispatched.length} times. They share the same number ({dispatched[0].doc_no}) — use the time and totals below to tell them apart, and delete any mistaken copies.
+              There are {currentNotes.length} live copies of this note ({currentNotes[0].doc_no}) — use the time and totals to tell them apart, and delete any mistaken ones.
             </p>
           )}
-          {dispatched.map((d, idx) => {
-            // Notes are newest-first; number them oldest = #1 so the label is stable
-            const copyNo = dispatched.length - idx
+          {(showPrior ? dispatched : currentNotes).map((d) => {
+            const superseded = !!d.superseded_at
             const gen = d.created_at ? new Date(d.created_at).toLocaleTimeString('en-GB', { hour: 'numeric', minute: '2-digit', hour12: true }) : ''
             const delivery = Number(d.totals?.delivery_charge || 0)
             return (
-              <div key={d.id} className="list-row">
+              <div key={d.id} className="list-row" style={superseded ? { opacity: 0.6 } : undefined}>
                 <div>
                   <div className="ono">
                     {d.doc_no}
-                    {dispatched.length > 1 && <span className="muted" style={{ fontWeight: 400, fontSize: 12, marginLeft: 8 }}>copy {copyNo} of {dispatched.length}{idx === 0 ? ' · latest' : ''}</span>}
+                    {superseded && <span className="muted" style={{ fontWeight: 400, fontSize: 12, marginLeft: 8 }}>earlier version — replaced</span>}
                   </div>
                   <div className="meta">
                     {prettyDate(d.doc_date)}{gen ? ` · generated ${gen}` : ''} · gross {fmt(d.totals?.gross || 0)} kg
@@ -1513,6 +1521,11 @@ export default function OrderDetailPage() {
               </div>
             )
           })}
+          {priorNotes.length > 0 && (
+            <button className="btn btn-g btn-sm" style={{ marginTop: 4 }} onClick={() => setShowPrior((s) => !s)}>
+              {showPrior ? 'Hide earlier versions' : `Show ${priorNotes.length} earlier version${priorNotes.length === 1 ? '' : 's'}`}
+            </button>
+          )}
         </div>
       )}
 
