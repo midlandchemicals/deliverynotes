@@ -37,6 +37,7 @@ export default function NewOrderPage() {
   const [invContact, setInvContact] = useState({ name: '', email: '', phone: '' }) // invoice contact
   const [poRef, setPoRef] = useState('')
   const [ref2, setRef2] = useState('')
+  const [showRef2, setShowRef2] = useState(false) // the rarely-used third reference stays tucked away
   const [orderDate, setOrderDate] = useState(todayISO())
   const [requestedDate, setRequestedDate] = useState('')
   // Which month this order counts towards on Insights and the Ilex/sales report.
@@ -497,14 +498,20 @@ export default function NewOrderPage() {
               <p className="hint" style={{ marginTop: 4, marginBottom: 0 }}>Prints on their delivery note as <b>Customer No</b>.</p>
             </div>
 
-            <div className="field" style={{ marginBottom: 14 }}>
-              <label>
-                Additional reference
-                <span style={{ textTransform: 'none', letterSpacing: 0, fontWeight: 500, color: 'var(--faint)' }}> · optional</span>
-              </label>
-              <input value={ref2} onChange={(e) => setRef2(e.target.value)} placeholder="e.g. a project or contract number" />
-              <p className="hint" style={{ marginTop: 4, marginBottom: 0 }}>Only for customers who need a third reference — leave blank if not. Prints as <b>Additional Ref</b>.</p>
-            </div>
+            {showRef2 || ref2 ? (
+              <div className="field" style={{ marginBottom: 14 }}>
+                <label>
+                  Additional reference
+                  <span style={{ textTransform: 'none', letterSpacing: 0, fontWeight: 500, color: 'var(--faint)' }}> · optional, prints as “Additional Ref”</span>
+                </label>
+                <input value={ref2} autoFocus={showRef2} onChange={(e) => setRef2(e.target.value)} placeholder="e.g. a project or contract number" />
+              </div>
+            ) : (
+              <button type="button" onClick={() => setShowRef2(true)}
+                style={{ background: 'none', border: 'none', padding: 0, marginBottom: 14, color: 'var(--muted)', cursor: 'pointer', fontSize: 12.5, fontFamily: 'inherit' }}>
+                + add another reference
+              </button>
+            )}
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 0 }}>
               <Field label="Order date">
