@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import { prettyDate, fmt } from '@/lib/calc'
 import { toast, toastError } from '@/lib/notify'
 import { useIsAdmin } from '@/app/(app)/PricingGuard'
-import { byMonth, noteLines, isSalesLetterhead, letterheadName, letterheadsPresent, loadReportNotes, effectiveMonth, shiftMonth, monthLabel, realCustomerName, noteNet } from '@/lib/reports'
+import { byMonth, noteLines, isSalesLetterhead, letterheadName, letterheadsPresent, loadReportNotes, effectiveMonth, shiftMonth, monthLabel, realCustomerName } from '@/lib/reports'
 import { generateSalesReportPDF } from '@/lib/pdf'
 import MonthPicker from '../MonthPicker'
 
@@ -107,6 +107,9 @@ export default function IlexSalesPage() {
   if (notes === null) return <div className="card"><div className="skel skel-title" />{[0, 1, 2].map((i) => <div key={i} className="skel skel-row" />)}</div>
 
   const rows = month ? rowsFor(month) : []
+  // First line of each order in the list — that's where its single tick sits.
+  const seenNote = new Set()
+  const firstRow = rows.map((r) => { const first = !seenNote.has(r.noteId); seenNote.add(r.noteId); return first })
   const grandRows = chosen.reduce((a, m) => a + rowsFor(m).length, 0)
   const grandNet = chosen.reduce((a, m) => a + rowsFor(m).reduce((x, r) => x + r.net, 0), 0)
 
@@ -176,32 +179,15 @@ export default function IlexSalesPage() {
             <h2>{month.label}</h2>
             <span className="muted" style={{ fontSize: 12.5 }}>{rows.length} line{rows.length === 1 ? '' : 's'} · {money(month.net)}</span>
           </div>
-
           {isAdmin && (
-            <div style={{ marginBottom: 16 }}>
-              <p className="hint" style={{ marginTop: 0, marginBottom: 8 }}>
-                Every order below is included by default. Un-tick one to take it out of this month’s report — you’ll be
-                asked whether it should count towards next or last month instead.
-              </p>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                {month.notes.map((n) => (
-                  <label key={n.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 11px',
-                    border: '1px solid var(--line)', borderRadius: 9, background: 'var(--panel)', cursor: 'pointer' }}>
-                    <input type="checkbox" checked readOnly disabled={busy}
-                      onChange={() => setReassign(n)} style={{ width: 17, height: 17, flexShrink: 0 }} />
-                    <span style={{ fontWeight: 600, color: 'var(--heading)' }}>{realCustomerName(n) || '—'}</span>
-                    <span className="mono muted" style={{ fontSize: 12 }}>#{n.doc_no}</span>
-                    <span className="mono muted" style={{ fontSize: 12 }}>{prettyDate(n.doc_date)}</span>
-                    <span style={{ flex: 1 }} />
-                    <span className="mono" style={{ fontWeight: 700 }}>{money(noteNet(n))}</span>
-                  </label>
-                ))}
-              </div>
-            </div>
+            <p className="hint" style={{ marginTop: 0 }}>
+              Every order is ticked. Un-tick one to take it out of this month — you’ll be asked whether it should count
+              towards next or last month instead.
+            </p>
           )}
-
           <table className="tbl tbl-cards">
             <thead><tr>
+              {isAdmin && <th style={{ width: 34, textAlign: 'center' }} title="Include in this month">✓</th>}
               <th>Date</th><th>Del. note</th><th>Customer no.</th><th>Customer</th><th>Product</th>
               <th style={{ textAlign: 'right' }}>Volume</th>
               <th style={{ textAlign: 'right' }}>Qty</th>
@@ -211,6 +197,17 @@ export default function IlexSalesPage() {
             <tbody>
               {rows.map((r, i) => (
                 <tr key={i}>
+                  {isAdmin && (
+                    <td data-label="In report" style={{ textAlign: 'center' }}>
+                      {/* One tick per order: it sits on the order's first line, so
+                          multi-line orders aren't ticked several times over. */}
+                      {firstRow[i] ? (
+                        <input type="checkbox" checked readOnly disabled={busy} title={`Included — un-tick to move ${r.docNo} to another month`}
+                          onChange={() => { const n = month.notes.find((x) => x.id === r.noteId); if (n) setReassign(n) }}
+                          style={{ width: 16, height: 16, cursor: 'pointer' }} />
+                      ) : null}
+                    </td>
+                  )}
                   <td className="mono" data-label="Date">{prettyDate(r.date)}</td>
                   <td className="mono" data-label="Del. note">{r.docNo}</td>
                   <td data-label="Customer no.">{r.poRef || '—'}</td>

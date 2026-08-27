@@ -30,3 +30,4 @@ a new numbered file appears here — run just that one.
 | 018_no_vat.sql | per-order "no VAT" flag for export orders |
 | 019_leads.sql | cold-outreach leads tracker (private to Rahul — RLS locks it to his email) |
 | 020_report_month_and_rob.sql | order `report_month` override (invoice this/next/last month) + lets Rob into Purchasing via role 'purchasing' (set his role in the Table Editor after running) |
+| 021_supersede_notes.sql | `superseded_at` on delivery notes — regenerating a note auto-hides the previous copies (kept, not deleted) |
