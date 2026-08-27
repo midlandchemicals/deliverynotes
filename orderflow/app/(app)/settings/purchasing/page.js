@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { prettyDate, dateISO, todayISO } from '@/lib/calc'
 import { ok, toast, toastError } from '@/lib/notify'
-import { useIsAdmin } from '@/app/(app)/PricingGuard'
+import { useCanSeePurchasing } from '@/app/(app)/PricingGuard'
 import { UP, normProduct, normSupplier, fuzzyScore, groupBy, suggestMerges } from '@/lib/purchasing'
 import PriceChart from './PriceChart'
 import SupplierBars from './SupplierBars'
@@ -22,7 +22,7 @@ const unitOf = (r) => (Number(r.qty) ? Number(r.net_total) / Number(r.qty) : 0)
 
 export default function PurchasingPage() {
   const supabase = createClient()
-  const isAdmin = useIsAdmin()
+  const canSee = useCanSeePurchasing()
   const [rows, setRows] = useState(null)
   const [tab, setTab] = useState('catalogue')
   const [q, setQ] = useState('')
@@ -186,7 +186,7 @@ export default function PurchasingPage() {
     load()
   }
 
-  if (!isAdmin) return <div className="card"><div className="empty">Purchasing is admin-only.</div></div>
+  if (canSee === false) return <div className="card"><div className="empty">Purchasing is not available to your login.</div></div>
   if (rows === null) return (
     <div className="card"><div className="skel skel-title" />{[0, 1, 2, 3].map((i) => <div key={i} className="skel skel-row" />)}</div>
   )

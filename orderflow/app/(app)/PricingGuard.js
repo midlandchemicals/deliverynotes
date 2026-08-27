@@ -1,6 +1,6 @@
 'use client'
 import { useState, useEffect } from 'react'
-import { fetchIsAdmin, fetchIsRahul } from '@/lib/roles'
+import { fetchIsAdmin, fetchIsRahul, fetchCanSeePurchasing } from '@/lib/roles'
 import { toastError } from '@/lib/notify'
 
 // Role-based pricing visibility (replaces the old password gate).
@@ -18,6 +18,13 @@ export function useIsRahul() {
   const [isRahul, setIsRahul] = useState(null)
   useEffect(() => { fetchIsRahul().then(setIsRahul) }, [])
   return isRahul
+}
+
+// Admins plus Rob — who may open Purchasing without being an admin elsewhere.
+export function useCanSeePurchasing() {
+  const [can, setCan] = useState(null)
+  useEffect(() => { fetchCanSeePurchasing().then(setCan) }, [])
+  return can
 }
 
 // Wrapper — renders children only for admins. General users see nothing

@@ -38,6 +38,12 @@ export default function NewOrderPage() {
   const [poRef, setPoRef] = useState('')
   const [orderDate, setOrderDate] = useState(todayISO())
   const [requestedDate, setRequestedDate] = useState('')
+  // Which month this order counts towards on Insights and the Ilex/sales report.
+  // null = its natural month (nothing changes). Admins are asked once, after the
+  // customer details, before moving on to the products step.
+  const [reportMonth, setReportMonth] = useState(null)
+  const [monthAsked, setMonthAsked] = useState(false)
+  const [monthModal, setMonthModal] = useState(false)
   const [lines, setLines] = useState([])
   const [notes, setNotes] = useState('')
   const [availableByProduct, setAvailableByProduct] = useState({})
@@ -258,6 +264,19 @@ export default function NewOrderPage() {
   const addrPrompt = addrQueue[0] || null
 
   function proceedToStep2() {
+    // Admins are asked once, here, which month to invoice this order in.
+    if (isAdmin && !monthAsked) { setMonthModal(true); return }
+    setStep(2)
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
+  // Their choice from the month popup: 0 = this month (no change), +1 = next,
+  // -1 = last. We proceed to step 2 directly because monthAsked won't have
+  // updated in state yet on this same tick.
+  function chooseInvoiceMonth(delta) {
+    setReportMonth(delta === 0 ? null : shiftMonthISO(orderDate || todayISO(), delta))
+    setMonthAsked(true)
+    setMonthModal(false)
     setStep(2)
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
@@ -414,6 +433,7 @@ export default function NewOrderPage() {
         },
         po_ref: poRef,
         order_date: orderDate || null,
+        report_month: reportMonth,
         requested_date: requestedDate || null,
         status: 'New',
         notes,
@@ -803,6 +823,30 @@ export default function NewOrderPage() {
         onDone={handleProductAdded}
       />
 
+      {/* Admin-only: which month should this order count towards on the reports? */}
+      {monthModal && (
+        <div className="modal-bg">
+          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 460, textAlign: 'left' }}>
+            <h2 style={{ marginBottom: 6 }}>Which month should this order be invoiced in?</h2>
+            <p className="hint" style={{ marginTop: 0, marginBottom: 16 }}>
+              This only affects where the order appears on <b>Insights</b> and the <b>Ilex / sales report</b> — the order
+              itself, the delivery note and what the customer is charged are unchanged.
+            </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
+              <button className="btn btn-a" onClick={() => chooseInvoiceMonth(0)} style={{ justifyContent: 'flex-start' }}>
+                Invoice this month · <b style={{ marginLeft: 6 }}>{monthName(shiftMonthISO(orderDate || todayISO(), 0))}</b>
+              </button>
+              <button className="btn btn-g" onClick={() => chooseInvoiceMonth(1)} style={{ justifyContent: 'flex-start' }}>
+                Invoice next month · <b style={{ marginLeft: 6 }}>{monthName(shiftMonthISO(orderDate || todayISO(), 1))}</b>
+              </button>
+              <button className="btn btn-g" onClick={() => chooseInvoiceMonth(-1)} style={{ justifyContent: 'flex-start' }}>
+                Invoice last month · <b style={{ marginLeft: 6 }}>{monthName(shiftMonthISO(orderDate || todayISO(), -1))}</b>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Offer to store a manually-entered address on the customer record */}
       {addrPrompt && (() => {
         const isInv = addrPrompt.kind === 'invoice'
@@ -864,6 +908,21 @@ export default function NewOrderPage() {
       })()}
     </div>
   )
+}
+
+// First day of the month `delta` months away from an ISO date, as 'YYYY-MM-01'.
+// Read on the local calendar so it can't slip a day either side of midnight.
+function shiftMonthISO(baseISO, delta) {
+  const [y, m] = String(baseISO || '').slice(0, 10).split('-').map(Number)
+  const base = (y && m) ? new Date(y, m - 1, 1) : new Date()
+  const d = new Date(base.getFullYear(), base.getMonth() + delta, 1)
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`
+}
+// Long month name for a 'YYYY-MM-01' string, e.g. "September 2026".
+function monthName(iso) {
+  const [y, m] = String(iso || '').slice(0, 10).split('-').map(Number)
+  if (!y || !m) return ''
+  return new Date(y, m - 1, 1).toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })
 }
 
 // One block of the form. 'active' is outlined and is where you should be

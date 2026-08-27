@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import { prettyDate, fmt } from '@/lib/calc'
 import { toast, toastError } from '@/lib/notify'
 import { useIsAdmin } from '@/app/(app)/PricingGuard'
-import { byMonth, noteLines, isSalesLetterhead, letterheadName, letterheadsPresent, loadReportNotes } from '@/lib/reports'
+import { byMonth, noteLines, isSalesLetterhead, letterheadName, letterheadsPresent, loadReportNotes, effectiveMonth, shiftMonth, monthLabel, realCustomerName, noteNet } from '@/lib/reports'
 import { generateSalesReportPDF } from '@/lib/pdf'
 import MonthPicker from '../MonthPicker'
 
@@ -28,21 +28,36 @@ export default function IlexSalesPage() {
   // the one outcome this must never produce.
   const [chosenLh, setChosenLh] = useState(null)
   const [busy, setBusy] = useState(false)
+  const [reassign, setReassign] = useState(null)   // a note being moved to another month
 
-  useEffect(() => {
-    (async () => {
-      const [n, lh] = await Promise.all([
-        loadReportNotes(supabase),
-        // Logos are fetched for the one letterhead we print on, at that moment.
-        supabase.from('letterheads').select('id, name, company, color, address, footer').order('name'),
-      ])
-      if (n.error) { setLoadError(n.error); toastError('Could not load delivery notes'); setNotes([]); return }
-      setNotes(n.notes)
-      setOrphaned(n.orphaned || 0)
-      setDuplicates(n.duplicates || 0)
-      setLetterheads(lh.data || [])
-    })()
-  }, [])
+  async function load() {
+    const [n, lh] = await Promise.all([
+      loadReportNotes(supabase),
+      // Logos are fetched for the one letterhead we print on, at that moment.
+      supabase.from('letterheads').select('id, name, company, color, address, footer').order('name'),
+    ])
+    if (n.error) { setLoadError(n.error); toastError('Could not load delivery notes'); setNotes([]); return }
+    setNotes(n.notes)
+    setOrphaned(n.orphaned || 0)
+    setDuplicates(n.duplicates || 0)
+    setLetterheads(lh.data || [])
+  }
+  useEffect(() => { load() }, [])
+
+  // Un-ticking an order asks whether it should count towards next or last month,
+  // then pins it there (orders.report_month). It leaves this month's report and
+  // joins the chosen one — the order and its delivery note are untouched.
+  async function moveNote(note, delta) {
+    const target = shiftMonth(effectiveMonth(note), delta)
+    if (!note.order_id || !target) { setReassign(null); return }
+    setBusy(true)
+    const res = await supabase.from('orders').update({ report_month: target }).eq('id', note.order_id)
+    setBusy(false)
+    setReassign(null)
+    if (res.error) { toastError('Could not move that order: ' + res.error.message); return }
+    toast(`${realCustomerName(note) || note.doc_no} moved to ${monthLabel(target.slice(0, 7))}`)
+    await load()
+  }
 
   const available = useMemo(() => letterheadsPresent(notes || []), [notes])
 
@@ -161,6 +176,30 @@ export default function IlexSalesPage() {
             <h2>{month.label}</h2>
             <span className="muted" style={{ fontSize: 12.5 }}>{rows.length} line{rows.length === 1 ? '' : 's'} · {money(month.net)}</span>
           </div>
+
+          {isAdmin && (
+            <div style={{ marginBottom: 16 }}>
+              <p className="hint" style={{ marginTop: 0, marginBottom: 8 }}>
+                Every order below is included by default. Un-tick one to take it out of this month’s report — you’ll be
+                asked whether it should count towards next or last month instead.
+              </p>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {month.notes.map((n) => (
+                  <label key={n.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 11px',
+                    border: '1px solid var(--line)', borderRadius: 9, background: 'var(--panel)', cursor: 'pointer' }}>
+                    <input type="checkbox" checked readOnly disabled={busy}
+                      onChange={() => setReassign(n)} style={{ width: 17, height: 17, flexShrink: 0 }} />
+                    <span style={{ fontWeight: 600, color: 'var(--heading)' }}>{realCustomerName(n) || '—'}</span>
+                    <span className="mono muted" style={{ fontSize: 12 }}>#{n.doc_no}</span>
+                    <span className="mono muted" style={{ fontSize: 12 }}>{prettyDate(n.doc_date)}</span>
+                    <span style={{ flex: 1 }} />
+                    <span className="mono" style={{ fontWeight: 700 }}>{money(noteNet(n))}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
+
           <table className="tbl tbl-cards">
             <thead><tr>
               <th>Date</th><th>Del. note</th><th>Customer no.</th><th>Customer</th><th>Product</th>
@@ -198,6 +237,29 @@ export default function IlexSalesPage() {
         </p>
         <button className="btn btn-a" disabled={!chosen.length} onClick={generate}>📄 Generate sales report</button>
       </div>
+
+      {reassign && (
+        <div className="modal-bg" onClick={() => !busy && setReassign(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 460, textAlign: 'left' }}>
+            <h2 style={{ marginBottom: 6 }}>Move this order to another month</h2>
+            <p className="hint" style={{ marginTop: 0, marginBottom: 16 }}>
+              <b>{realCustomerName(reassign) || reassign.doc_no}</b> (#{reassign.doc_no}) will leave{' '}
+              <b>{monthLabel(effectiveMonth(reassign))}</b>. Which month should it appear in instead?
+            </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
+              <button className="btn btn-a" disabled={busy} style={{ justifyContent: 'flex-start' }}
+                onClick={() => moveNote(reassign, 1)}>
+                Next month · <b style={{ marginLeft: 6 }}>{monthLabel(shiftMonth(effectiveMonth(reassign), 1).slice(0, 7))}</b>
+              </button>
+              <button className="btn btn-g" disabled={busy} style={{ justifyContent: 'flex-start' }}
+                onClick={() => moveNote(reassign, -1)}>
+                Last month · <b style={{ marginLeft: 6 }}>{monthLabel(shiftMonth(effectiveMonth(reassign), -1).slice(0, 7))}</b>
+              </button>
+              <button className="btn btn-g" disabled={busy} onClick={() => setReassign(null)}>Cancel — keep it in {monthLabel(effectiveMonth(reassign))}</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
