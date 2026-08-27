@@ -225,6 +225,7 @@ function renderDeliveryNote(doc, doc_, lh, products, packaging) {
   let hy = 28
   doc.text(`Delivery Note No: ${doc_.docNo || ''}`, W - M, hy, { align: 'right' }); hy += 6
   doc.text(`Customer No: ${doc_.poRef || ''}`, W - M, hy, { align: 'right' }); hy += 6
+  if (doc_.ref2) { doc.text(`Additional Ref: ${doc_.ref2}`, W - M, hy, { align: 'right' }); hy += 6 }
   doc.text(`Dispatch Date: ${ukDate(doc_.date)}`, W - M, hy, { align: 'right' }); hy += 6
 
   const headerBottom = hy - 2
@@ -419,6 +420,7 @@ export function generateOfficeCopyPDF(doc_, lh, products, packaging, pricing = {
   let iy = titleY + 8
   doc.text(`Del. note no.   ${doc_.docNo || ''}`, W - M, iy, { align: 'right' }); iy += 6
   if (doc_.poRef) { doc.text(`Customer order no. ${doc_.poRef}`, W - M, iy, { align: 'right' }); iy += 6 }
+  if (doc_.ref2) { doc.text(`Additional ref. ${doc_.ref2}`, W - M, iy, { align: 'right' }); iy += 6 }
   if (doc_.orderDate) {
     doc.text(`Date ordered    ${ukDate(doc_.orderDate)}`, W - M, iy, { align: 'right' }); iy += 6
     doc.text(`Note date       ${ukDate(doc_.date)}`, W - M, iy, { align: 'right' }); iy += 6
@@ -692,6 +694,7 @@ export function generateProformaPDF(doc_, lh, products, packaging, pricing = {},
   let phy = 28
   doc.text(`Ref   ${doc_.docNo || ''}`, W - M, phy, { align: 'right' }); phy += 6
   if (doc_.poRef) { doc.text(`Customer order no. ${doc_.poRef}`, W - M, phy, { align: 'right' }); phy += 6 }
+  if (doc_.ref2) { doc.text(`Additional ref. ${doc_.ref2}`, W - M, phy, { align: 'right' }); phy += 6 }
   doc.text(`Date  ${ukDate(doc_.date || todayISO())}`, W - M, phy, { align: 'right' }); phy += 6
 
   const barY = Math.max(y + addrLines.length * 3.4 + 5, phy - 2)
@@ -936,6 +939,7 @@ export async function reprintPDF(d) {
       let rhy = 28
       doc.text(`Delivery Note No: ${d.doc_no}`, W - M, rhy, { align: 'right' }); rhy += 6
       doc.text(`Customer No: ${d.totals?.po_ref || ''}`, W - M, rhy, { align: 'right' }); rhy += 6
+      if (d.totals?.ref2) { doc.text(`Additional Ref: ${d.totals.ref2}`, W - M, rhy, { align: 'right' }); rhy += 6 }
       doc.text(`Dispatch Date: ${ukDate(d.doc_date)}`, W - M, rhy, { align: 'right' }); rhy += 6
       const barY = Math.max(y + 7 + addrLines.length * 3.4 + 5, rhy - 2)
       doc.setFillColor(r, g, b).rect(M, barY, W - 2 * M, 1.2, 'F')
@@ -1225,9 +1229,9 @@ export function generateSalesReportPDF(months, lh, title = 'SALES REPORT') {
 //   head:  column headings; rows: string[][]; columnStyles: autoTable styles
 //   footCells: an optional autoTable foot row (e.g. a total)
 export function generatePurchasingReportPDF({ lh, title = 'PURCHASING REPORT', subtitle = '', stats = [], head, rows, columnStyles = {}, footCells }) {
-  const doc = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'landscape' })
+  const doc = new jsPDF({ unit: 'mm', format: 'a4' })   // portrait
   FONT = registerFonts(doc)
-  const W = 297, M = 12
+  const W = 210, M = 12
   const [r, g, b] = hexToRgb(lh.color)
   let y = reportHead(doc, lh, W, M, title, subtitle)
 

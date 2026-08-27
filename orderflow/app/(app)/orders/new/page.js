@@ -36,6 +36,7 @@ export default function NewOrderPage() {
   const [contactPhone, setContactPhone] = useState('')
   const [invContact, setInvContact] = useState({ name: '', email: '', phone: '' }) // invoice contact
   const [poRef, setPoRef] = useState('')
+  const [ref2, setRef2] = useState('')
   const [orderDate, setOrderDate] = useState(todayISO())
   const [requestedDate, setRequestedDate] = useState('')
   // Which month this order counts towards on Insights and the Ilex/sales report.
@@ -432,6 +433,7 @@ export default function NewOrderPage() {
           invoice_contact: { name: invContact.name, email: invContact.email, phone: invContact.phone },
         },
         po_ref: poRef,
+        ref2: ref2.trim() || null,
         order_date: orderDate || null,
         report_month: reportMonth,
         requested_date: requestedDate || null,
@@ -493,6 +495,15 @@ export default function NewOrderPage() {
                 placeholder="Their own order number"
               />
               <p className="hint" style={{ marginTop: 4, marginBottom: 0 }}>Prints on their delivery note as <b>Customer No</b>.</p>
+            </div>
+
+            <div className="field" style={{ marginBottom: 14 }}>
+              <label>
+                Additional reference
+                <span style={{ textTransform: 'none', letterSpacing: 0, fontWeight: 500, color: 'var(--faint)' }}> · optional</span>
+              </label>
+              <input value={ref2} onChange={(e) => setRef2(e.target.value)} placeholder="e.g. a project or contract number" />
+              <p className="hint" style={{ marginTop: 4, marginBottom: 0 }}>Only for customers who need a third reference — leave blank if not. Prints as <b>Additional Ref</b>.</p>
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 0 }}>
@@ -825,9 +836,12 @@ export default function NewOrderPage() {
 
       {/* Admin-only: which month should this order count towards on the reports? */}
       {monthModal && (
-        <div className="modal-bg">
+        <div className="modal-bg" onClick={() => setMonthModal(false)}>
           <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 460, textAlign: 'left' }}>
-            <h2 style={{ marginBottom: 6 }}>Which month should this order be invoiced in?</h2>
+            <div className="ttl" style={{ marginBottom: 6 }}>
+              <h2 style={{ margin: 0 }}>Which month should this order be invoiced in?</h2>
+              <button className="btn btn-g btn-sm" onClick={() => setMonthModal(false)} title="Go back to the details">✕</button>
+            </div>
             <p className="hint" style={{ marginTop: 0, marginBottom: 16 }}>
               This only affects where the order appears on <b>Insights</b> and the <b>Ilex / sales report</b> — the order
               itself, the delivery note and what the customer is charged are unchanged.
@@ -842,6 +856,10 @@ export default function NewOrderPage() {
               <button className="btn btn-g" onClick={() => chooseInvoiceMonth(-1)} style={{ justifyContent: 'flex-start' }}>
                 Invoice last month · <b style={{ marginLeft: 6 }}>{monthName(shiftMonthISO(orderDate || todayISO(), -1))}</b>
               </button>
+            </div>
+            <div style={{ marginTop: 14, textAlign: 'center' }}>
+              <button className="out" style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', fontSize: 13 }}
+                onClick={() => setMonthModal(false)}>← Back to the details</button>
             </div>
           </div>
         </div>

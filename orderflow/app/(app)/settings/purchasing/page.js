@@ -137,7 +137,7 @@ export default function PurchasingPage() {
         ],
         head: ['Date', 'Supplier', 'Product', 'Qty', 'Net', 'Unit price'],
         rows: list.map((r) => [prettyDate(r.purchase_date), r.supplier, r.product, String(Number(r.qty) || 0), money(r.net_total), r.qty ? unitMoney(unitOf(r)) : '—']),
-        columnStyles: { 0: { cellWidth: 26 }, 1: { cellWidth: 70 }, 2: { cellWidth: 95 }, 3: { cellWidth: 20, halign: 'right' }, 4: { cellWidth: 32, halign: 'right' }, 5: { cellWidth: 30, halign: 'right' } },
+        columnStyles: { 0: { cellWidth: 20 }, 1: { cellWidth: 46 }, 2: { cellWidth: 62 }, 3: { cellWidth: 14, halign: 'right' }, 4: { cellWidth: 22, halign: 'right' }, 5: { cellWidth: 22, halign: 'right' } },
         footCells: [{ content: line(list.length), colSpan: 4, styles: { halign: 'left' } }, money(total), ''],
       })
       toast(`Report for ${monthLabel(m)} opened`)
@@ -156,7 +156,7 @@ export default function PurchasingPage() {
         ],
         head: ['Date', 'Product', 'Qty', 'Net', 'Unit price'],
         rows: list.map((r) => [prettyDate(r.purchase_date), r.product, String(Number(r.qty) || 0), money(r.net_total), r.qty ? unitMoney(unitOf(r)) : '—']),
-        columnStyles: { 0: { cellWidth: 30 }, 1: { cellWidth: 151 }, 2: { cellWidth: 24, halign: 'right' }, 3: { cellWidth: 34, halign: 'right' }, 4: { cellWidth: 34, halign: 'right' } },
+        columnStyles: { 0: { cellWidth: 22 }, 1: { cellWidth: 96 }, 2: { cellWidth: 16, halign: 'right' }, 3: { cellWidth: 26, halign: 'right' }, 4: { cellWidth: 26, halign: 'right' } },
         footCells: [{ content: line(list.length), colSpan: 3, styles: { halign: 'left' } }, money(total), ''],
       })
       toast(`Report for ${g.name} opened`)
@@ -175,7 +175,7 @@ export default function PurchasingPage() {
         ],
         head: ['Date', 'Supplier', 'Qty', 'Net', 'Unit price'],
         rows: list.map((r) => [prettyDate(r.purchase_date), r.supplier, String(Number(r.qty) || 0), money(r.net_total), r.qty ? unitMoney(unitOf(r)) : '—']),
-        columnStyles: { 0: { cellWidth: 30 }, 1: { cellWidth: 151 }, 2: { cellWidth: 24, halign: 'right' }, 3: { cellWidth: 34, halign: 'right' }, 4: { cellWidth: 34, halign: 'right' } },
+        columnStyles: { 0: { cellWidth: 22 }, 1: { cellWidth: 96 }, 2: { cellWidth: 16, halign: 'right' }, 3: { cellWidth: 26, halign: 'right' }, 4: { cellWidth: 26, halign: 'right' } },
         footCells: [{ content: line(list.length), colSpan: 3, styles: { halign: 'left' } }, money(g.spend), ''],
       })
       toast(`Report for ${g.name} opened`)

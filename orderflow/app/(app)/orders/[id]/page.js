@@ -279,6 +279,7 @@ export default function OrderDetailPage() {
     }
     const patch = {
       po_ref: editInfo.po_ref,
+      ref2: (editInfo.ref2 || '').trim() || null,
       order_date: editInfo.order_date || null,
       requested_date: editInfo.requested_date || null,
       notes: editInfo.notes,
@@ -295,7 +296,7 @@ export default function OrderDetailPage() {
   function runProforma() {
     generateProformaPDF(
       {
-        docNo: order.order_no, poRef: order.po_ref || '', date: todayISO(), noVat,
+        docNo: order.order_no, poRef: order.po_ref || '', ref2: order.ref2 || '', date: todayISO(), noVat,
         orderDate: order.order_date || null,
         invoiceTo, deliver: splitContact(order.customer_snapshot?.deliver || '').address,
         lines,
@@ -563,7 +564,7 @@ export default function OrderDetailPage() {
     const batches = (d.lines_snapshot || []).map((s) => s.batch || '')
     const mfgDates = (d.lines_snapshot || []).map((s) => s.mfg_date || '')
     const doc_ = {
-      docNo: d.doc_no, poRef: order.po_ref || '', date: d.doc_date,
+      docNo: d.doc_no, poRef: order.po_ref || '', ref2: d.totals?.ref2 || order.ref2 || '', date: d.doc_date,
       noVat: !!(d.totals?.no_vat ?? noVat),
       orderDate: order.order_date || null,
       invoiceTo: d.customer, deliver: d.deliver,
@@ -755,7 +756,7 @@ export default function OrderDetailPage() {
     const batches = batchModal.map((r) => (r.na ? 'N/A' : r.batch.trim()))
     const mfgDates = batchModal.map((r) => (r.na ? '' : (r.mfg || '')))
     const docData = {
-      type: 'Delivery Note', docNo, poRef: order.po_ref || '', date: docDate,
+      type: 'Delivery Note', docNo, poRef: order.po_ref || '', ref2: order.ref2 || '', date: docDate,
       orderDate: order.order_date || null,
       invoiceTo,
       deliver: splitContact(order.customer_snapshot?.deliver || '').address,
@@ -793,6 +794,7 @@ export default function OrderDetailPage() {
         delivery_charge: parseFloat(deliveryCharge) || 0,
         label_total: labelTotal || 0,
         po_ref: order.po_ref || '',
+        ref2: order.ref2 || '',
         no_vat: noVat,
         dimensions: showDims ? dimData() : null,
       },
@@ -875,7 +877,7 @@ export default function OrderDetailPage() {
         <StepHead n={1} title={`${order.order_no} — check the details`} state={reviewState(1)}>
           <StatusBadge status={order.status} />
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            <button className="btn btn-g btn-sm" onClick={() => { const c = orderContact(order) || {}; setEditInfo({ po_ref: order.po_ref || '', order_date: order.order_date || '', requested_date: order.requested_date || '', notes: order.notes || '', contact: { name: c.name || '', email: c.email || '', phone: c.phone || '' }, details: order.customer_snapshot?.details || '', deliver: order.customer_snapshot?.deliver || '' }) }}>✏️ Edit details</button>
+            <button className="btn btn-g btn-sm" onClick={() => { const c = orderContact(order) || {}; setEditInfo({ po_ref: order.po_ref || '', ref2: order.ref2 || '', order_date: order.order_date || '', requested_date: order.requested_date || '', notes: order.notes || '', contact: { name: c.name || '', email: c.email || '', phone: c.phone || '' }, details: order.customer_snapshot?.details || '', deliver: order.customer_snapshot?.deliver || '' }) }}>✏️ Edit details</button>
             <button className="btn btn-g btn-sm" onClick={() => router.push('/orders')}>← Back to log</button>
           </div>
         </StepHead>
@@ -884,6 +886,8 @@ export default function OrderDetailPage() {
             <div className="row c3">
               <div className="field"><label>Customer Order Number</label>
                 <input value={editInfo.po_ref} onChange={(e) => setEditInfo((x) => ({ ...x, po_ref: e.target.value }))} /></div>
+              <div className="field"><label>Additional reference <span style={{ color: 'var(--faint)', fontWeight: 400 }}>· optional</span></label>
+                <input value={editInfo.ref2} onChange={(e) => setEditInfo((x) => ({ ...x, ref2: e.target.value }))} /></div>
               <div className="field"><label>Order date</label>
                 <input className="mono" type="date" value={editInfo.order_date} onChange={(e) => setEditInfo((x) => ({ ...x, order_date: e.target.value }))} /></div>
               <div className="field"><label>Requested delivery date</label>
@@ -942,6 +946,7 @@ export default function OrderDetailPage() {
         <div className="row c3">
           <Info label="Customer" value={order.customer_snapshot?.name} />
           <Info label="Customer Order Number" value={order.po_ref || '—'} />
+          {order.ref2 && <Info label="Additional Ref" value={order.ref2} />}
           <Info label="Ordered" value={`${prettyDate(order.order_date)}${order.requested_date ? ` · required ${prettyDate(order.requested_date)}` : ''}`} />
         </div>
         )}
@@ -1502,7 +1507,7 @@ export default function OrderDetailPage() {
                     <>
                       <button className="btn btn-g btn-sm" onClick={() => generateProformaPDF(
                         {
-                          docNo: d.doc_no || order.order_no, date: todayISO(), noVat: !!(d.totals?.no_vat ?? noVat),
+                          docNo: d.doc_no || order.order_no, poRef: d.totals?.po_ref || order.po_ref || '', ref2: d.totals?.ref2 || order.ref2 || '', date: todayISO(), noVat: !!(d.totals?.no_vat ?? noVat),
                           orderDate: order.order_date || null,
                           invoiceTo: d.customer || invoiceTo,
                           deliver: d.deliver || splitContact(order.customer_snapshot?.deliver || '').address,
