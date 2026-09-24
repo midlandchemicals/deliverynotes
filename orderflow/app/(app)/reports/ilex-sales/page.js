@@ -53,6 +53,7 @@ export default function IlexSalesPage() {
   const [busy, setBusy] = useState(false)
   const [reassign, setReassign] = useState(null)   // a note being moved to another month
   const [reportMode, setReportMode] = useState('month')   // month | week | range
+  const [excludeNow, setExcludeNow] = useState(new Set())  // note ids dropped from this report only
   const [weekSel, setWeekSel] = useState(new Set())
   const [rangeFrom, setRangeFrom] = useState('')
   const [rangeTo, setRangeTo] = useState('')
@@ -86,16 +87,15 @@ export default function IlexSalesPage() {
     await load()
   }
 
-  // Drop an order from the report (or put it back) without changing its month.
-  async function excludeNote(note, exclude) {
-    if (!note.order_id) { setReassign(null); return }
-    setBusy(true)
-    const res = await supabase.from('orders').update({ report_exclude: exclude }).eq('id', note.order_id)
-    setBusy(false)
+  // Drop an order from THIS report only (or put it back). It's a one-off, held
+  // in memory — nothing is saved, so it clears when the report is generated or
+  // the page is refreshed.
+  function removeNow(note) {
+    setExcludeNow((s) => { const n = new Set(s); n.add(note.id); return n })
     setReassign(null)
-    if (res.error) { toastError('Could not update that order: ' + res.error.message); return }
-    toast(exclude ? `${realCustomerName(note) || note.doc_no} removed from the report` : `${realCustomerName(note) || note.doc_no} back in the report`)
-    await load()
+  }
+  function restoreNow(note) {
+    setExcludeNow((s) => { const n = new Set(s); n.delete(note.id); return n })
   }
 
   const available = useMemo(() => letterheadsPresent(notes || []), [notes])
@@ -119,7 +119,7 @@ export default function IlexSalesPage() {
   // Weekly / date-range reporting works off actual dispatch dates. Excluded
   // orders are dropped here too, so they never reach a report whichever way it's
   // sliced.
-  const reportable = useMemo(() => inScope.filter((n) => !n.reportExclude), [inScope])
+  const reportable = useMemo(() => inScope.filter((n) => !excludeNow.has(n.id)), [inScope, excludeNow])
   const weeks = useMemo(() => weeksOfMonth(current), [current])
   useEffect(() => { setWeekSel(new Set()) }, [current]) // clear week ticks when the month changes
   // Seed the date-range pickers to the selected month the first time.
@@ -128,8 +128,8 @@ export default function IlexSalesPage() {
   }, [current]) // eslint-disable-line
   const notesBetween = (from, to) => reportable.filter((n) => n.doc_date && n.doc_date >= from && n.doc_date <= to)
 
-  // What actually prints and totals: excluded orders are left out.
-  const rowsFor = (m) => m.notes.filter((n) => !n.reportExclude).flatMap(noteLines)
+  // What actually prints and totals: orders dropped from this report are left out.
+  const rowsFor = (m) => m.notes.filter((n) => !excludeNow.has(n.id)).flatMap(noteLines)
   const month = months.find((m) => m.key === current)
   const chosen = useMemo(() => {
     const keys = [current, ...extra].filter(Boolean)
@@ -169,6 +169,7 @@ export default function IlexSalesPage() {
     const { data: full } = await supabase.from('letterheads').select('*').eq('id', head.id).single()
     setBusy(false)
     generateSalesReportPDF(payload, full || head, 'SALES REPORT')
+    setExcludeNow(new Set())   // one-off drops reset once the report is out
     toast('Sales report opened')
   }
 
@@ -179,7 +180,6 @@ export default function IlexSalesPage() {
   // report content and totals below use only the included ones.
   const rows = month ? month.notes.flatMap(noteLines) : []
   const reportRows = month ? rowsFor(month) : []
-  const excludedById = new Map((month?.notes || []).map((n) => [n.id, !!n.reportExclude]))
   const monthNet = reportRows.reduce((a, r) => a + r.net, 0)
   // First line of each order in the list — that's where its single tick sits.
   const seenNote = new Set()
@@ -253,8 +253,9 @@ export default function IlexSalesPage() {
           </div>
           {isAdmin && (
             <p className="hint" style={{ marginTop: 0 }}>
-              Every order is ticked into the report. Un-tick one to take it out — you can move it to another month, or
-              just drop it from the report and leave it where it is. Un-ticked orders stay listed (greyed) so you can put them back.
+              Every order is ticked into the report. Un-tick one to leave it off <b>this</b> report (a one-off — it resets
+              when you generate the report or refresh), or to move it to another month. Dropped orders stay listed (greyed)
+              so you can tick them back.
             </p>
           )}
           <table className="tbl tbl-cards">
@@ -268,7 +269,7 @@ export default function IlexSalesPage() {
             </tr></thead>
             <tbody>
               {rows.map((r, i) => {
-                const isExcl = excludedById.get(r.noteId)
+                const isExcl = excludeNow.has(r.noteId)
                 return (
                 <tr key={i} style={isExcl ? { opacity: 0.5, textDecoration: 'line-through' } : undefined}>
                   {isAdmin && (
@@ -276,11 +277,11 @@ export default function IlexSalesPage() {
                       {/* One tick per order: it sits on the order's first line, so
                           multi-line orders aren't ticked several times over. A
                           ticked order is in the report; un-ticking opens the choices,
-                          re-ticking an excluded one puts it straight back. */}
+                          re-ticking a dropped one puts it straight back. */}
                       {firstRow[i] ? (
                         <input type="checkbox" checked={!isExcl} readOnly disabled={busy}
-                          title={isExcl ? `Excluded — tick to put ${r.docNo} back` : `Included — un-tick to move or drop ${r.docNo}`}
-                          onChange={() => { const n = month.notes.find((x) => x.id === r.noteId); if (!n) return; isExcl ? excludeNote(n, false) : setReassign(n) }}
+                          title={isExcl ? `Dropped from this report — tick to put ${r.docNo} back` : `Included — un-tick to move or drop ${r.docNo}`}
+                          onChange={() => { const n = month.notes.find((x) => x.id === r.noteId); if (!n) return; isExcl ? restoreNow(n) : setReassign(n) }}
                           style={{ width: 16, height: 16, cursor: 'pointer' }} />
                       ) : null}
                     </td>
@@ -368,8 +369,8 @@ export default function IlexSalesPage() {
             </p>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
               <button className="btn btn-a" disabled={busy} style={{ justifyContent: 'flex-start' }}
-                onClick={() => excludeNote(reassign, true)}>
-                Just remove it from the report · <b style={{ marginLeft: 6 }}>keep it in {monthLabel(effectiveMonth(reassign))}</b>
+                onClick={() => removeNow(reassign)}>
+                Just leave it off this report · <b style={{ marginLeft: 6 }}>one-off, resets after generating</b>
               </button>
               <button className="btn btn-g" disabled={busy} style={{ justifyContent: 'flex-start' }}
                 onClick={() => moveNote(reassign, 1)}>
