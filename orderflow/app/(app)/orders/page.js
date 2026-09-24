@@ -89,6 +89,28 @@ export default function OrdersPage() {
     })()
   }, [])
 
+  // Searching a delivery-note (or customer order) number must reach the whole
+  // history, not just the last three months held in memory. When the box has
+  // something in it, matching orders are pulled from the database and merged in
+  // so they show up however old they are.
+  useEffect(() => {
+    const term = q.trim()
+    if (term.length < 2) return
+    const like = `%${term.replace(/[%,]/g, '')}%`
+    const t = setTimeout(async () => {
+      const { data } = await supabase.from('orders').select('*')
+        .or(`order_no.ilike.${like},po_ref.ilike.${like}`)
+        .order('created_at', { ascending: false }).limit(50)
+      if (!data?.length) return
+      setOrders((cur) => {
+        const have = new Set(cur.map((x) => x.id))
+        const add = data.filter((x) => !have.has(x.id))
+        return add.length ? [...cur, ...add].sort((a, b) => new Date(b.created_at) - new Date(a.created_at)) : cur
+      })
+    }, 300)
+    return () => clearTimeout(t)
+  }, [q])
+
   async function loadMonth(mKey) {
     if (loadedMonths[mKey] || loadingMonth) return
     setLoadingMonth(mKey)
@@ -184,8 +206,10 @@ export default function OrdersPage() {
   // Resolve active tab (null = default company)
   const activeTab = lhTab === undefined ? null : lhTab
 
-  // Orders for the current tab
-  const tabOrders = showTabs
+  // Orders for the current tab. While a search is running the company tabs are
+  // ignored — a delivery-note number should be findable whoever it was for,
+  // without first guessing which company's tab it lives under.
+  const tabOrders = showTabs && !q.trim()
     ? orders.filter((o) => orderLhId(o) === activeTab)
     : orders
 

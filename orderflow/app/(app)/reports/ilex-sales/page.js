@@ -59,6 +59,18 @@ export default function IlexSalesPage() {
     await load()
   }
 
+  // Drop an order from the report (or put it back) without changing its month.
+  async function excludeNote(note, exclude) {
+    if (!note.order_id) { setReassign(null); return }
+    setBusy(true)
+    const res = await supabase.from('orders').update({ report_exclude: exclude }).eq('id', note.order_id)
+    setBusy(false)
+    setReassign(null)
+    if (res.error) { toastError('Could not update that order: ' + res.error.message); return }
+    toast(exclude ? `${realCustomerName(note) || note.doc_no} removed from the report` : `${realCustomerName(note) || note.doc_no} back in the report`)
+    await load()
+  }
+
   const available = useMemo(() => letterheadsPresent(notes || []), [notes])
 
   // Seed the selection once the notes are in: whatever matched automatically,
@@ -77,7 +89,8 @@ export default function IlexSalesPage() {
   const months = useMemo(() => byMonth(inScope), [inScope])
   useEffect(() => { if (!current && months.length) setCurrent(months[0].key) }, [months, current])
 
-  const rowsFor = (m) => m.notes.flatMap(noteLines)
+  // What actually prints and totals: excluded orders are left out.
+  const rowsFor = (m) => m.notes.filter((n) => !n.reportExclude).flatMap(noteLines)
   const month = months.find((m) => m.key === current)
   const chosen = useMemo(() => {
     const keys = [current, ...extra].filter(Boolean)
@@ -106,7 +119,12 @@ export default function IlexSalesPage() {
   if (!isAdmin) return <div className="card"><div className="empty">This report is admin-only.</div></div>
   if (notes === null) return <div className="card"><div className="skel skel-title" />{[0, 1, 2].map((i) => <div key={i} className="skel skel-row" />)}</div>
 
-  const rows = month ? rowsFor(month) : []
+  // The table shows every order (so an un-ticked one can be re-ticked); the
+  // report content and totals below use only the included ones.
+  const rows = month ? month.notes.flatMap(noteLines) : []
+  const reportRows = month ? rowsFor(month) : []
+  const excludedById = new Map((month?.notes || []).map((n) => [n.id, !!n.reportExclude]))
+  const monthNet = reportRows.reduce((a, r) => a + r.net, 0)
   // First line of each order in the list — that's where its single tick sits.
   const seenNote = new Set()
   const firstRow = rows.map((r) => { const first = !seenNote.has(r.noteId); seenNote.add(r.noteId); return first })
@@ -177,12 +195,12 @@ export default function IlexSalesPage() {
         <div className="card">
           <div className="ttl">
             <h2>{month.label}</h2>
-            <span className="muted" style={{ fontSize: 12.5 }}>{rows.length} line{rows.length === 1 ? '' : 's'} · {money(month.net)}</span>
+            <span className="muted" style={{ fontSize: 12.5 }}>{reportRows.length} line{reportRows.length === 1 ? '' : 's'} · {money(monthNet)}</span>
           </div>
           {isAdmin && (
             <p className="hint" style={{ marginTop: 0 }}>
-              Every order is ticked. Un-tick one to take it out of this month — you’ll be asked whether it should count
-              towards next or last month instead.
+              Every order is ticked into the report. Un-tick one to take it out — you can move it to another month, or
+              just drop it from the report and leave it where it is. Un-ticked orders stay listed (greyed) so you can put them back.
             </p>
           )}
           <table className="tbl tbl-cards">
@@ -195,15 +213,20 @@ export default function IlexSalesPage() {
               <th style={{ textAlign: 'right' }}>Net</th>
             </tr></thead>
             <tbody>
-              {rows.map((r, i) => (
-                <tr key={i}>
+              {rows.map((r, i) => {
+                const isExcl = excludedById.get(r.noteId)
+                return (
+                <tr key={i} style={isExcl ? { opacity: 0.5, textDecoration: 'line-through' } : undefined}>
                   {isAdmin && (
                     <td data-label="In report" style={{ textAlign: 'center' }}>
                       {/* One tick per order: it sits on the order's first line, so
-                          multi-line orders aren't ticked several times over. */}
+                          multi-line orders aren't ticked several times over. A
+                          ticked order is in the report; un-ticking opens the choices,
+                          re-ticking an excluded one puts it straight back. */}
                       {firstRow[i] ? (
-                        <input type="checkbox" checked readOnly disabled={busy} title={`Included — un-tick to move ${r.docNo} to another month`}
-                          onChange={() => { const n = month.notes.find((x) => x.id === r.noteId); if (n) setReassign(n) }}
+                        <input type="checkbox" checked={!isExcl} readOnly disabled={busy}
+                          title={isExcl ? `Excluded — tick to put ${r.docNo} back` : `Included — un-tick to move or drop ${r.docNo}`}
+                          onChange={() => { const n = month.notes.find((x) => x.id === r.noteId); if (!n) return; isExcl ? excludeNote(n, false) : setReassign(n) }}
                           style={{ width: 16, height: 16, cursor: 'pointer' }} />
                       ) : null}
                     </td>
@@ -218,7 +241,8 @@ export default function IlexSalesPage() {
                   <td style={{ fontSize: 11.5 }} data-label="Delivery address">{r.deliverTo}</td>
                   <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }} data-label="Net">{money(r.net)}</td>
                 </tr>
-              ))}
+                )
+              })}
             </tbody>
           </table>
         </div>
@@ -238,21 +262,25 @@ export default function IlexSalesPage() {
       {reassign && (
         <div className="modal-bg" onClick={() => !busy && setReassign(null)}>
           <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 460, textAlign: 'left' }}>
-            <h2 style={{ marginBottom: 6 }}>Move this order to another month</h2>
+            <h2 style={{ marginBottom: 6 }}>Take this order off the report</h2>
             <p className="hint" style={{ marginTop: 0, marginBottom: 16 }}>
-              <b>{realCustomerName(reassign) || reassign.doc_no}</b> (#{reassign.doc_no}) will leave{' '}
-              <b>{monthLabel(effectiveMonth(reassign))}</b>. Which month should it appear in instead?
+              <b>{realCustomerName(reassign) || reassign.doc_no}</b> (#{reassign.doc_no}) is in{' '}
+              <b>{monthLabel(effectiveMonth(reassign))}</b>. What would you like to do?
             </p>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
               <button className="btn btn-a" disabled={busy} style={{ justifyContent: 'flex-start' }}
+                onClick={() => excludeNote(reassign, true)}>
+                Just remove it from the report · <b style={{ marginLeft: 6 }}>keep it in {monthLabel(effectiveMonth(reassign))}</b>
+              </button>
+              <button className="btn btn-g" disabled={busy} style={{ justifyContent: 'flex-start' }}
                 onClick={() => moveNote(reassign, 1)}>
-                Next month · <b style={{ marginLeft: 6 }}>{monthLabel(shiftMonth(effectiveMonth(reassign), 1).slice(0, 7))}</b>
+                Move to next month · <b style={{ marginLeft: 6 }}>{monthLabel(shiftMonth(effectiveMonth(reassign), 1).slice(0, 7))}</b>
               </button>
               <button className="btn btn-g" disabled={busy} style={{ justifyContent: 'flex-start' }}
                 onClick={() => moveNote(reassign, -1)}>
-                Last month · <b style={{ marginLeft: 6 }}>{monthLabel(shiftMonth(effectiveMonth(reassign), -1).slice(0, 7))}</b>
+                Move to last month · <b style={{ marginLeft: 6 }}>{monthLabel(shiftMonth(effectiveMonth(reassign), -1).slice(0, 7))}</b>
               </button>
-              <button className="btn btn-g" disabled={busy} onClick={() => setReassign(null)}>Cancel — keep it in {monthLabel(effectiveMonth(reassign))}</button>
+              <button className="btn btn-g" disabled={busy} onClick={() => setReassign(null)}>Cancel — leave it as it is</button>
             </div>
           </div>
         </div>
