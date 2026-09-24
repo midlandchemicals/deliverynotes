@@ -12,6 +12,29 @@ import MonthPicker from '../MonthPicker'
 const money = (n) => '£' + (Math.round((n || 0) * 100) / 100).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const LABELS = { ilex: 'Ilex', apfarm: 'AP Farms', fielder: 'Fielder' }
 
+const toISODate = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+const dayShort = (iso) => (iso ? new Date(iso + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : '')
+const dayLong = (iso) => (iso ? new Date(iso + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '')
+
+// Split a month into Monday-aligned weeks, clamped to the month — so September
+// gives Week 1 (1–7 Sep), Week 2 (8–14 Sep) … each with its exact dates.
+function weeksOfMonth(monthKey) {
+  const [y, m] = String(monthKey || '').split('-').map(Number)
+  if (!y || !m) return []
+  const lastDay = new Date(y, m, 0).getDate()
+  const weeks = []
+  let day = 1, n = 1
+  while (day <= lastDay) {
+    const dowMon = (new Date(y, m - 1, day).getDay() + 6) % 7    // Mon=0 … Sun=6
+    const endDay = Math.min(day + (6 - dowMon), lastDay)
+    weeks.push({ key: `${monthKey}-w${n}`, n, from: toISODate(new Date(y, m - 1, day)), to: toISODate(new Date(y, m - 1, endDay)) })
+    day = endDay + 1; n++
+  }
+  return weeks
+}
+const firstOfMonth = (mk) => `${mk}-01`
+const lastOfMonth = (mk) => { const [y, m] = mk.split('-').map(Number); return toISODate(new Date(y, m, 0)) }
+
 export default function IlexSalesPage() {
   const supabase = createClient()
   const router = useRouter()
@@ -29,6 +52,10 @@ export default function IlexSalesPage() {
   const [chosenLh, setChosenLh] = useState(null)
   const [busy, setBusy] = useState(false)
   const [reassign, setReassign] = useState(null)   // a note being moved to another month
+  const [reportMode, setReportMode] = useState('month')   // month | week | range
+  const [weekSel, setWeekSel] = useState(new Set())
+  const [rangeFrom, setRangeFrom] = useState('')
+  const [rangeTo, setRangeTo] = useState('')
 
   async function load() {
     const [n, lh] = await Promise.all([
@@ -89,6 +116,18 @@ export default function IlexSalesPage() {
   const months = useMemo(() => byMonth(inScope), [inScope])
   useEffect(() => { if (!current && months.length) setCurrent(months[0].key) }, [months, current])
 
+  // Weekly / date-range reporting works off actual dispatch dates. Excluded
+  // orders are dropped here too, so they never reach a report whichever way it's
+  // sliced.
+  const reportable = useMemo(() => inScope.filter((n) => !n.reportExclude), [inScope])
+  const weeks = useMemo(() => weeksOfMonth(current), [current])
+  useEffect(() => { setWeekSel(new Set()) }, [current]) // clear week ticks when the month changes
+  // Seed the date-range pickers to the selected month the first time.
+  useEffect(() => {
+    if (current && !rangeFrom && !rangeTo) { setRangeFrom(firstOfMonth(current)); setRangeTo(lastOfMonth(current)) }
+  }, [current]) // eslint-disable-line
+  const notesBetween = (from, to) => reportable.filter((n) => n.doc_date && n.doc_date >= from && n.doc_date <= to)
+
   // What actually prints and totals: excluded orders are left out.
   const rowsFor = (m) => m.notes.filter((n) => !n.reportExclude).flatMap(noteLines)
   const month = months.find((m) => m.key === current)
@@ -99,21 +138,38 @@ export default function IlexSalesPage() {
   }, [months, current, extra])
 
 
+  // Build the report sections for whichever mode is active.
+  function buildPayload() {
+    if (reportMode === 'week') {
+      const sel = weeks.filter((w) => weekSel.has(w.key))
+      return sel.map((w) => {
+        const rows = notesBetween(w.from, w.to).flatMap(noteLines)
+        return { label: `${monthLabel(current)} · Week ${w.n} (${dayShort(w.from)}–${dayShort(w.to)})`, rows, net: rows.reduce((a, r) => a + r.net, 0) }
+      })
+    }
+    if (reportMode === 'range') {
+      if (!rangeFrom || !rangeTo) return []
+      const [from, to] = rangeFrom <= rangeTo ? [rangeFrom, rangeTo] : [rangeTo, rangeFrom]
+      const rows = notesBetween(from, to).flatMap(noteLines)
+      return [{ label: `${dayLong(from)} – ${dayLong(to)}`, rows, net: rows.reduce((a, r) => a + r.net, 0) }]
+    }
+    return chosen.map((m) => {
+      const rows = rowsFor(m)
+      return { label: m.label, rows, net: rows.reduce((a, r) => a + r.net, 0) }
+    })
+  }
+
   async function generate() {
-    if (!chosen.length) { toastError('Choose a month first'); return }
+    const payload = buildPayload()
+    if (!payload.length) { toastError(reportMode === 'week' ? 'Pick at least one week' : reportMode === 'range' ? 'Choose both dates' : 'Choose a month first'); return }
     const head = letterheads.find((l) => `${l.name} ${l.company}`.toUpperCase().includes('MIDLAND')) || letterheads[0]
     if (!head) { toastError('No letterhead set up to print on'); return }
     // The logo is deliberately not in the list query — fetch it for this one.
     setBusy(true)
     const { data: full } = await supabase.from('letterheads').select('*').eq('id', head.id).single()
     setBusy(false)
-    const midland = full || head
-    const payload = chosen.map((m) => {
-      const rows = rowsFor(m)
-      return { label: m.label, rows, net: rows.reduce((a, r) => a + r.net, 0) }
-    })
-    generateSalesReportPDF(payload, midland, 'SALES REPORT')
-    toast(`Sales report for ${payload.length} month${payload.length === 1 ? '' : 's'} opened`)
+    generateSalesReportPDF(payload, full || head, 'SALES REPORT')
+    toast('Sales report opened')
   }
 
   if (!isAdmin) return <div className="card"><div className="empty">This report is admin-only.</div></div>
@@ -128,8 +184,6 @@ export default function IlexSalesPage() {
   // First line of each order in the list — that's where its single tick sits.
   const seenNote = new Set()
   const firstRow = rows.map((r) => { const first = !seenNote.has(r.noteId); seenNote.add(r.noteId); return first })
-  const grandRows = chosen.reduce((a, m) => a + rowsFor(m).length, 0)
-  const grandNet = chosen.reduce((a, m) => a + rowsFor(m).reduce((x, r) => x + r.net, 0), 0)
 
   return (
     <div>
@@ -250,13 +304,58 @@ export default function IlexSalesPage() {
 
       <div className="card">
         <div className="ttl"><h2>Generate the report</h2></div>
-        <p className="hint" style={{ marginTop: 0 }}>
-          {chosen.length === 0 ? 'Choose a month above.' : (
-            <>Covering <b>{chosen.map((m) => m.label).join(', ')}</b> — {grandRows} line{grandRows === 1 ? '' : 's'},
-              {' '}<b>{money(grandNet)}</b>. Prints landscape on the Midland letterhead.</>
-          )}
-        </p>
-        <button className="btn btn-a" disabled={!chosen.length} onClick={generate}>📄 Generate sales report</button>
+
+        <div className="theme-tog" style={{ background: 'var(--field-bg)', marginBottom: 14, display: 'inline-flex' }}>
+          {[['month', 'Whole month'], ['week', 'By week'], ['range', 'Date range']].map(([k, label]) => (
+            <button key={k} className={reportMode === k ? 'on' : ''} onClick={() => setReportMode(k)}>{label}</button>
+          ))}
+        </div>
+
+        {reportMode === 'week' && (
+          <div style={{ marginBottom: 14 }}>
+            <p className="hint" style={{ marginTop: 0 }}>
+              Weeks of <b>{current ? monthLabel(current) : '—'}</b> — tick the ones to report. Change the month above to pick a different one.
+            </p>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+              {weeks.map((w) => {
+                const rows = notesBetween(w.from, w.to).flatMap(noteLines)
+                const on = weekSel.has(w.key)
+                return (
+                  <button key={w.key} className={'chip' + (on ? ' on' : '')}
+                    onClick={() => setWeekSel((s) => { const n = new Set(s); n.has(w.key) ? n.delete(w.key) : n.add(w.key); return n })}>
+                    Week {w.n} · {dayShort(w.from)}–{dayShort(w.to)}
+                    <span style={{ opacity: .65 }}> · {rows.length} line{rows.length === 1 ? '' : 's'} · {money(rows.reduce((a, r) => a + r.net, 0))}</span>
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        )}
+
+        {reportMode === 'range' && (
+          <div className="row c2" style={{ maxWidth: 420, marginBottom: 8 }}>
+            <div className="field"><label>From</label>
+              <input className="mono" type="date" value={rangeFrom} onChange={(e) => setRangeFrom(e.target.value)} /></div>
+            <div className="field"><label>To</label>
+              <input className="mono" type="date" value={rangeTo} onChange={(e) => setRangeTo(e.target.value)} /></div>
+          </div>
+        )}
+
+        {(() => {
+          const payload = buildPayload()
+          const lines = payload.reduce((a, p) => a + p.rows.length, 0)
+          const net = payload.reduce((a, p) => a + p.net, 0)
+          const ready = payload.length > 0
+          return (
+            <p className="hint" style={{ marginTop: reportMode === 'range' ? 4 : 0 }}>
+              {!ready
+                ? (reportMode === 'week' ? 'Tick at least one week.' : reportMode === 'range' ? 'Pick both dates.' : 'Choose a month above.')
+                : <>Covering <b>{payload.map((p) => p.label).join(', ')}</b> — {lines} line{lines === 1 ? '' : 's'},{' '}<b>{money(net)}</b>. Prints landscape on the Midland letterhead.</>}
+            </p>
+          )
+        })()}
+
+        <button className="btn btn-a" disabled={busy} onClick={generate}>📄 Generate sales report</button>
       </div>
 
       {reassign && (
