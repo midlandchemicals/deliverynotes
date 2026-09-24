@@ -41,6 +41,8 @@ export default function OrdersPage() {
   const [loadedMonths, setLoadedMonths] = useState({}) // key -> true once fetched
   const [loadingMonth, setLoadingMonth] = useState(null)
   const [dueWeek, setDueWeek] = useState(false)
+  const [showTrash, setShowTrash] = useState(false)
+  const [trash, setTrash] = useState(null)   // null = not loaded yet
 
   // Apply filters passed from the dashboard KPI tiles (?filter=open|done, ?due=week)
   useEffect(() => {
@@ -58,8 +60,8 @@ export default function OrdersPage() {
       const cd = new Date(); cd.setMonth(cd.getMonth() - 3)
       const cutoff = cd.toISOString()
       const [o, older, p, k, c, lh] = await Promise.all([
-        supabase.from('orders').select('*').gte('created_at', cutoff).order('created_at', { ascending: false }),
-        supabase.from('orders').select('created_at').lt('created_at', cutoff).order('created_at', { ascending: false }),
+        supabase.from('orders').select('*').is('deleted_at', null).gte('created_at', cutoff).order('created_at', { ascending: false }),
+        supabase.from('orders').select('created_at').is('deleted_at', null).lt('created_at', cutoff).order('created_at', { ascending: false }),
         supabase.from('products').select('id,name'),
         supabase.from('packaging').select('id,name,volume,tare'),
         supabase.from('customers').select('id, default_letterhead_id'),
@@ -99,6 +101,7 @@ export default function OrdersPage() {
     const like = `%${term.replace(/[%,]/g, '')}%`
     const t = setTimeout(async () => {
       const { data } = await supabase.from('orders').select('*')
+        .is('deleted_at', null)
         .or(`order_no.ilike.${like},po_ref.ilike.${like}`)
         .order('created_at', { ascending: false }).limit(50)
       if (!data?.length) return
@@ -118,7 +121,7 @@ export default function OrdersPage() {
     const from = new Date(y, m - 1, 1).toISOString()
     const to = new Date(y, m, 1).toISOString()
     const { data } = await supabase.from('orders').select('*')
-      .gte('created_at', from).lt('created_at', to)
+      .is('deleted_at', null).gte('created_at', from).lt('created_at', to)
       .order('created_at', { ascending: false })
     setOrders((cur) => {
       const have = new Set(cur.map((x) => x.id))
@@ -159,14 +162,40 @@ export default function OrdersPage() {
     }
   }
 
+  // Soft delete — the order moves to the Trash (below) rather than being
+  // destroyed, so an accidental delete can always be undone. Its delivery notes
+  // are kept too and come back with it on restore.
   async function remove(e, order) {
     e.stopPropagation()
-    if (!confirm(`Delete delivery note ${order.order_no}? This cannot be undone.`)) return
-    // Remove any generated delivery notes for this order too, so they don't
-    // linger in the Delivery Notes library after the order is gone.
+    if (!confirm(`Move delivery note ${order.order_no} to the Trash? You can restore it later from the Trash.`)) return
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!ok(await supabase.from('orders').update({ deleted_at: new Date().toISOString(), deleted_by: user?.email || null }).eq('id', order.id), 'moving the order to the Trash')) return
+    setOrders((list) => list.filter((x) => x.id !== order.id))
+    setTrash((t) => (t === null ? t : [{ ...order, deleted_at: new Date().toISOString() }, ...t]))
+    toast(`${order.order_no} moved to the Trash`)
+  }
+
+  async function loadTrash() {
+    const { data } = await supabase.from('orders').select('*').not('deleted_at', 'is', null)
+      .order('deleted_at', { ascending: false }).limit(200)
+    setTrash(data || [])
+  }
+
+  async function restore(e, order) {
+    e.stopPropagation()
+    if (!ok(await supabase.from('orders').update({ deleted_at: null, deleted_by: null }).eq('id', order.id), 'restoring the order')) return
+    setTrash((t) => (t || []).filter((x) => x.id !== order.id))
+    setOrders((list) => [{ ...order, deleted_at: null }, ...list].sort((a, b) => new Date(b.created_at) - new Date(a.created_at)))
+    toast(`${order.order_no} restored`)
+  }
+
+  async function destroy(e, order) {
+    e.stopPropagation()
+    if (!confirm(`Permanently delete ${order.order_no}? This removes the order and its delivery notes for good and cannot be undone.`)) return
     if (!ok(await supabase.from('dispatch_notes').delete().eq('order_id', order.id), 'deleting its delivery notes')) return
     if (!ok(await supabase.from('orders').delete().eq('id', order.id), 'deleting the order')) return
-    setOrders((list) => list.filter((x) => x.id !== order.id))
+    setTrash((t) => (t || []).filter((x) => x.id !== order.id))
+    toast(`${order.order_no} permanently deleted`)
   }
 
   if (orders === null) return (
@@ -286,9 +315,43 @@ export default function OrdersPage() {
             <span key={s} className={'chip' + (filter === s && !dueWeek ? ' on' : '')} onClick={() => { setFilter(s); setDueWeek(false) }}>{s}</span>
           ))}
           <span className={'chip' + (dueWeek ? ' on' : '')} onClick={() => setDueWeek((v) => !v)}>Due this week</span>
+          <span className={'chip' + (showTrash ? ' on' : '')} style={{ marginLeft: 'auto' }}
+            onClick={() => { const n = !showTrash; setShowTrash(n); if (n && trash === null) loadTrash() }}>
+            🗑 Trash{trash && trash.length ? ` (${trash.length})` : ''}
+          </span>
         </div>
 
-        {filtered.length === 0 ? (
+        {showTrash ? (
+          trash === null ? (
+            <div className="empty">Loading the Trash…</div>
+          ) : trash.length === 0 ? (
+            <div className="empty">The Trash is empty. Deleted orders can be restored from here.</div>
+          ) : (
+            <>
+              <p className="hint" style={{ marginTop: 0 }}>
+                Deleted orders live here. <b>Restore</b> puts one back on the book exactly as it was; <b>Delete permanently</b> removes it and its delivery notes for good.
+              </p>
+              {trash.map((o) => (
+                <div key={o.id} className="list-row" style={{ opacity: 0.85 }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
+                      <span className="list-customer">{o.customer_snapshot?.name || '—'}</span>
+                      <span className="list-orderno">{o.order_no}{o.po_ref ? ` · Order: ${o.po_ref}` : ''}</span>
+                    </div>
+                    <div className="list-date">
+                      {prettyDate(o.order_date)}
+                      {o.deleted_at ? <span style={{ color: 'var(--muted)', fontSize: 11, marginLeft: 8 }}>· deleted {prettyDate(o.deleted_at)}{o.deleted_by ? ` by ${nameFromEmail(o.deleted_by)}` : ''}</span> : null}
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                    <button className="btn btn-a btn-sm" onClick={(e) => restore(e, o)}>↩ Restore</button>
+                    <button className="btn btn-g btn-sm" style={{ color: 'var(--bad)' }} onClick={(e) => destroy(e, o)}>Delete permanently</button>
+                  </div>
+                </div>
+              ))}
+            </>
+          )
+        ) : filtered.length === 0 ? (
           <div className="empty">No delivery notes match. Log one from <b>New delivery note</b>.</div>
         ) : (
           filtered.map((o) => (

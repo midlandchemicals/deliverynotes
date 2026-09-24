@@ -51,7 +51,7 @@ export default function HomePage() {
     (async () => {
       const [{ data: { user } }, ordRes, prodRes] = await Promise.all([
         supabase.auth.getUser(),
-        supabase.from('orders').select('*').order('created_at', { ascending: false }),
+        supabase.from('orders').select('*').is('deleted_at', null).order('created_at', { ascending: false }),
         supabase.from('products').select('id,name'),
       ])
       setName(nameFromEmail(user?.email))

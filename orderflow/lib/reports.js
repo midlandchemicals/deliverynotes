@@ -193,9 +193,10 @@ export async function loadReportNotes(supabase, { limit = 3000 } = {}) {
   const excluded = new Set()       // order ids taken off the sales report
   for (let i = 0; i < ids.length; i += 200) {
     const chunk = ids.slice(i, i + 200)
-    const ord = await supabase.from('orders').select('id, name:customer_snapshot->>name, report_month, report_exclude').in('id', chunk)
+    const ord = await supabase.from('orders').select('id, name:customer_snapshot->>name, report_month, report_exclude, deleted_at').in('id', chunk)
     if (ord.error) return { notes: raw, orphaned: 0, duplicates: 0, error: null }  // can't verify — show everything
     for (const o of ord.data || []) {
+      if (o.deleted_at) continue   // trashed order — its notes don't count, same as a deleted one
       names.set(o.id, o.name || '')
       if (o.report_month) reportMonths.set(o.id, String(o.report_month).slice(0, 7))
       if (o.report_exclude) excluded.add(o.id)
