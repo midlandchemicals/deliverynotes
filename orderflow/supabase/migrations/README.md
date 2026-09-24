@@ -32,3 +32,5 @@ a new numbered file appears here — run just that one.
 | 020_report_month_and_rob.sql | order `report_month` override (invoice this/next/last month) + lets Rob into Purchasing via role 'purchasing' (set his role in the Table Editor after running) |
 | 021_supersede_notes.sql | `superseded_at` on delivery notes — regenerating a note auto-hides the previous copies (kept, not deleted) |
 | 022_order_extra_ref.sql | optional third order reference (`ref2`) printed on the paperwork |
+| 023_report_exclude.sql | `report_exclude` flag — drop a single order from the Ilex/sales report without moving its month |
+| 024_soft_delete_orders.sql | soft-delete (`deleted_at`) — deleted orders go to a recoverable Trash instead of being destroyed |

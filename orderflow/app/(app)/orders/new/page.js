@@ -46,6 +46,7 @@ export default function NewOrderPage() {
   const [reportMonth, setReportMonth] = useState(null)
   const [monthAsked, setMonthAsked] = useState(false)
   const [monthModal, setMonthModal] = useState(false)
+  const [monthPick, setMonthPick] = useState('') // '' falls back to the order's own month
   const [lines, setLines] = useState([])
   const [notes, setNotes] = useState('')
   const [availableByProduct, setAvailableByProduct] = useState({})
@@ -272,11 +273,11 @@ export default function NewOrderPage() {
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
-  // Their choice from the month popup: 0 = this month (no change), +1 = next,
-  // -1 = last. We proceed to step 2 directly because monthAsked won't have
-  // updated in state yet on this same tick.
-  function chooseInvoiceMonth(delta) {
-    setReportMonth(delta === 0 ? null : shiftMonthISO(orderDate || todayISO(), delta))
+  // The month picked in the popup. If it's the order's own month we store null
+  // (no override); otherwise the first of the chosen month. We proceed to step 2
+  // directly because monthAsked won't have updated in state yet on this tick.
+  function confirmInvoiceMonth(monthStr, natural) {
+    setReportMonth(monthStr && monthStr !== natural ? `${monthStr}-01` : null)
     setMonthAsked(true)
     setMonthModal(false)
     setStep(2)
@@ -853,21 +854,26 @@ export default function NewOrderPage() {
               This only affects where the order appears on <b>Insights</b> and the <b>Ilex / sales report</b> — the order
               itself, the delivery note and what the customer is charged are unchanged.
             </p>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
-              <button className="btn btn-a" onClick={() => chooseInvoiceMonth(0)} style={{ justifyContent: 'flex-start' }}>
-                Invoice this month · <b style={{ marginLeft: 6 }}>{monthName(shiftMonthISO(orderDate || todayISO(), 0))}</b>
-              </button>
-              <button className="btn btn-g" onClick={() => chooseInvoiceMonth(1)} style={{ justifyContent: 'flex-start' }}>
-                Invoice next month · <b style={{ marginLeft: 6 }}>{monthName(shiftMonthISO(orderDate || todayISO(), 1))}</b>
-              </button>
-              <button className="btn btn-g" onClick={() => chooseInvoiceMonth(-1)} style={{ justifyContent: 'flex-start' }}>
-                Invoice last month · <b style={{ marginLeft: 6 }}>{monthName(shiftMonthISO(orderDate || todayISO(), -1))}</b>
-              </button>
-            </div>
-            <div style={{ marginTop: 14, textAlign: 'center' }}>
-              <button className="out" style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', fontSize: 13 }}
-                onClick={() => setMonthModal(false)}>← Back to the details</button>
-            </div>
+            {(() => {
+              const natural = shiftMonthISO(orderDate || todayISO(), 0).slice(0, 7)
+              const value = monthPick || natural
+              return (
+                <>
+                  <div className="field" style={{ marginBottom: 6 }}>
+                    <label>Invoice month</label>
+                    <input className="mono" type="month" value={value} autoFocus
+                      onChange={(e) => setMonthPick(e.target.value || natural)} />
+                  </div>
+                  <p className="hint" style={{ marginTop: 0 }}>
+                    Defaults to this month ({monthName(natural + '-01')}). Pick another only if it needs to be invoiced in a different month.
+                  </p>
+                  <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 10 }}>
+                    <button className="btn btn-g" onClick={() => setMonthModal(false)}>← Back to details</button>
+                    <button className="btn btn-a" onClick={() => confirmInvoiceMonth(value, natural)}>Continue to products →</button>
+                  </div>
+                </>
+              )
+            })()}
           </div>
         </div>
       )}

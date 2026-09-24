@@ -45,12 +45,13 @@ export default function HomePage() {
   const isAdmin = useIsAdmin()
   const [name, setName] = useState('')
   const [data, setData] = useState(null)
+  const [q, setQ] = useState('')
 
   useEffect(() => {
     (async () => {
       const [{ data: { user } }, ordRes, prodRes] = await Promise.all([
         supabase.auth.getUser(),
-        supabase.from('orders').select('*').order('created_at', { ascending: false }),
+        supabase.from('orders').select('*').is('deleted_at', null).order('created_at', { ascending: false }),
         supabase.from('products').select('id,name'),
       ])
       setName(nameFromEmail(user?.email))
@@ -157,14 +158,24 @@ export default function HomePage() {
             </h2>
             <Link href="/orders" style={{ fontSize: 13, fontWeight: 600, color: 'var(--accent)' }}>Order Book →</Link>
           </div>
+          <div className="filters" style={{ marginBottom: 12 }}>
+            <input placeholder="Search delivery-note no., order no., customer or product…" value={q} onChange={(e) => setQ(e.target.value)} />
+          </div>
           {data.all.length === 0 ? (
             <div className="empty">No orders yet — log one from <b>New Order</b>.</div>
-          ) : (
+          ) : (() => {
+            const term = q.trim().toLowerCase()
+            const shown = term
+              ? data.all.filter((o) => `${o.order_no} ${o.po_ref || ''} ${o.customer_snapshot?.name || ''} ${o.productSummary || ''}`.toLowerCase().includes(term))
+              : data.all
+            return shown.length === 0 ? (
+              <div className="empty">Nothing matches “{q}”.</div>
+            ) : (
             <div className="order-scroll">
               <div className="mini-table-head">
                 <div>DN No.</div><div>Customer</div><div>Ordered</div><div style={{ textAlign: 'right' }}>Status</div>
               </div>
-              {data.all.map((o) => (
+              {shown.map((o) => (
                 <div key={o.id} className={'mini-table-row' + (o.isNew24 ? ' row-new24' : '')} onClick={() => router.push(`/orders/${o.id}`)}>
                   <div className="mono" style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--heading)' }}>
                     {o.order_no}
@@ -188,7 +199,8 @@ export default function HomePage() {
                 </div>
               ))}
             </div>
-          )}
+            )
+          })()}
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>

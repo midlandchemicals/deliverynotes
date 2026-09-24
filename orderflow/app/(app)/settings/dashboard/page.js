@@ -20,7 +20,7 @@ export default function DashboardPage() {
   useEffect(() => {
     (async () => {
       const [ordRes, prodRes, pkgRes, priceRes, custRes, lhRes, dnRes] = await Promise.all([
-        supabase.from('orders').select('*').order('created_at', { ascending: false }),
+        supabase.from('orders').select('*').is('deleted_at', null).order('created_at', { ascending: false }),
         supabase.from('products').select('id, name, sg'),
         supabase.from('packaging').select('id, name, volume, tare'),
         supabase.from('customer_product_prices').select('customer_id, product_id, packaging_id, price_per_litre, delivery_charge, qty_tiers, tier_basis, price_trade, price_buyer_group, price_retail, season_from, season_to, season_ppl'),
