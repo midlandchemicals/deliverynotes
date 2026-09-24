@@ -190,22 +190,20 @@ export async function loadReportNotes(supabase, { limit = 3000 } = {}) {
   const ids = [...new Set(raw.map((n) => n.order_id).filter(Boolean))]
   const names = new Map()
   const reportMonths = new Map()   // order id -> 'YYYY-MM' override, when set
-  const excluded = new Set()       // order ids taken off the sales report
   for (let i = 0; i < ids.length; i += 200) {
     const chunk = ids.slice(i, i + 200)
-    const ord = await supabase.from('orders').select('id, name:customer_snapshot->>name, report_month, report_exclude, deleted_at').in('id', chunk)
+    const ord = await supabase.from('orders').select('id, name:customer_snapshot->>name, report_month, deleted_at').in('id', chunk)
     if (ord.error) return { notes: raw, orphaned: 0, duplicates: 0, error: null }  // can't verify — show everything
     for (const o of ord.data || []) {
       if (o.deleted_at) continue   // trashed order — its notes don't count, same as a deleted one
       names.set(o.id, o.name || '')
       if (o.report_month) reportMonths.set(o.id, String(o.report_month).slice(0, 7))
-      if (o.report_exclude) excluded.add(o.id)
     }
   }
 
   const live = raw
     .filter((n) => n.order_id && names.has(n.order_id))
-    .map((n) => ({ ...n, customerName: names.get(n.order_id) || '', reportMonth: reportMonths.get(n.order_id) || null, reportExclude: excluded.has(n.order_id) }))
+    .map((n) => ({ ...n, customerName: names.get(n.order_id) || '', reportMonth: reportMonths.get(n.order_id) || null }))
 
   // An order can hold several copies of its delivery note — regenerating one
   // adds a row rather than replacing it, and each copy carries the full priced
