@@ -399,6 +399,21 @@ table.tbl input,table.tbl select{padding:7px 10px;font-size:12.5px;border-radius
   .batch-na{grid-column:1 / -1}
 }
 
+/* ── dangerous goods class tiles ── */
+.dg-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin:0 0 14px}
+.dg-tile{display:flex;flex-direction:column;align-items:flex-start;gap:3px;text-align:left;cursor:pointer;
+  font-family:inherit;padding:13px 14px;border-radius:11px;border:1px solid var(--line);background:var(--panel);
+  color:var(--heading);transition:border-color .15s, box-shadow .15s}
+.dg-tile:hover{border-color:var(--accent)}
+.dg-tile:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.dg-tile.on{border:2px solid var(--accent);padding:12px 13px;background:var(--accent-soft)}
+.dg-tile.zero{opacity:.55}
+.dg-class{font-size:10.5px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--muted)}
+.dg-tonnes{font-size:24px;font-weight:700;line-height:1.1;font-variant-numeric:tabular-nums}
+.dg-tonnes small{font-size:13px;font-weight:600;color:var(--muted)}
+.dg-sub{font-size:11px;color:var(--faint);font-variant-numeric:tabular-nums}
+.tbl tr.dg-month td{background:var(--panel-2);border-top:1px solid var(--line)}
+
 /* ── stat tiles & chart headings (purchasing) ── */
 .stat-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(126px,1fr));gap:0;
   border:1px solid var(--line);border-radius:11px;overflow:hidden;margin:10px 0 14px}

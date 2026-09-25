@@ -37,6 +37,9 @@ const ICONS = {
   doc: (
     <svg width="15" height="15" viewBox="0 0 15 15"><rect x="2.5" y="1.5" width="10" height="12" rx="1.5" fill="none" stroke="currentColor" strokeWidth="1.6" /><rect x="4.5" y="4" width="6" height="1.5" rx=".75" fill="currentColor" /><rect x="4.5" y="7" width="6" height="1.5" rx=".75" fill="currentColor" opacity=".55" /></svg>
   ),
+  hazard: (
+    <svg width="15" height="15" viewBox="0 0 15 15"><path d="M7.5 1.6 14 13H1z" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" /><rect x="6.8" y="5.6" width="1.4" height="4" rx=".7" fill="currentColor" /><circle cx="7.5" cy="11.1" r=".85" fill="currentColor" /></svg>
+  ),
   target: (
     <svg width="15" height="15" viewBox="0 0 15 15"><circle cx="7.5" cy="7.5" r="6" fill="none" stroke="currentColor" strokeWidth="1.5" /><circle cx="7.5" cy="7.5" r="3.4" fill="none" stroke="currentColor" strokeWidth="1.5" /><circle cx="7.5" cy="7.5" r="1.3" fill="currentColor" /></svg>
   ),
@@ -56,6 +59,7 @@ const CATALOGUE_LINKS = [
   ['/settings/purchasing', 'Purchasing', 'box', true],
   ['/reports/elite-farm', 'Elite Farm Commission', 'pound', true],
   ['/reports/ilex-sales', 'Ilex Sales Reports', 'doc', true],
+  ['/reports/dangerous-goods', 'Dangerous Goods', 'hazard'],
   ['/settings/prices', 'Price Entry', 'pound', true],
   ['/settings/pricelist', 'Price List', 'pound', true],
   ['/settings/dashboard', 'Insights', 'dashboard', true],
