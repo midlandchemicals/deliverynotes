@@ -410,6 +410,8 @@ table.tbl input,table.tbl select{padding:7px 10px;font-size:12.5px;border-radius
 .tbl tr.row-picked td{background:var(--accent-soft)}
 .supplier-contact{display:flex;gap:12px;align-items:flex-start;border:1px solid var(--line);border-radius:11px;
   padding:11px 14px;margin:0 0 14px}
+.new-supplier-box{border:1px dashed var(--accent);background:var(--accent-soft);border-radius:10px;
+  padding:11px 13px 2px;margin:4px 0 6px}
 
 /* ── lines changed since the last delivery note (pricing check) ── */
 .tbl tr.row-changed td{background:rgba(176,126,40,0.11)}
