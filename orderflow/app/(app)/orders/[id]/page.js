@@ -421,6 +421,22 @@ export default function OrderDetailPage() {
   const priorNotes = dispatched.filter((d) => d.superseded_at)
   const latestNote = currentNotes[0] || dispatched[0] || null
 
+  // After a delivery note exists, flag what's different from it so edits are
+  // easy to spot when re-checking prices: 'new' (not on the note), 'changed'
+  // (same product, different quantity/pack) or 'repriced' (same line, new £/L).
+  const snapLines = latestNote?.lines_snapshot || []
+  function changeSinceNote(c, ppl) {
+    if (!latestNote || !c?.productName) return null
+    const match = snapLines.find((s) => s.productName === c.productName && s.packDesc === c.packDesc)
+    if (!match) return snapLines.some((s) => s.productName === c.productName) ? 'changed' : 'new'
+    if (match.price_per_litre != null && Math.abs(Number(match.price_per_litre) - Number(ppl || 0)) > 0.00005) return 'repriced'
+    return null
+  }
+  // Lines on the note that are no longer on the order.
+  const removedSinceNote = latestNote && products.length
+    ? snapLines.filter((s) => !lines.some((l) => computeLine(l, products, packaging).productName === s.productName))
+    : []
+
   // Lines with nothing to invoice against — these gate the invoicing copy.
   const unpricedLines = lines.filter((l) => {
     const c = computeLine(l, products, packaging)
@@ -1055,6 +1071,21 @@ export default function OrderDetailPage() {
               </div>
             )}
           </StepHead>
+          {latestNote && (() => {
+            const changed = lines.filter((l) => {
+              const c = computeLine(l, products, packaging)
+              return c.product && changeSinceNote(c, pplFor(c.product.id, c.packaging?.id, c.qty, l.ppl_override))
+            }).length
+            if (!changed && !removedSinceNote.length) return null
+            return (
+              <p className="hint change-summary">
+                ✎ Changed since the last delivery note ({latestNote.doc_no}):{' '}
+                {changed > 0 && <b>{changed} line{changed === 1 ? '' : 's'} highlighted below</b>}
+                {changed > 0 && removedSinceNote.length > 0 && ' · '}
+                {removedSinceNote.length > 0 && <>removed: <b>{removedSinceNote.map((s) => s.productName).join(', ')}</b></>}
+              </p>
+            )
+          })()}
           <table className="tbl tbl-cards">
             <thead><tr>
               <th>Product</th>
@@ -1090,10 +1121,13 @@ export default function OrderDetailPage() {
                 const wonOnOrder = wonBand ? (wonBand.basis || tierBasis[priceKey]) === 'order' : isOrderBasis
                 const unitPrice = effPpl * (c.vol || 0)
                 const lineTotal = unitPrice * c.qty
+                const change = changeSinceNote(c, effPpl)
+                const CHANGE_TAG = { new: 'NEW since last note', changed: 'QTY / PACK CHANGED', repriced: 'PRICE CHANGED' }
                 return (
-                  <tr key={i}>
+                  <tr key={i} className={change ? 'row-changed' : undefined}>
                     <td data-label="Product">
                       <span>{c.productName}</span>
+                      {change && <span className="change-tag">{CHANGE_TAG[change]}</span>}
                       {ppl === 0 && unpricedItems.some((u) => u.productId === c.product.id && u.packagingId === c.packaging?.id) && (
                         <button
                           style={{ marginLeft: 8, fontSize: 11, padding: '2px 7px', background: '#fff8e1', border: '1px solid #ffc107', borderRadius: 4, color: '#5a4200', cursor: 'pointer' }}
@@ -1759,7 +1793,18 @@ export default function OrderDetailPage() {
             </div>
 
             <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted)', marginBottom: 6 }}>Batch numbers</div>
-            <p className="hint" style={{ marginTop: 0, marginBottom: 14 }}>Enter the batch number for each product, or tick <b>Not Applicable</b>. Date of manufacture is optional — if set, it prints under the batch number.</p>
+            <p className="hint" style={{ marginTop: 0, marginBottom: 10 }}>Enter the batch number for each product, or tick <b>Not Applicable</b>. Date of manufacture is optional — if set, it prints under the batch number.</p>
+            {batchModal.length > 1 && (() => {
+              const allNa = batchModal.every((r) => r.na)
+              return (
+                <label className="batch-na" style={{ marginBottom: 10, fontWeight: 700 }}>
+                  <input type="checkbox" checked={allNa}
+                    onChange={(e) => setBatchModal((rows) => rows.map((r) => (e.target.checked ? { ...r, na: true, batch: '', mfg: '' } : { ...r, na: false })))}
+                    style={{ width: 'auto', height: 16, accentColor: 'var(--accent)' }} />
+                  Mark all {batchModal.length} products Not Applicable
+                </label>
+              )
+            })()}
             <div className="batch-list">
               {batchModal.map((r, i) => (
                 <div key={i} className="batch-row">
