@@ -42,6 +42,7 @@ export default function PurchasingPage() {
   const [report, setReport] = useState({ mode: 'month', month: '', supplierKey: '', productKey: '' })
   const [contacts, setContacts] = useState(new Map())  // normalised supplier name -> contact row
   const [editContact, setEditContact] = useState(null) // draft being edited
+  const [contactQueue, setContactQueue] = useState([]) // new suppliers from an import still to ask about
   const [picked, setPicked] = useState(null)           // catalogue item shown in the summary box
   const fileRef = useRef(null)
 
@@ -70,8 +71,9 @@ export default function PurchasingPage() {
     setBusy(false)
     if (!ok(res, 'saving the contact details')) return
     setContacts((m) => new Map(m).set(row.key, row))
-    setEditContact(null)
     toast(`Contact details saved for ${d.name}`)
+    if (d.queued) openQueued(contactQueue)   // next new supplier from the import
+    else setEditContact(null)
   }
   const startEditContact = (supplierName) => {
     const c = contactOf(supplierName) || {}
@@ -258,7 +260,15 @@ export default function PurchasingPage() {
     setBusy(false)
     if (!ok(res, 'importing the purchases')) return
     toast(`Imported ${toAdd.length} purchase${toAdd.length === 1 ? '' : 's'} from ${preview.name}`)
+    // Suppliers appearing for the first time — ask for their contact details now.
+    const known = new Set(suppliers.map((s) => s.key))
+    const fresh = new Map()
+    for (const r of toAdd) {
+      const k = normSupplier(r.supplier)
+      if (k && !known.has(k) && !contacts.get(k) && !fresh.has(k)) fresh.set(k, { key: k, name: String(r.supplier).trim() })
+    }
     setPreview(null); load()
+    if (fresh.size) openQueued([...fresh.values()])
   }
 
   // ── rename / merge ────────────────────────────────────────────────────────
@@ -296,9 +306,28 @@ export default function PurchasingPage() {
       purchase_date: add.purchase_date, supplier: add.supplier.trim(), product: add.product.trim(),
       qty: Number(add.qty), net_total: Number(add.net_total) || 0, source: 'entered by hand', created_by: user?.id || null,
     })
+    if (!ok(res, 'saving the purchase')) { setBusy(false); return }
+    // Contact details typed in alongside a supplier we had none for are stored
+    // on the spot, so they're there next time someone needs to order.
+    const key = normSupplier(add.supplier)
+    const c = { contact_name: (add.c_name || '').trim(), email: (add.c_email || '').trim(), phone: (add.c_phone || '').trim() }
+    let savedContact = false
+    if (key && !contacts.get(key) && (c.contact_name || c.email || c.phone)) {
+      const row = { key, name: add.supplier.trim(), ...c, notes: '', updated_at: new Date().toISOString() }
+      const cr = await supabase.from('supplier_contacts').upsert(row, { onConflict: 'key' })
+      if (ok(cr, 'saving the supplier contact')) { setContacts((m) => new Map(m).set(key, row)); savedContact = true }
+    }
     setBusy(false)
-    if (!ok(res, 'saving the purchase')) return
-    toast('Purchase added'); setAdd(null); load()
+    toast(savedContact ? `Purchase added and ${add.supplier.trim()}’s contact saved` : 'Purchase added')
+    setAdd(null); load()
+  }
+
+  // After an import, new suppliers are asked for one at a time.
+  function openQueued(queue) {
+    if (!queue.length) { setContactQueue([]); setEditContact(null); return }
+    const [first, ...rest] = queue
+    setContactQueue(rest)
+    setEditContact({ key: first.key, name: first.name, contact_name: '', email: '', phone: '', notes: '', queued: true, left: rest.length })
   }
 
   async function removeRow(r) {
@@ -803,6 +832,27 @@ export default function PurchasingPage() {
             {Number(add.qty) > 0 && Number(add.net_total) > 0 && (
               <p className="hint" style={{ marginTop: 0 }}>= <b>{unitMoney(Number(add.net_total) / Number(add.qty))}</b> per unit</p>
             )}
+            {(() => {
+              const key = normSupplier(add.supplier)
+              if (!add.supplier.trim() || !key || contacts.get(key)) return null
+              const isNew = !suppliers.some((s) => s.key === key)
+              return (
+                <div className="new-supplier-box">
+                  <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--heading)', marginBottom: 2 }}>
+                    {isNew ? `New supplier — ${add.supplier.trim()}` : `No contact saved yet for ${add.supplier.trim()}`}
+                  </div>
+                  <p className="hint" style={{ marginTop: 0, marginBottom: 10 }}>Add their contact details now and they’ll be kept for next time. Leave blank to skip.</p>
+                  <div className="field"><label>Contact name</label>
+                    <input value={add.c_name || ''} onChange={(e) => setAdd((a) => ({ ...a, c_name: e.target.value }))} /></div>
+                  <div className="row c2" style={{ marginBottom: 0 }}>
+                    <div className="field"><label>Email</label>
+                      <input type="email" value={add.c_email || ''} onChange={(e) => setAdd((a) => ({ ...a, c_email: e.target.value }))} /></div>
+                    <div className="field"><label>Phone</label>
+                      <input type="tel" value={add.c_phone || ''} onChange={(e) => setAdd((a) => ({ ...a, c_phone: e.target.value }))} /></div>
+                  </div>
+                </div>
+              )
+            })()}
             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 14 }}>
               <button className="btn btn-g" disabled={busy} onClick={() => setAdd(null)}>Cancel</button>
               <button className="btn btn-a" disabled={busy} onClick={saveAdd}>{busy ? 'Saving…' : 'Add purchase'}</button>
@@ -813,10 +863,14 @@ export default function PurchasingPage() {
 
       {/* ── SUPPLIER CONTACT ── */}
       {editContact && (
-        <div className="modal-bg" onClick={() => !busy && setEditContact(null)}>
+        <div className="modal-bg" onClick={() => !busy && !editContact.queued && setEditContact(null)}>
           <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 460, textAlign: 'left' }}>
-            <h2 style={{ marginBottom: 6 }}>Contact at {editContact.name}</h2>
-            <p className="hint" style={{ marginTop: 0, marginBottom: 14 }}>Who to speak to when ordering from this supplier.</p>
+            <h2 style={{ marginBottom: 6 }}>{editContact.queued ? `New supplier: ${editContact.name}` : `Contact at ${editContact.name}`}</h2>
+            <p className="hint" style={{ marginTop: 0, marginBottom: 14 }}>
+              {editContact.queued
+                ? <>This supplier came in with the import and we have no contact details for them. Add them now so they’re kept{editContact.left ? <> — <b>{editContact.left} more</b> new supplier{editContact.left === 1 ? '' : 's'} after this</> : null}.</>
+                : 'Who to speak to when ordering from this supplier.'}
+            </p>
             <div className="field"><label>Contact name</label>
               <input value={editContact.contact_name} autoFocus onChange={(e) => setEditContact((d) => ({ ...d, contact_name: e.target.value }))} /></div>
             <div className="row c2" style={{ marginBottom: 0 }}>
@@ -828,8 +882,15 @@ export default function PurchasingPage() {
             <div className="field"><label>Notes</label>
               <textarea rows={3} value={editContact.notes} placeholder="Account number, ordering cut-off, minimum order…"
                 onChange={(e) => setEditContact((d) => ({ ...d, notes: e.target.value }))} /></div>
-            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 14 }}>
-              <button className="btn btn-g" disabled={busy} onClick={() => setEditContact(null)}>Cancel</button>
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 14, flexWrap: 'wrap' }}>
+              {editContact.queued ? (
+                <>
+                  {editContact.left > 0 && <button className="btn btn-g" disabled={busy} onClick={() => openQueued([])}>Skip all</button>}
+                  <button className="btn btn-g" disabled={busy} onClick={() => openQueued(contactQueue)}>Skip</button>
+                </>
+              ) : (
+                <button className="btn btn-g" disabled={busy} onClick={() => setEditContact(null)}>Cancel</button>
+              )}
               <button className="btn btn-a" disabled={busy} onClick={saveContact}>{busy ? 'Saving…' : 'Save contact'}</button>
             </div>
           </div>
