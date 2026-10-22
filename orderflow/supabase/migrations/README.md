@@ -34,3 +34,4 @@ a new numbered file appears here — run just that one.
 | 022_order_extra_ref.sql | optional third order reference (`ref2`) printed on the paperwork |
 | 023_report_exclude.sql | (no longer used — dropping an order from the Ilex report is now a one-off in the browser, not a saved flag; safe to skip) |
 | 024_soft_delete_orders.sql | soft-delete (`deleted_at`) — deleted orders go to a recoverable Trash instead of being destroyed |
+| 025_supplier_contacts.sql | contact name / email / phone for each supplier on the Purchasing page |

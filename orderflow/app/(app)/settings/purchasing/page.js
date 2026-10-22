@@ -40,14 +40,43 @@ export default function PurchasingPage() {
   const [preview, setPreview] = useState(null)
   const [add, setAdd] = useState(null)
   const [report, setReport] = useState({ mode: 'month', month: '', supplierKey: '', productKey: '' })
+  const [contacts, setContacts] = useState(new Map())  // normalised supplier name -> contact row
+  const [editContact, setEditContact] = useState(null) // draft being edited
+  const [picked, setPicked] = useState(null)           // catalogue item shown in the summary box
   const fileRef = useRef(null)
 
   async function load() {
-    const { data, error } = await supabase.from('purchases').select('*').order('purchase_date', { ascending: false })
+    const [{ data, error }, c] = await Promise.all([
+      supabase.from('purchases').select('*').order('purchase_date', { ascending: false }),
+      supabase.from('supplier_contacts').select('*'),
+    ])
     if (error) { toastError('Could not load purchases: ' + error.message); setRows([]); return }
     setRows(data || [])
+    // Contacts are a nice-to-have: if the table isn't there yet the page still works.
+    setContacts(new Map((c.data || []).map((x) => [x.key, x])))
   }
   useEffect(() => { load() }, [])
+
+  const contactOf = (supplierName) => contacts.get(normSupplier(supplierName)) || null
+
+  async function saveContact() {
+    const d = editContact
+    const row = {
+      key: d.key, name: d.name, contact_name: d.contact_name.trim(), email: d.email.trim(),
+      phone: d.phone.trim(), notes: d.notes || '', updated_at: new Date().toISOString(),
+    }
+    setBusy(true)
+    const res = await supabase.from('supplier_contacts').upsert(row, { onConflict: 'key' })
+    setBusy(false)
+    if (!ok(res, 'saving the contact details')) return
+    setContacts((m) => new Map(m).set(row.key, row))
+    setEditContact(null)
+    toast(`Contact details saved for ${d.name}`)
+  }
+  const startEditContact = (supplierName) => {
+    const c = contactOf(supplierName) || {}
+    setEditContact({ key: normSupplier(supplierName), name: supplierName, contact_name: c.contact_name || '', email: c.email || '', phone: c.phone || '', notes: c.notes || '' })
+  }
 
   // ── grouping ──────────────────────────────────────────────────────────────
   // Spellings that differ only by punctuation or LTR/LITRE/L are the same
@@ -242,6 +271,15 @@ export default function PurchasingPage() {
     // Match on the normalised name so every spelling in the group comes along.
     const ids = (rows || []).filter((r) => norm(r[field]) === norm(from)).map((r) => r.id)
     const res = await supabase.from('purchases').update({ [field]: clean }).in('id', ids)
+    // A renamed or merged supplier keeps its contact card, unless the name it's
+    // merged into already has one of its own.
+    if (!res.error && kind === 'supplier') {
+      const oldC = contacts.get(normSupplier(from)), newKey = normSupplier(clean)
+      if (oldC && newKey !== oldC.key && !contacts.get(newKey)) {
+        await supabase.from('supplier_contacts').upsert({ ...oldC, key: newKey, name: clean }, { onConflict: 'key' })
+        await supabase.from('supplier_contacts').delete().eq('key', oldC.key)
+      }
+    }
     setBusy(false)
     if (!ok(res, 'renaming')) return false
     toast(`${ids.length} row${ids.length === 1 ? '' : 's'} now "${clean}"`)
@@ -310,7 +348,19 @@ export default function PurchasingPage() {
       )}
 
       {/* ── CATALOGUE ── */}
-      {tab === 'catalogue' && (
+      {tab === 'catalogue' && (() => {
+        // The product picked from the list — or, if the search narrows to a
+        // single product, that one — gets the summary box.
+        const summary = (picked && items.find((i) => i.key === picked))
+          || (q.trim() && shownItems.length === 1 ? shownItems[0] : null)
+        return (
+        <>
+        {summary && (
+          <ProductSummary item={summary} contact={contactOf(summary.lastSupplier)}
+            onHistory={() => setOpenItem(summary.key)}
+            onEditContact={() => startEditContact(summary.lastSupplier)}
+            onClose={picked ? () => setPicked(null) : null} />
+        )}
         <div className="card">
           {items.length === 0 ? <div className="empty">Nothing yet — import a month of purchases to get started.</div>
             : shownItems.length === 0 ? <div className="empty">Nothing matches “{q}”.</div> : (
@@ -324,7 +374,8 @@ export default function PurchasingPage() {
               </tr></thead>
               <tbody>
                 {shownItems.map((it) => (
-                  <tr key={it.key} style={{ cursor: 'pointer' }} onClick={() => setOpenItem(it.key)}>
+                  <tr key={it.key} className={summary?.key === it.key ? 'row-picked' : undefined} style={{ cursor: 'pointer' }}
+                    onClick={() => { setPicked(it.key); window.scrollTo({ top: 0, behavior: 'smooth' }) }}>
                     <td data-label="Product">
                       <span style={{ fontWeight: 600, color: 'var(--heading)' }}>{it.name}</span>
                       {it.variants.length > 1 && (
@@ -345,7 +396,9 @@ export default function PurchasingPage() {
             </table>
           )}
         </div>
-      )}
+        </>
+        )
+      })()}
 
       {/* ── SUPPLIERS ── */}
       {tab === 'suppliers' && (
@@ -354,13 +407,16 @@ export default function PurchasingPage() {
             <table className="tbl tbl-cards">
               <thead><tr>
                 <th>Supplier</th>
+                <th>Contact</th>
                 <th style={{ textAlign: 'right' }}>Products</th>
                 <th style={{ textAlign: 'right' }}>Purchases</th>
                 <th style={{ textAlign: 'right' }}>Total spend</th>
                 <th style={{ textAlign: 'right' }}>Last purchase</th>
               </tr></thead>
               <tbody>
-                {shownSuppliers.map((s) => (
+                {shownSuppliers.map((s) => {
+                  const c = contacts.get(s.key)
+                  return (
                   <tr key={s.key} style={{ cursor: 'pointer' }} onClick={() => setOpenSupplier(s.key)}>
                     <td data-label="Supplier">
                       <span style={{ fontWeight: 600, color: 'var(--heading)' }}>{s.name}</span>
@@ -370,12 +426,20 @@ export default function PurchasingPage() {
                         </span>
                       )}
                     </td>
+                    <td data-label="Contact" style={{ fontSize: 12.5 }} onClick={(e) => { if (e.target.closest('a')) e.stopPropagation() }}>
+                      {c && (c.contact_name || c.email || c.phone) ? (
+                        <ContactLines c={c} />
+                      ) : (
+                        <button className="btn btn-g btn-sm" onClick={(e) => { e.stopPropagation(); startEditContact(s.name) }}>＋ Add contact</button>
+                      )}
+                    </td>
                     <td className="mono" style={{ textAlign: 'right' }} data-label="Products">{s.products}</td>
                     <td className="mono" style={{ textAlign: 'right' }} data-label="Purchases">{s.count}</td>
                     <td className="mono" style={{ textAlign: 'right' }} data-label="Total spend">{money(s.spend)}</td>
                     <td className="mono" style={{ textAlign: 'right' }} data-label="Last purchase">{prettyDate(s.lastDate)}</td>
                   </tr>
-                ))}
+                  )
+                })}
               </tbody>
             </table>
           )}
@@ -583,6 +647,9 @@ export default function PurchasingPage() {
                 </p>
               )}
 
+              <ProductSummary item={item} contact={contactOf(item.lastSupplier)} compact
+                onEditContact={() => startEditContact(item.lastSupplier)} />
+
               <div className="stat-row">
                 <Stat label="Latest unit price" value={unitMoney(item.last)} sub={`${prettyDate(item.lastDate)} · ${item.lastSupplier}`} big />
                 <Stat label="Change" node={<Delta last={item.last} prev={item.prev} big />} sub={item.prev ? `from ${unitMoney(item.prev)}` : 'first purchase'} />
@@ -650,6 +717,20 @@ export default function PurchasingPage() {
               <Stat label="Products" value={String(sup.products)} sub="different lines" />
               <Stat label="Last purchase" value={prettyDate(sup.lastDate)} />
             </div>
+            {(() => {
+              const c = contacts.get(sup.key)
+              const has = c && (c.contact_name || c.email || c.phone)
+              return (
+                <div className="supplier-contact">
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div className="stat-label" style={{ marginBottom: 4 }}>Contact</div>
+                    {has ? <ContactLines c={c} /> : <span className="muted" style={{ fontSize: 13 }}>No contact details saved yet.</span>}
+                    {c?.notes ? <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4, whiteSpace: 'pre-wrap' }}>{c.notes}</div> : null}
+                  </div>
+                  <button className="btn btn-g btn-sm" onClick={() => startEditContact(sup.name)}>{has ? '✎ Edit contact' : '＋ Add contact'}</button>
+                </div>
+              )
+            })()}
             <table className="tbl" style={{ minWidth: 0 }}>
               <thead><tr><th>Date</th><th>Product</th><th style={{ textAlign: 'right' }}>Qty</th><th style={{ textAlign: 'right' }}>Net total</th><th style={{ textAlign: 'right' }}>Unit price</th></tr></thead>
               <tbody>
@@ -729,6 +810,71 @@ export default function PurchasingPage() {
           </div>
         </div>
       )}
+
+      {/* ── SUPPLIER CONTACT ── */}
+      {editContact && (
+        <div className="modal-bg" onClick={() => !busy && setEditContact(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 460, textAlign: 'left' }}>
+            <h2 style={{ marginBottom: 6 }}>Contact at {editContact.name}</h2>
+            <p className="hint" style={{ marginTop: 0, marginBottom: 14 }}>Who to speak to when ordering from this supplier.</p>
+            <div className="field"><label>Contact name</label>
+              <input value={editContact.contact_name} autoFocus onChange={(e) => setEditContact((d) => ({ ...d, contact_name: e.target.value }))} /></div>
+            <div className="row c2" style={{ marginBottom: 0 }}>
+              <div className="field"><label>Email</label>
+                <input type="email" value={editContact.email} onChange={(e) => setEditContact((d) => ({ ...d, email: e.target.value }))} /></div>
+              <div className="field"><label>Phone</label>
+                <input type="tel" value={editContact.phone} onChange={(e) => setEditContact((d) => ({ ...d, phone: e.target.value }))} /></div>
+            </div>
+            <div className="field"><label>Notes</label>
+              <textarea rows={3} value={editContact.notes} placeholder="Account number, ordering cut-off, minimum order…"
+                onChange={(e) => setEditContact((d) => ({ ...d, notes: e.target.value }))} /></div>
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 14 }}>
+              <button className="btn btn-g" disabled={busy} onClick={() => setEditContact(null)}>Cancel</button>
+              <button className="btn btn-a" disabled={busy} onClick={saveContact}>{busy ? 'Saving…' : 'Save contact'}</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// The at-a-glance answer to "when did we last buy this, from whom, for how
+// much, and who do I call?" — shown above the catalogue and in the product view.
+function ProductSummary({ item, contact, onHistory, onEditContact, onClose, compact }) {
+  const last = item.buys[0]
+  const has = contact && (contact.contact_name || contact.email || contact.phone)
+  return (
+    <div className={'product-summary' + (compact ? ' compact' : '')}>
+      <div className="ps-head">
+        <div className="ps-name">{item.name}</div>
+        <div style={{ display: 'flex', gap: 6 }}>
+          {onHistory && <button className="btn btn-g btn-sm" onClick={onHistory}>Full price history →</button>}
+          {onClose && <button className="btn btn-g btn-sm" onClick={onClose} title="Close">✕</button>}
+        </div>
+      </div>
+      {last ? (
+        <p className="ps-line">
+          Last ordered on <b>{prettyDate(last.purchase_date)}</b>, supplied by <b>{last.supplier}</b>,
+          at <b>{last.qty ? unitMoney(unitOf(last)) : '—'}</b> per unit
+          <span className="muted"> ({Number(last.qty)} for {money(last.net_total)})</span>.
+        </p>
+      ) : <p className="ps-line muted">No purchases on file.</p>}
+      <div className="ps-contact">
+        <span className="stat-label">Contact at {item.lastSupplier || 'supplier'}</span>
+        {has ? <ContactLines c={contact} /> : <span className="muted" style={{ fontSize: 13 }}>No contact details saved yet.</span>}
+        {onEditContact && <button className="btn btn-g btn-sm" style={{ alignSelf: 'flex-start' }} onClick={onEditContact}>{has ? '✎ Edit contact' : '＋ Add contact'}</button>}
+      </div>
+    </div>
+  )
+}
+
+function ContactLines({ c }) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 2, fontSize: 13 }}>
+      {c.contact_name && <span style={{ fontWeight: 600, color: 'var(--heading)' }}>{c.contact_name}</span>}
+      {c.email && <a href={`mailto:${c.email}`} style={{ color: 'var(--accent)' }}>{c.email}</a>}
+      {c.phone && <a href={`tel:${c.phone.replace(/\s+/g, '')}`} className="mono" style={{ color: 'var(--accent)' }}>{c.phone}</a>}
     </div>
   )
 }
