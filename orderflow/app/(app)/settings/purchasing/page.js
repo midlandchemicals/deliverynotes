@@ -60,6 +60,13 @@ export default function PurchasingPage() {
 
   const contactOf = (supplierName) => contacts.get(normSupplier(supplierName)) || null
 
+  // Each tab starts with a clean search — a product name typed into the
+  // Catalogue means nothing on the Suppliers list.
+  function switchTab(k) {
+    if (k !== tab) { setQ(''); setPicked(null) }
+    setTab(k)
+  }
+
   async function saveContact() {
     const d = editContact
     const row = {
@@ -356,14 +363,14 @@ export default function PurchasingPage() {
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           <button className="btn btn-g" onClick={() => setAdd({ purchase_date: todayISO(), supplier: '', product: '', qty: '', net_total: '' })}>＋ Add a purchase</button>
-          <button className="btn btn-a" onClick={() => setTab('import')}>⬆ Import a month</button>
+          <button className="btn btn-a" onClick={() => switchTab('import')}>⬆ Import a month</button>
         </div>
       </div>
 
       <div className="sub-nav">
         {[['catalogue', `Catalogue (${items.length})`], ['suppliers', `Suppliers (${suppliers.length})`],
           ['report', 'Report'], ['tidy', `Tidy up${tidyCount ? ` (${tidyCount})` : ''}`], ['import', 'Import']].map(([k, label]) => (
-          <a key={k} className={tab === k ? 'on' : ''} style={{ cursor: 'pointer' }} onClick={() => setTab(k)}>{label}</a>
+          <a key={k} className={tab === k ? 'on' : ''} style={{ cursor: 'pointer' }} onClick={() => switchTab(k)}>{label}</a>
         ))}
       </div>
 
